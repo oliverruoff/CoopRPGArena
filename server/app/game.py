@@ -615,6 +615,9 @@ class Game:
         if player.resource < cost:
             return
         target = self.enemies.get(player.target_id or "") if ability["targetType"] == "enemy" else self.players.get(player.ally_target_id or player.id)
+        # Friendly spells that require an ally target fall back to self if no valid ally is selected.
+        if ability["targetType"] == "ally" and (not target or target.id not in self.players):
+            target = player
         if not target or self._distance(player, target) > ability["range"]:
             return
         if self._line_of_sight_blocked_locked(player.x, player.z, target.x, target.z):
@@ -636,6 +639,8 @@ class Game:
         if player.dead or player.resource < cost or now < player.global_cooldown_until or now < player.cooldowns.get(ability_id, 0):
             return
         target = self.enemies.get(target_id or "") if ability["targetType"] == "enemy" else self.players.get(target_id or player.id)
+        if ability["targetType"] == "ally" and (not target or getattr(target, "id", None) not in self.players):
+            target = player
         if not target or self._distance(player, target) > ability["range"]:
             return
         if self._line_of_sight_blocked_locked(player.x, player.z, target.x, target.z):
