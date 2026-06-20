@@ -1,0 +1,70 @@
+html, body, #app { margin: 0; width: 100%; height: 100%; overflow: hidden; font-family: Inter, system-ui, sans-serif; background: #f7f8fb; color: #1f2430; }
+#renderCanvas { width: 100%; height: 100%; display: block; }
+#lobby { position: absolute; inset: 5vw auto auto 5vw; width: min(460px, 90vw); padding: 24px; border-radius: 24px; background: rgba(255,255,255,0.9); box-shadow: 0 24px 80px rgba(60,70,90,0.22); backdrop-filter: blur(10px); }
+#lobby h1 { margin: 0 0 8px; font-size: 34px; }
+.classes { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin: 18px 0; }
+button { border: 0; border-radius: 14px; padding: 12px 14px; background: #202636; color: white; font-weight: 800; cursor: pointer; }
+button:hover { filter: brightness(1.12); }
+[data-testid="class-warrior"] { background: #9c3022; }
+[data-testid="class-hunter"] { background: #236a34; }
+[data-testid="class-priest"] { background: #d9b64f; color: #222; }
+[data-testid="class-mage"] { background: #313ca3; }
+#ready { width: 100%; background: #111827; }
+#classPreviewInfo { position: fixed; left: min(540px, 52vw); top: 8vh; width: min(340px, 38vw); padding: 18px; border-radius: 22px; background: rgba(17,24,39,0.52); color: #fff; box-shadow: 0 20px 70px rgba(0,0,0,0.18); backdrop-filter: blur(10px); }
+#classPreviewInfo h2 { margin: 0 0 8px; font-size: 31px; }
+#classPreviewInfo p { margin: 0 0 14px; line-height: 1.35; color: rgba(255,255,255,0.78); }
+#classPreviewInfo div { padding: 5px 0; border-top: 1px solid rgba(255,255,255,0.1); color: #facc15; font-weight: 800; }
+#countdown { margin-top: 14px; font-size: 30px; font-weight: 900; }
+#hud { display: none; position: absolute; inset: 0; pointer-events: none; }
+#party { position: absolute; top: 20px; left: 20px; display: grid; gap: 8px; pointer-events: auto; }
+.partyFrame { width: 170px; padding: 10px; text-align: left; background: rgba(20,26,38,0.82); }
+.mini, .bar { height: 12px; background: rgba(0,0,0,0.22); border-radius: 999px; overflow: hidden; }
+.mini span, .bar span { display: block; height: 100%; background: #46d06f; }
+#target { position: absolute; top: 20px; left: 50%; transform: translateX(-50%); min-width: 260px; padding: 14px; border-radius: 18px; background: rgba(255,255,255,0.88); text-align: center; font-weight: 900; }
+#wave { position: absolute; top: 20px; right: 20px; padding: 14px; border-radius: 18px; background: rgba(255,255,255,0.88); font-weight: 900; }
+#bars { position: absolute; bottom: 96px; left: 50%; transform: translateX(-50%); width: min(520px, 80vw); display: grid; gap: 7px; font-weight: 900; }
+.bar { position: relative; height: 20px; background: rgba(20,26,38,0.34); }
+.bar b { position: absolute; inset: 0; display: grid; place-items: center; color: #fff; font-size: 12px; font-weight: 1000; text-shadow: 0 1px 3px #000; letter-spacing: 0.02em; }
+#hp { background: #e04444; }
+#res { background: #4293ff; }
+#xp { background: #d4a72c; }
+#swing { background: linear-gradient(90deg, #64748b, #f8fafc); }
+#action { position: absolute; bottom: 24px; left: 50%; transform: translateX(-50%); display: flex; gap: 8px; pointer-events: auto; }
+#action button { position: relative; min-width: 76px; height: 58px; background: rgba(20,26,38,0.92); overflow: hidden; }
+#action button.onCooldown { color: rgba(255,255,255,0.55); filter: grayscale(0.85); }
+#action button.globalCooldown { color: rgba(255,255,255,0.72); filter: grayscale(1) brightness(0.82); }
+.cooldownOverlay { display: none; position: absolute; inset: 0; background: rgba(15, 23, 42, 0.68); border-radius: inherit; }
+#action button.globalCooldown .cooldownOverlay { background: rgba(80, 86, 98, 0.72); }
+.cooldownText { position: absolute; inset: 0; display: grid; place-items: center; color: #fff; font-size: 22px; font-weight: 1000; text-shadow: 0 2px 4px #000; pointer-events: none; }
+#cast { display: none; position: absolute; bottom: 205px; left: 50%; transform: translateX(-50%); width: 280px; height: 18px; border-radius: 999px; background: rgba(17,24,39,0.72); overflow: hidden; border: 2px solid rgba(255,255,255,0.8); }
+#castFill { display: block; width: 0; height: 100%; background: linear-gradient(90deg, #f6d365, #fda085); }
+#castName { position: absolute; inset: 0; display: grid; place-items: center; color: #111827; font-size: 12px; text-shadow: 0 1px rgba(255,255,255,0.7); }
+#overhead { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+.enemyHpBar { position: absolute; left: 0; top: 0; width: 86px; margin-left: -43px; margin-top: -26px; text-align: center; filter: drop-shadow(0 2px 3px rgba(0,0,0,0.35)); }
+.enemyHpName { margin-bottom: 2px; color: #fff; font-size: 10px; font-weight: 900; text-shadow: 0 1px 2px #000, 0 0 4px #000; white-space: nowrap; }
+.enemyHpTrack { position: relative; height: 7px; border: 1px solid rgba(25, 10, 10, 0.9); border-radius: 999px; background: rgba(40, 0, 0, 0.72); overflow: hidden; }
+.enemyHpLoss, .enemyHpFill { position: absolute; left: 0; top: 0; display: block; height: 100%; }
+.enemyHpLoss { background: #facc15; box-shadow: 0 0 5px rgba(250,204,21,0.7); }
+.enemyHpFill { background: linear-gradient(90deg, #e11d48, #f97316); box-shadow: inset 0 1px rgba(255,255,255,0.35); }
+.floatingNumber { position: absolute; left: 0; top: 0; font-size: 24px; font-weight: 1000; font-variant-numeric: tabular-nums; will-change: transform, opacity; }
+.damageNumber { color: #ffdf70; text-shadow: -1px -1px 0 #4b0a0a, 1px -1px 0 #4b0a0a, -1px 1px 0 #4b0a0a, 1px 1px 0 #4b0a0a, 0 2px 4px rgba(0,0,0,0.55); }
+.healNumber { color: #65f28a; text-shadow: -1px -1px 0 #083817, 1px -1px 0 #083817, -1px 1px 0 #083817, 1px 1px 0 #083817, 0 2px 4px rgba(0,0,0,0.45); }
+#statsPanel { position: absolute; top: 88px; right: 22px; width: 260px; padding: 16px; border-radius: 20px; background: rgba(17,24,39,0.46); color: #fff; box-shadow: 0 18px 50px rgba(0,0,0,0.14); backdrop-filter: blur(8px); }
+#statsPanel h2 { margin: 0 0 10px; font-size: 17px; }
+.statRow { display: flex; justify-content: space-between; gap: 12px; padding: 4px 0; border-bottom: 1px solid rgba(255,255,255,0.06); font-size: 13px; }
+.statRow span { color: rgba(255,255,255,0.62); }
+.statRow b { color: rgba(250,204,21,0.82); }
+#levelPanel { display: none; position: absolute; right: 304px; top: 88px; width: 260px; padding: 18px; border-radius: 20px; background: rgba(255,255,255,0.95); pointer-events: auto; box-shadow: 0 18px 55px rgba(0,0,0,0.25); }
+#levelPanel button { display: block; width: 100%; margin-top: 8px; background: #5b3fd0; }
+#levelPanel button:disabled { opacity: 0.45; cursor: default; filter: grayscale(0.5); }
+#levelPanel button.selectedUpgrade { background: #241653; }
+#abilityTooltip { display: none; position: fixed; z-index: 20; transform: translate(-50%, -100%); width: 280px; padding: 14px; border-radius: 16px; background: rgba(11,18,32,0.94); color: #fff; box-shadow: 0 18px 45px rgba(0,0,0,0.35); pointer-events: none; border: 1px solid rgba(255,255,255,0.16); }
+#abilityTooltip h3 { margin: 0 0 6px; color: #facc15; }
+#abilityTooltip p { margin: 0 0 8px; color: rgba(255,255,255,0.8); line-height: 1.35; }
+#abilityTooltip div { font-size: 13px; color: rgba(255,255,255,0.72); }
+#abilityTooltip b { color: #fff; }
+#end { display: none; position: absolute; inset: 0; place-items: center; align-content: center; gap: 22px; background: rgba(255,255,255,0.72); font-size: 82px; font-weight: 1000; color: #161b2a; pointer-events: auto; }
+#restart { font-size: 18px; background: #111827; }
+body[data-mode="victory"] #end { color: #176d33; }
+body[data-mode="defeat"] #end { color: #a32020; }
+@media (max-width: 720px) { #party { transform: scale(0.8); transform-origin: top left; } #action button { min-width: 48px; font-size: 12px; } #lobby { inset: 12px; width: auto; } }

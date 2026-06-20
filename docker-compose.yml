@@ -1,0 +1,31 @@
+services:
+  backend:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    environment:
+      GAME_ENV: development
+      GAME_TEST_MODE: "false"
+      CORS_ORIGINS: "http://localhost:5173"
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./server/app:/app/app
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+  client:
+    build:
+      context: ./client
+      dockerfile: Dockerfile.dev
+    environment:
+      VITE_BACKEND_URL: "http://localhost:8000"
+      VITE_WS_URL: "ws://localhost:8000/ws"
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./client/src:/app/src
+      - ./client/tests:/app/tests
+      - ./client/index.html:/app/index.html
+    depends_on:
+      - backend
+    command: npm run dev -- --host 0.0.0.0

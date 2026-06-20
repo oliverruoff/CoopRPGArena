@@ -1,0 +1,15 @@
+{
+  "serverTickRate": 20,
+  "stateBroadcastRate": 10,
+  "globalCooldown": 1.0,
+  "defaultCritMultiplier": 1.5,
+  "baseCritChance": 0.05,
+  "healingThreatMultiplier": 0.5,
+  "tankThreatMultiplier": 2.0,
+  "waveBreakDuration": 3,
+  "maxLevel": 12,
+  "startingLevel": 1,
+  "arenaRadius": 28,
+  "enemySpawnRadius": 25,
+  "playerSpawnRadius": 3
+}
