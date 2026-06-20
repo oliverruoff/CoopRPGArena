@@ -246,18 +246,6 @@ class Game:
                     extra["variant"] = variant
                 add(type_name, spot[0], spot[1], **extra)
 
-        # Central feature: one of well, ancient tree, or bush grove
-        center_type = random.choice(["well", "ancient_tree", "bush_grove"])
-        if center_type == "well":
-            add("well", 0.0, 0.0, radius=1.55)
-        elif center_type == "ancient_tree":
-            add("tree", 0.0, 0.0, radius=2.4, variant=4)
-        else:
-            for _ in range(5):
-                angle = random.random() * math.tau
-                dist = random.uniform(1.4, 2.6)
-                add("bush", math.cos(angle) * dist, math.sin(angle) * dist, radius=0.85, variant=random.randint(0, 2))
-
         # Walls (stone hedges)
         wall_count = random.randint(2, 4)
         for _ in range(wall_count):
