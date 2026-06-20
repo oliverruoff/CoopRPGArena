@@ -361,7 +361,15 @@ function renderUi() {
   const panel = document.querySelector<HTMLElement>("#levelPanel")!;
   const upgradeSignature = me.pendingUpgrades.map((u) => u.id).join(",");
   if (upgradeSignature !== lastUpgradeSignature) {
-    panel.innerHTML = me.pendingUpgrades.length ? `<h2>Choose Upgrade</h2><p>Choose one: max a stat or learn a new ability.</p>${me.pendingUpgrades.map((u) => renderLevelChoice(u)).join("")}` : "";
+    panel.innerHTML = me.pendingUpgrades.length ? (() => {
+      const stats = me.pendingUpgrades.filter((u) => u.choiceType !== "spell");
+      const spells = me.pendingUpgrades.filter((u) => u.choiceType === "spell");
+      return `<h2>Choose Upgrade</h2><p>Choose one: max a stat or learn a new ability.</p>` +
+        `<div class="upgradeColumns">` +
+        `<div class="upgradeCol"><div class="upgradeColTitle">Stats</div>${stats.map((u) => renderLevelChoice(u)).join("")}</div>` +
+        `<div class="upgradeCol"><div class="upgradeColTitle">Abilities</div>${spells.map((u) => renderLevelChoice(u)).join("")}</div>` +
+        `</div>`;
+    })() : "";
     lastUpgradeSignature = upgradeSignature;
     upgradeChoiceInFlight = false;
   }
@@ -516,7 +524,6 @@ function updateHoverRangeIndicator() {
   if (!hoverRangeRing || hoverRangeRing.metadata?.radius !== radius) {
     hoverRangeRing?.dispose();
     hoverRangeRing = MeshBuilder.CreateTorus("hover-range-ring", { diameter: radius * 2, thickness: 0.08, tessellation: 96 }, scene);
-    hoverRangeRing.rotation.x = Math.PI / 2;
     const material = transparentMat("hover-range-ring-mat", effectColor(ability.id, ability.effects?.[0]?.school || ""), 0.55);
     material.emissiveColor = material.diffuseColor.scale(0.8);
     hoverRangeRing.material = material;
@@ -1193,6 +1200,10 @@ function playCastEffect(event: CombatEvent) {
     meteorStrike(target.position, 850, 10);
   } else if (event.abilityId?.includes("multishot")) {
     multiArrow(source.position, target.position);
+  } else if (event.abilityId?.includes("power_shot")) {
+    bigArrow(source.position, target.position, new Color3(0.95, 0.12, 0.12), 380);
+  } else if (event.abilityId?.includes("quick_shot")) {
+    bigArrow(source.position, target.position, new Color3(0.62, 0.18, 0.95), 300);
   } else if (event.abilityId?.includes("frostbolt")) {
     frostBolt(source.position, target.position);
   } else {
@@ -1359,6 +1370,45 @@ function arrow(from: Vector3, to: Vector3, color: Color3, duration: number) {
   shaft.material = material;
   tip.material = material;
   const fletchMat = mat("arrow-fletch-mat", new Color3(0.85, 0.8, 0.65));
+  fletching1.material = fletchMat;
+  fletching2.material = fletchMat;
+  const start = from.add(new Vector3(0, 1.15, 0));
+  const end = to.add(new Vector3(0, 1.05, 0));
+  const direction = end.subtract(start).normalize();
+  root.position = start;
+  root.rotation.y = Math.atan2(direction.x, direction.z);
+  root.rotation.x = -Math.asin(Math.max(-1, Math.min(1, direction.y)));
+  const started = performance.now();
+  const observer = scene.onBeforeRenderObservable.add(() => {
+    const p = Math.min(1, (performance.now() - started) / duration);
+    root.position = Vector3.Lerp(start, end, p);
+    if (p >= 1) {
+      scene.onBeforeRenderObservable.remove(observer);
+      root.dispose();
+    }
+  });
+}
+
+function bigArrow(from: Vector3, to: Vector3, color: Color3, duration: number) {
+  const root = new TransformNode("big-arrow", scene);
+  const shaft = MeshBuilder.CreateCylinder("big-arrow-shaft", { diameterTop: 0.11, diameterBottom: 0.14, height: 1.6, tessellation: 7 }, scene);
+  shaft.parent = root;
+  shaft.rotation.x = Math.PI / 2;
+  const tip = MeshBuilder.CreateCylinder("big-arrow-tip", { diameterTop: 0, diameterBottom: 0.38, height: 0.5, tessellation: 8 }, scene);
+  tip.parent = root;
+  tip.position.z = 1.02;
+  tip.rotation.x = Math.PI / 2;
+  const fletching1 = MeshBuilder.CreateBox("big-arrow-fletch-1", { width: 0.1, height: 0.5, depth: 0.02 }, scene);
+  fletching1.parent = root;
+  fletching1.position.set(0, 0.1, -0.78);
+  const fletching2 = MeshBuilder.CreateBox("big-arrow-fletch-2", { width: 0.1, height: 0.02, depth: 0.5 }, scene);
+  fletching2.parent = root;
+  fletching2.position.set(0, -0.1, -0.78);
+  const material = mat("big-arrow-mat", color);
+  material.emissiveColor = color;
+  shaft.material = material;
+  tip.material = material;
+  const fletchMat = mat("big-arrow-fletch-mat", color.scale(0.6));
   fletching1.material = fletchMat;
   fletching2.material = fletchMat;
   const start = from.add(new Vector3(0, 1.15, 0));
