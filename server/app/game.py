@@ -42,6 +42,7 @@ class Player:
     pending_upgrades: list[dict[str, Any]] = field(default_factory=list)
     upgrade_locked: bool = False
     casting: dict[str, Any] | None = None
+    facing: float = 0
 
 
 @dataclass
@@ -89,27 +90,7 @@ class Game:
         self.wave = {"number": 0, "state": "lobby", "aliveEnemies": 0}
         self.countdown_until: float | None = None
         self.events: list[dict[str, Any]] = []
-        self.map_objects = [
-            {"id": "pillar_nw", "type": "pillar", "x": -11.5, "z": -9.5, "radius": 1.45, "blocksMovement": True, "blocksSight": False},
-            {"id": "pillar_se", "type": "pillar", "x": 11.8, "z": 9.5, "radius": 1.45, "blocksMovement": True, "blocksSight": False},
-            {"id": "crystal_ne", "type": "crystal", "x": 12.8, "z": -10.5, "radius": 1.05, "blocksMovement": True, "blocksSight": False},
-            {"id": "crystal_west", "type": "crystal", "x": -15.2, "z": -1.8, "radius": 1.0, "blocksMovement": True, "blocksSight": False},
-            {"id": "ruin_sw", "type": "ruin", "x": -12.8, "z": 11.5, "radius": 1.8, "blocksMovement": True, "blocksSight": False},
-            {"id": "ruin_east", "type": "ruin", "x": 15.0, "z": 3.8, "radius": 1.65, "blocksMovement": True, "blocksSight": False},
-            {"id": "well_center", "type": "well", "x": 0.0, "z": 0.0, "radius": 1.55, "blocksMovement": True, "blocksSight": False},
-            {"id": "tree_north", "type": "tree", "x": -4.5, "z": -15.8, "radius": 1.1, "blocksMovement": True, "blocksSight": False},
-            {"id": "tree_north_2", "type": "tree", "x": 5.8, "z": -16.5, "radius": 1.05, "blocksMovement": True, "blocksSight": False},
-            {"id": "tree_east", "type": "tree", "x": 17.0, "z": -2.5, "radius": 1.1, "blocksMovement": True, "blocksSight": False},
-            {"id": "tree_east_2", "type": "tree", "x": 15.8, "z": 11.2, "radius": 1.05, "blocksMovement": True, "blocksSight": False},
-            {"id": "tree_south", "type": "tree", "x": 2.8, "z": 17.2, "radius": 1.1, "blocksMovement": True, "blocksSight": False},
-            {"id": "tree_south_2", "type": "tree", "x": -6.8, "z": 16.0, "radius": 1.0, "blocksMovement": True, "blocksSight": False},
-            {"id": "tree_west", "type": "tree", "x": -17.0, "z": 3.0, "radius": 1.1, "blocksMovement": True, "blocksSight": False},
-            {"id": "tree_west_2", "type": "tree", "x": -16.2, "z": -10.4, "radius": 1.05, "blocksMovement": True, "blocksSight": False},
-            {"id": "wall_west", "type": "wall", "x": -5.4, "z": 1.5, "width": 1.4, "depth": 8.4, "radius": 4.3, "blocksMovement": True, "blocksSight": True},
-            {"id": "wall_east", "type": "wall", "x": 5.4, "z": -1.5, "width": 1.4, "depth": 8.4, "radius": 4.3, "blocksMovement": True, "blocksSight": True},
-            {"id": "wall_north", "type": "wall", "x": 0.0, "z": -7.2, "width": 7.0, "depth": 1.4, "radius": 3.7, "blocksMovement": True, "blocksSight": True},
-            {"id": "wall_south", "type": "wall", "x": 2.5, "z": 7.6, "width": 6.4, "depth": 1.4, "radius": 3.4, "blocksMovement": True, "blocksSight": True},
-        ]
+        self.map_objects: list[dict[str, Any]] = []
         self._event_seq = 0
         self._player_seq = 0
         self._enemy_seq = 0
@@ -149,7 +130,11 @@ class Game:
             if not player:
                 return
             typ = msg.get("type")
-            if typ == "select_class" and self.match_state == "lobby":
+            if typ == "set_name" and self.match_state == "lobby":
+                name = str(msg.get("name", "")).strip()
+                if name:
+                    player.name = name[:18]
+            elif typ == "select_class" and self.match_state == "lobby":
                 class_id = msg.get("classId")
                 if class_id in self.classes:
                     player.class_id = class_id
@@ -169,8 +154,10 @@ class Game:
                 target_id = msg.get("targetId")
                 if target_id in self.enemies:
                     player.target_id = target_id
+                    player.ally_target_id = None
                 if target_id in self.players:
                     player.ally_target_id = target_id
+                    player.target_id = None
             elif typ == "cycle_target":
                 self._cycle_target_locked(player, bool(msg.get("ally")))
             elif typ == "cast_ability":
@@ -210,17 +197,116 @@ class Game:
             player.casting = None
 
     def _all_ready_locked(self) -> bool:
-        return bool(self.players) and all(p.ready and p.class_id for p in self.players.values())
+        classed = [p for p in self.players.values() if p.class_id]
+        return bool(classed) and all(p.ready for p in classed)
 
     def _update_countdown_locked(self) -> None:
-        if self._all_ready_locked():
+        if self._all_ready_locked() or (len(self.players) == 1 and self.players[next(iter(self.players))].ready):
             self.countdown_until = time.monotonic() + 3
         else:
             self.countdown_until = None
 
+    def _generate_map_locked(self) -> None:
+        self.map_objects = []
+        arena = self.constants["arenaRadius"] - 2.2
+        used: list[tuple[float, float, float]] = []
+        seq = 0
+
+        def add(type_name: str, x: float, z: float, **extra: Any) -> dict[str, Any]:
+            nonlocal seq
+            seq += 1
+            obj: dict[str, Any] = {"id": f"{type_name}_{seq}", "type": type_name, "x": x, "z": z, "blocksMovement": True, "blocksSight": False, **extra}
+            self.map_objects.append(obj)
+            return obj
+
+        def overlaps(x: float, z: float, radius: float) -> bool:
+            for ux, uz, ur in used:
+                if math.hypot(x - ux, z - uz) < radius + ur + 1.1:
+                    return True
+            return False
+
+        def place_spot(min_r: float, max_r: float, radius: float, attempts: int = 30) -> tuple[float, float] | None:
+            for _ in range(attempts):
+                angle = random.random() * math.tau
+                dist = random.uniform(min_r, max_r)
+                x = math.cos(angle) * dist
+                z = math.sin(angle) * dist
+                if not overlaps(x, z, radius):
+                    used.append((x, z, radius))
+                    return x, z
+            return None
+
+        def add_cluster(type_name: str, count: int, min_r: float, max_r: float, radius: float, variant: int | None = None) -> None:
+            for _ in range(count):
+                spot = place_spot(min_r, max_r, radius)
+                if not spot:
+                    continue
+                extra: dict[str, Any] = {"radius": radius}
+                if variant is not None:
+                    extra["variant"] = variant
+                add(type_name, spot[0], spot[1], **extra)
+
+        # Central feature: one of well, ancient tree, or bush grove
+        center_type = random.choice(["well", "ancient_tree", "bush_grove"])
+        if center_type == "well":
+            add("well", 0.0, 0.0, radius=1.55)
+        elif center_type == "ancient_tree":
+            add("tree", 0.0, 0.0, radius=2.4, variant=4)
+        else:
+            for _ in range(5):
+                angle = random.random() * math.tau
+                dist = random.uniform(1.4, 2.6)
+                add("bush", math.cos(angle) * dist, math.sin(angle) * dist, radius=0.85, variant=random.randint(0, 2))
+
+        # Walls (stone hedges)
+        wall_count = random.randint(2, 4)
+        for _ in range(wall_count):
+            spot = place_spot(4.5, arena - 2.0, max(2.5, 3.5))
+            if not spot:
+                continue
+            width = round(random.uniform(4.0, 9.0), 2)
+            depth = round(random.uniform(2.5, 2.8), 2)
+            if random.random() > 0.5:
+                width, depth = depth, width
+            angle = random.random() * math.pi
+            add("wall", spot[0], spot[1], width=width, depth=depth, radius=max(width, depth) * 0.7, blocksSight=True)
+
+        # Trees with variants
+        tree_count = random.randint(12, 18)
+        for _ in range(tree_count):
+            spot = place_spot(2.5, arena, 1.0)
+            if not spot:
+                continue
+            add("tree", spot[0], spot[1], radius=round(random.uniform(0.85, 1.45), 2), variant=random.randint(0, 4))
+
+        # Bushes
+        bush_count = random.randint(8, 14)
+        for _ in range(bush_count):
+            spot = place_spot(2.0, arena, 0.75)
+            if not spot:
+                continue
+            add("bush", spot[0], spot[1], radius=round(random.uniform(0.55, 1.05), 2), variant=random.randint(0, 2))
+
+        # Rocks
+        rock_count = random.randint(4, 8)
+        for _ in range(rock_count):
+            spot = place_spot(2.0, arena, 0.8)
+            if not spot:
+                continue
+            add("rock", spot[0], spot[1], radius=round(random.uniform(0.55, 1.05), 2), variant=random.randint(0, 2))
+
+        # Ruins (fewer, more sparse)
+        ruin_count = random.randint(2, 4)
+        for _ in range(ruin_count):
+            spot = place_spot(3.0, arena - 1.0, 1.6)
+            if not spot:
+                continue
+            add("ruin", spot[0], spot[1], radius=round(random.uniform(1.3, 2.0), 2), variant=random.randint(0, 2))
+
     def _start_match_locked(self) -> None:
         self.match_state = "running"
         self.countdown_until = None
+        self._generate_map_locked()
         radius = self.constants["playerSpawnRadius"]
         for index, player in enumerate(self.players.values()):
             angle = index * math.tau / max(1, len(self.players))
@@ -238,8 +324,16 @@ class Game:
         self._start_wave_locked(1)
 
     def _start_wave_locked(self, number: int) -> None:
+        now = time.monotonic()
         self.enemies.clear()
-        self.wave = {"number": number, "state": "active", "aliveEnemies": 0}
+        self.wave = {"number": number, "state": "active", "aliveEnemies": 0, "nextWaveAt": now + 20}
+        for player in self.players.values():
+            if player.dead:
+                player.dead = False
+                player.hp = player.stats.get("maxHealth", 100) * 0.6
+                player.x = 0
+                player.z = 0
+        self._generate_map_locked()
         if number >= 10:
             self.spawn_enemy_locked("arena_overlord")
         else:
@@ -249,6 +343,13 @@ class Game:
                 for _ in range(max(1, math.ceil(count * (0.45 + 0.18 * scale)))):
                     self.spawn_enemy_locked(typ)
         self.wave["aliveEnemies"] = len(self.enemies)
+        # Push all living entities out of any newly spawned objects
+        for player in self.players.values():
+            if not player.dead:
+                self._push_out_of_map_objects_locked(player)
+        for enemy in self.enemies.values():
+            self._push_out_of_map_objects_locked(enemy)
+            self._choose_wander_target_locked(enemy)
 
     def spawn_enemy_locked(self, typ: str, position: dict[str, float] | None = None) -> Enemy:
         self._enemy_seq += 1
@@ -283,7 +384,7 @@ class Game:
             dt = min(0.1, now - self._last_tick)
             self._last_tick = now
             if self.match_state == "lobby" and self.countdown_until and now >= self.countdown_until:
-                if self._all_ready_locked():
+                if self._all_ready_locked() or (len(self.players) == 1 and self.players[next(iter(self.players))].ready):
                     self._start_match_locked()
                 else:
                     self.countdown_until = None
@@ -292,6 +393,11 @@ class Game:
             self._tick_players_locked(now, dt)
             self._tick_enemies_locked(now, dt)
             self._check_end_states_locked()
+            if self.match_state == "running" and self.wave.get("state") == "break" and now >= self.wave.get("nextWaveAt", now):
+                if self.wave["number"] >= 9:
+                    self._start_wave_locked(10)
+                else:
+                    self._start_wave_locked(self.wave["number"] + 1)
 
     def _tick_players_locked(self, now: float, dt: float) -> None:
         for player in self.players.values():
@@ -314,6 +420,9 @@ class Game:
                 enemy = self.enemies[player.target_id]
                 auto_range = player.stats["autoAttackRange"] if player.class_id in {"warrior", "hunter"} else 2.0
                 if self._distance(player, enemy) <= auto_range and not self._line_of_sight_blocked_locked(player.x, player.z, enemy.x, enemy.z):
+                    dx = enemy.x - player.x
+                    dz = enemy.z - player.z
+                    player.facing = math.atan2(dx, dz)
                     raw = player.stats["autoAttackDamage"] + max(player.stats.get("attackPower", 0) * 0.35, player.stats.get("spellPower", 0) * 0.2)
                     self._emit_locked({"type": "auto_attack", "sourceId": player.id, "targetId": enemy.id})
                     self._damage_enemy_locked(player, enemy, raw, "physical", 1)
@@ -321,6 +430,11 @@ class Game:
             if player.casting and now >= player.casting["endAt"]:
                 casting = player.casting
                 player.casting = None
+                target = self.enemies.get(casting.get("targetId") or "") if casting else None
+                if target:
+                    dx = target.x - player.x
+                    dz = target.z - player.z
+                    player.facing = math.atan2(dx, dz)
                 self._finish_cast_locked(player, casting["abilityId"], casting.get("targetId"))
 
     def _tick_enemies_locked(self, now: float, dt: float) -> None:
@@ -352,6 +466,8 @@ class Game:
                 elif target.casting:
                     target.casting["endAt"] += 0.18
                 enemy.attack_at = now + enemy.attack_interval
+                if enemy.type == "archer":
+                    self._emit_locked({"type": "auto_attack", "sourceId": enemy.id, "targetId": target.id})
                 self._emit_locked({"type": "damage", "sourceId": enemy.id, "targetId": target.id, "amount": round(damage, 1), "school": "physical"})
 
     def _enemy_target_locked(self, enemy: Enemy, now: float) -> Player | None:
@@ -414,29 +530,35 @@ class Game:
         enemy.wander_z = math.sin(angle) * radius
 
     def _push_out_of_map_objects_locked(self, entity: Any) -> None:
-        for obj in self.map_objects:
-            if not obj.get("blocksMovement"):
-                continue
-            if "width" in obj and "depth" in obj:
-                half_w = obj["width"] / 2 + 0.55
-                half_d = obj["depth"] / 2 + 0.55
+        for _ in range(3):
+            moved = False
+            for obj in self.map_objects:
+                if not obj.get("blocksMovement"):
+                    continue
+                if "width" in obj and "depth" in obj:
+                    half_w = obj["width"] / 2 + 0.55
+                    half_d = obj["depth"] / 2 + 0.55
+                    dx = entity.x - obj["x"]
+                    dz = entity.z - obj["z"]
+                    if abs(dx) < half_w and abs(dz) < half_d:
+                        push_x = half_w - abs(dx)
+                        push_z = half_d - abs(dz)
+                        if push_x < push_z:
+                            entity.x = obj["x"] + (half_w if dx >= 0 else -half_w)
+                        else:
+                            entity.z = obj["z"] + (half_d if dz >= 0 else -half_d)
+                        moved = True
+                    continue
                 dx = entity.x - obj["x"]
                 dz = entity.z - obj["z"]
-                if abs(dx) < half_w and abs(dz) < half_d:
-                    push_x = half_w - abs(dx)
-                    push_z = half_d - abs(dz)
-                    if push_x < push_z:
-                        entity.x = obj["x"] + (half_w if dx >= 0 else -half_w)
-                    else:
-                        entity.z = obj["z"] + (half_d if dz >= 0 else -half_d)
-                continue
-            dx = entity.x - obj["x"]
-            dz = entity.z - obj["z"]
-            dist = math.hypot(dx, dz)
-            min_dist = obj["radius"] + 0.55
-            if 0 < dist < min_dist:
-                entity.x = obj["x"] + dx / dist * min_dist
-                entity.z = obj["z"] + dz / dist * min_dist
+                dist = math.hypot(dx, dz)
+                min_dist = obj["radius"] + 0.55
+                if 0 < dist < min_dist:
+                    entity.x = obj["x"] + dx / dist * min_dist
+                    entity.z = obj["z"] + dz / dist * min_dist
+                    moved = True
+            if not moved:
+                break
 
     def _line_of_sight_blocked_locked(self, x1: float, z1: float, x2: float, z2: float) -> bool:
         return any(obj.get("blocksSight") and self._segment_intersects_object(x1, z1, x2, z2, obj) for obj in self.map_objects)
@@ -489,7 +611,7 @@ class Game:
         ability = self.abilities[ability_id]
         if now < player.global_cooldown_until or now < player.cooldowns.get(ability_id, 0):
             return
-        cost = ability.get("resourceCost", {}).get("amount", 0)
+        cost = self._ability_cost_locked(player, ability)
         if player.resource < cost:
             return
         target = self.enemies.get(player.target_id or "") if ability["targetType"] == "enemy" else self.players.get(player.ally_target_id or player.id)
@@ -499,6 +621,9 @@ class Game:
             return
         cast_time = ability.get("castTime", 0)
         if cast_time > 0:
+            dx = target.x - player.x
+            dz = target.z - player.z
+            player.facing = math.atan2(dx, dz)
             player.casting = {"abilityId": ability_id, "targetId": getattr(target, "id", None), "startAt": now, "endAt": now + cast_time, "duration": cast_time}
             self._emit_locked({"type": "cast", "sourceId": player.id, "targetId": getattr(target, "id", None), "abilityId": ability_id, "castTime": cast_time})
             return
@@ -507,7 +632,7 @@ class Game:
     def _finish_cast_locked(self, player: Player, ability_id: str, target_id: str | None) -> None:
         now = time.monotonic()
         ability = self.abilities[ability_id]
-        cost = ability.get("resourceCost", {}).get("amount", 0)
+        cost = self._ability_cost_locked(player, ability)
         if player.dead or player.resource < cost or now < player.global_cooldown_until or now < player.cooldowns.get(ability_id, 0):
             return
         target = self.enemies.get(target_id or "") if ability["targetType"] == "enemy" else self.players.get(target_id or player.id)
@@ -581,17 +706,12 @@ class Game:
         if enemy.boss:
             self.match_state = "victory"
             self.wave["state"] = "complete"
-        elif not self.enemies and self.match_state == "running":
-            if self.wave["number"] >= 9:
-                self._start_wave_locked(10)
-            else:
-                for player in self.players.values():
-                    if player.dead:
-                        player.dead = False
-                        player.hp = player.stats["maxHealth"] * 0.6
-                        player.x = 0
-                        player.z = 0
-                self._start_wave_locked(self.wave["number"] + 1)
+        elif not self.enemies and self.match_state == "running" and self.wave.get("state") != "break":
+            now = time.monotonic()
+            remaining = max(0, self.wave.get("nextWaveAt", now) - now)
+            if remaining > 15:
+                self.wave["nextWaveAt"] = now + 15
+            self.wave["state"] = "break"
 
     def _give_xp_locked(self, player: Player, amount: int) -> None:
         thresholds = [100, 180, 280, 420, 600, 820, 1080, 1380, 1720, 2100, 2520]
@@ -603,7 +723,7 @@ class Game:
             for stat, inc in growth.items():
                 player.stats[stat] = player.stats.get(stat, 0) + inc
             player.hp = min(player.stats["maxHealth"], player.hp + growth.get("maxHealth", 0))
-            player.pending_upgrades = self.upgrades[:3]
+            player.pending_upgrades = random.sample(self.upgrades, min(3, len(self.upgrades)))
             player.upgrade_locked = False
 
     def _choose_upgrade_locked(self, player: Player, upgrade_id: str) -> None:
@@ -623,14 +743,24 @@ class Game:
         player.pending_upgrades = []
         player.upgrade_locked = False
 
+    @staticmethod
+    def _ability_cost_locked(player: Player, ability: dict[str, Any]) -> float:
+        cost = ability.get("resourceCost", {})
+        amount = cost.get("amount", 0)
+        if "amount" in cost:
+            return max(0, amount * player.stats.get("resourceCostMultiplier", 1))
+        return amount
+
     def _cycle_target_locked(self, player: Player, ally: bool) -> None:
         if ally:
             ids = [p.id for p in self.players.values() if p.id != player.id]
             current = player.ally_target_id
             player.ally_target_id = self._next_id(ids, current) if ids else player.id
+            player.target_id = None
         else:
             ids = list(self.enemies)
             player.target_id = self._next_id(ids, player.target_id) if ids else None
+            player.ally_target_id = None
 
     @staticmethod
     def _next_id(ids: list[str], current: str | None) -> str | None:
@@ -667,7 +797,7 @@ class Game:
             "countdown": max(0, round((self.countdown_until or now) - now, 1)) if self.countdown_until else None,
             "players": {pid: self._player_dict(p, now) for pid, p in self.players.items()},
             "enemies": {eid: self._enemy_dict(e) for eid, e in self.enemies.items()},
-            "wave": {**self.wave, "aliveEnemies": len(self.enemies)},
+            "wave": {**self.wave, "aliveEnemies": len(self.enemies), "nextWaveIn": max(0, round((self.wave.get("nextWaveAt", now) - now), 1)) if self.wave.get("nextWaveAt") else None},
             "mapObjects": self.map_objects,
             "events": events or [],
             "abilities": self.abilities,
@@ -680,7 +810,7 @@ class Game:
             "resource": round(p.resource, 1), "maxResource": round(p.stats.get("maxResource", 100), 1),
             "resourceType": self.classes.get(p.class_id or "", {}).get("resourceType"),
             "level": p.level, "xp": p.xp, "dead": p.dead, "targetId": p.target_id,
-            "allyTargetId": p.ally_target_id, "position": {"x": round(p.x, 2), "z": round(p.z, 2)},
+            "allyTargetId": p.ally_target_id, "position": {"x": round(p.x, 2), "z": round(p.z, 2)}, "facing": round(p.facing, 2),
             "jumping": now < p.jump_until, "abilities": p.abilities, "cooldowns": {ability: max(0, round(ends_at - now, 1)) for ability, ends_at in p.cooldowns.items()},
             "globalCooldown": max(0, round(p.global_cooldown_until - now, 1)),
             "autoAttack": self._auto_attack_dict(p, now),

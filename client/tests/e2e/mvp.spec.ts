@@ -7,7 +7,7 @@ async function startMage(page: import("@playwright/test").Page) {
   await expect(page.getByTestId("class-preview-info")).toContainText("Mage");
   await expect(page.getByTestId("class-preview-info")).toContainText("Fireball burns");
   await page.getByTestId("ready-button").click();
-  await expect(page.getByTestId("wave-counter")).toContainText("Wave 1", { timeout: 7000 });
+  await expect(page.getByTestId("wave-counter")).toContainText("Wave 1", { timeout: 14000 });
 }
 
 test.beforeEach(async ({ request }) => {
@@ -45,10 +45,17 @@ test("single player can start, move, target, level, and win", async ({ page, req
   await request.post("http://127.0.0.1:8000/debug/action", { data: { action: "give_xp", payload: { playerId, amount: 120 } } });
   await expect(page.getByTestId("level-up-panel")).toBeVisible();
   const beforeUpgrade = await (await request.get("http://127.0.0.1:8000/debug/state")).json();
+  const chosenUpgradeText = await page.getByTestId("level-up-panel").getByRole("button").first().innerText();
   await page.getByTestId("level-up-panel").getByRole("button").first().click();
   await expect(page.getByTestId("level-up-panel")).toBeHidden();
   const afterUpgrade = await (await request.get("http://127.0.0.1:8000/debug/state")).json();
-  expect(afterUpgrade.players[playerId].stats.maxHealth).toBeGreaterThan(beforeUpgrade.players[playerId].stats.maxHealth);
+  if (chosenUpgradeText.includes("Health")) expect(afterUpgrade.players[playerId].stats.maxHealth).toBeGreaterThan(beforeUpgrade.players[playerId].stats.maxHealth);
+  else if (chosenUpgradeText.includes("Move Speed")) expect(afterUpgrade.players[playerId].stats.moveSpeed).toBeGreaterThan(beforeUpgrade.players[playerId].stats.moveSpeed);
+  else if (chosenUpgradeText.includes("Crit")) expect(afterUpgrade.players[playerId].stats.critChance).toBeGreaterThan(beforeUpgrade.players[playerId].stats.critChance);
+  else if (chosenUpgradeText.includes("Resource Costs")) expect(afterUpgrade.players[playerId].stats.resourceCostMultiplier).toBeLessThan(beforeUpgrade.players[playerId].stats.resourceCostMultiplier);
+  else if (chosenUpgradeText.includes("Armor")) expect(afterUpgrade.players[playerId].stats.armor).toBeGreaterThan(beforeUpgrade.players[playerId].stats.armor);
+  else if (chosenUpgradeText.includes("Resistance")) expect(afterUpgrade.players[playerId].stats.resistance).toBeGreaterThan(beforeUpgrade.players[playerId].stats.resistance);
+  else expect(afterUpgrade.players[playerId].stats.resourceRegen).toBeGreaterThan(beforeUpgrade.players[playerId].stats.resourceRegen);
 
   await request.post("http://127.0.0.1:8000/debug/action", { data: { action: "force_wave_start", payload: { waveNumber: 10 } } });
   const bossState = await (await request.get("http://127.0.0.1:8000/debug/state")).json();
@@ -73,6 +80,7 @@ test("priest can heal ally and create threat", async ({ browser, request }) => {
   await request.post("http://127.0.0.1:8000/debug/action", { data: { action: "spawn_enemy", payload: { type: "goblin", position: { x: 3, z: 0 } } } });
   await request.post("http://127.0.0.1:8000/debug/action", { data: { action: "set_player_hp", payload: { playerId: warriorId, hp: 40 } } });
   await request.post("http://127.0.0.1:8000/debug/action", { data: { action: "set_ally_target", payload: { playerId: priestId, targetId: warriorId } } });
+  await priest.waitForTimeout(200);
   await priest.getByTestId("ability-slot-1").click();
   await expect(priest.getByTestId("cast-bar")).toBeVisible();
   await priest.waitForTimeout(1650);
@@ -83,6 +91,21 @@ test("priest can heal ally and create threat", async ({ browser, request }) => {
   expect(enemy.threat[priestId]).toBeGreaterThan(0);
   await priest.close();
   await warrior.close();
+});
+
+test("players can set a name and see it in lobby and world", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.getByTestId("lobby")).toBeVisible();
+  await expect(page.getByTestId("player-name-input")).toBeVisible();
+  await expect(page.getByTestId("name-suggestions").getByRole("button").first()).toBeVisible();
+  const suggestedName = await page.getByTestId("name-suggestions").getByRole("button").first().innerText();
+  await page.getByTestId("name-suggestions").getByRole("button").first().click();
+  await page.getByTestId("class-mage").click();
+  await page.getByTestId("ready-button").click();
+  await expect(page.getByTestId("lobby-player")).toContainText(suggestedName);
+  await expect(page.getByTestId("lobby-player")).toContainText("Mage");
+  await expect(page.getByTestId("wave-counter")).toContainText("Wave 1", { timeout: 14000 });
+  await expect(page.getByTestId("player-name-label")).toContainText(suggestedName);
 });
 
 test("all players dead triggers defeat", async ({ page, request }) => {

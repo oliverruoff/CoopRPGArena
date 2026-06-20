@@ -2,7 +2,8 @@
   {"id":"max_health","name":"Max Health +12%","stat":"maxHealth","mode":"mult","value":1.12},
   {"id":"move_speed","name":"Move Speed +10%","stat":"moveSpeed","mode":"mult","value":1.10},
   {"id":"crit","name":"Crit Chance +5%","stat":"critChance","mode":"add","value":0.05},
+  {"id":"resource_efficiency","name":"Resource Costs -15%","stat":"resourceCostMultiplier","mode":"mult","value":0.85},
   {"id":"armor","name":"Armor +15","stat":"armor","mode":"add","value":15},
   {"id":"resistance","name":"Resistance +15","stat":"resistance","mode":"add","value":15},
-  {"id":"regen","name":"Resource Regen +15%","stat":"resourceRegen","mode":"mult","value":1.15}
+  {"id":"regen","name":"Resource Regen +25%","stat":"resourceRegen","mode":"mult","value":1.25}
 ]

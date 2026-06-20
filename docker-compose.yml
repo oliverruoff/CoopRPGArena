@@ -6,7 +6,7 @@ services:
     environment:
       GAME_ENV: development
       GAME_TEST_MODE: "false"
-      CORS_ORIGINS: "http://localhost:5173"
+      CORS_ORIGINS: "*"
     ports:
       - "8000:8000"
     volumes:
@@ -17,9 +17,6 @@ services:
     build:
       context: ./client
       dockerfile: Dockerfile.dev
-    environment:
-      VITE_BACKEND_URL: "http://localhost:8000"
-      VITE_WS_URL: "ws://localhost:8000/ws"
     ports:
       - "5173:5173"
     volumes:

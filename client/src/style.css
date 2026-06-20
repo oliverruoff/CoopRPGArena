@@ -2,6 +2,12 @@ html, body, #app { margin: 0; width: 100%; height: 100%; overflow: hidden; font-
 #renderCanvas { width: 100%; height: 100%; display: block; }
 #lobby { position: absolute; inset: 5vw auto auto 5vw; width: min(460px, 90vw); padding: 24px; border-radius: 24px; background: rgba(255,255,255,0.9); box-shadow: 0 24px 80px rgba(60,70,90,0.22); backdrop-filter: blur(10px); }
 #lobby h1 { margin: 0 0 8px; font-size: 34px; }
+#nameField { display: grid; gap: 8px; margin: 12px 0; }
+#nameField label { font-weight: 700; font-size: 13px; color: rgba(31,36,48,0.7); }
+#playerName { padding: 12px 14px; border-radius: 14px; border: 2px solid rgba(31,36,48,0.12); font-size: 16px; font-weight: 700; }
+#nameSuggestions { display: flex; flex-wrap: wrap; gap: 6px; }
+#nameSuggestions button { padding: 6px 10px; border-radius: 999px; background: #e5e7eb; color: #1f2430; font-size: 12px; }
+#nameSuggestions button:hover { background: #d1d5db; }
 .classes { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin: 18px 0; }
 button { border: 0; border-radius: 14px; padding: 12px 14px; background: #202636; color: white; font-weight: 800; cursor: pointer; }
 button:hover { filter: brightness(1.12); }
@@ -9,12 +15,22 @@ button:hover { filter: brightness(1.12); }
 [data-testid="class-hunter"] { background: #236a34; }
 [data-testid="class-priest"] { background: #d9b64f; color: #222; }
 [data-testid="class-mage"] { background: #313ca3; }
+[data-class].selectedClass { outline: 3px solid #facc15; outline-offset: 2px; }
 #ready { width: 100%; background: #111827; }
 #classPreviewInfo { position: fixed; left: min(540px, 52vw); top: 8vh; width: min(340px, 38vw); padding: 18px; border-radius: 22px; background: rgba(17,24,39,0.52); color: #fff; box-shadow: 0 20px 70px rgba(0,0,0,0.18); backdrop-filter: blur(10px); }
 #classPreviewInfo h2 { margin: 0 0 8px; font-size: 31px; }
 #classPreviewInfo p { margin: 0 0 14px; line-height: 1.35; color: rgba(255,255,255,0.78); }
 #classPreviewInfo div { padding: 5px 0; border-top: 1px solid rgba(255,255,255,0.1); color: #facc15; font-weight: 800; }
 #countdown { margin-top: 14px; font-size: 30px; font-weight: 900; }
+#lobbyPlayers { display: grid; gap: 8px; margin-top: 16px; }
+#lobbyPlayers h3 { margin: 0; font-size: 13px; color: rgba(31,36,48,0.6); text-transform: uppercase; letter-spacing: 0.04em; }
+.lobbyPlayer { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 12px; border-radius: 14px; background: rgba(17,24,39,0.05); font-size: 14px; }
+.lobbyPlayer.you { background: rgba(59,130,246,0.12); }
+.lobbyPlayer.ready { background: rgba(34,197,94,0.12); }
+.lobbyPlayer b { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lobbyPlayer span { color: rgba(31,36,48,0.65); }
+.lobbyStatus { font-weight: 800; color: #9ca3af; }
+.lobbyPlayer.ready .lobbyStatus { color: #16a34a; }
 #hud { display: none; position: absolute; inset: 0; pointer-events: none; }
 #party { position: absolute; top: 20px; left: 20px; display: grid; gap: 8px; pointer-events: auto; }
 .partyFrame { width: 170px; padding: 10px; text-align: left; background: rgba(20,26,38,0.82); }
@@ -41,6 +57,8 @@ button:hover { filter: brightness(1.12); }
 #castName { position: absolute; inset: 0; display: grid; place-items: center; color: #111827; font-size: 12px; text-shadow: 0 1px rgba(255,255,255,0.7); }
 #overhead { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
 .enemyHpBar { position: absolute; left: 0; top: 0; width: 86px; margin-left: -43px; margin-top: -26px; text-align: center; filter: drop-shadow(0 2px 3px rgba(0,0,0,0.35)); }
+.playerNameLabel { position: absolute; left: 0; top: 0; transform: translate(-50%, -50%); padding: 2px 8px; border-radius: 999px; background: rgba(17,24,39,0.78); color: #fff; font-size: 12px; font-weight: 900; text-shadow: 0 1px 2px rgba(0,0,0,0.85); white-space: nowrap; pointer-events: none; }
+.playerNameLabel.self { background: rgba(37,99,235,0.85); }
 .enemyHpName { margin-bottom: 2px; color: #fff; font-size: 10px; font-weight: 900; text-shadow: 0 1px 2px #000, 0 0 4px #000; white-space: nowrap; }
 .enemyHpTrack { position: relative; height: 7px; border: 1px solid rgba(25, 10, 10, 0.9); border-radius: 999px; background: rgba(40, 0, 0, 0.72); overflow: hidden; }
 .enemyHpLoss, .enemyHpFill { position: absolute; left: 0; top: 0; display: block; height: 100%; }
