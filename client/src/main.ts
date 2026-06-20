@@ -1,4 +1,4 @@
-import { ArcRotateCamera, Color3, Color4, Engine, HemisphericLight, Matrix, Mesh, MeshBuilder, PointerEventTypes, Scene, StandardMaterial, TransformNode, Vector3, VertexData } from "@babylonjs/core";
+import { ArcRotateCamera, CascadedShadowGenerator, Color3, Color4, DirectionalLight, Engine, HemisphericLight, Matrix, Mesh, MeshBuilder, PointerEventTypes, Scene, StandardMaterial, TransformNode, Vector3, VertexData } from "@babylonjs/core";
 import "./style.css";
 
 type Vec = { x: number; z: number };
@@ -80,12 +80,25 @@ scene.clearColor = new Color4(0.97, 0.98, 1, 1);
 const camera = new ArcRotateCamera("camera", -Math.PI / 2, 0.9, 42, Vector3.Zero(), scene);
 camera.attachControl(canvas, false);
 camera.inputs.clear();
-new HemisphericLight("light", new Vector3(0.3, 1, 0.2), scene).intensity = 0.9;
+new HemisphericLight("light", new Vector3(0.3, 1, 0.2), scene).intensity = 0.55;
+const dirLight = new DirectionalLight("dirLight", new Vector3(-0.45, -1, -0.35), scene);
+dirLight.position = new Vector3(18, 32, 18);
+dirLight.intensity = 0.85;
+const shadowGenerator = new CascadedShadowGenerator(1024, dirLight);
+shadowGenerator.useBlurCloseExponentialShadowMap = true;
+shadowGenerator.blurKernel = 16;
+shadowGenerator.bias = 0.0005;
+shadowGenerator.normalBias = 0.02;
+shadowGenerator.lambda = 0.8;
+shadowGenerator.cascadeBlendPercentage = 0.15;
+shadowGenerator.shadowMaxZ = 55;
+shadowGenerator.autoCalcDepthBounds = true;
 
 const arenaMat = mat("arena", new Color3(0.96, 0.96, 0.93));
 const arena = MeshBuilder.CreateCylinder("arena-floor", { diameter: 56, height: 0.15, tessellation: 96 }, scene);
 arena.material = arenaMat;
 arena.position.y = -0.08;
+arena.receiveShadows = true;
 const worldCurve = MeshBuilder.CreateSphere("rounded-world", { diameter: 64, segments: 64 }, scene);
 worldCurve.scaling.y = 0.13;
 worldCurve.position.y = -4.08;
@@ -558,6 +571,10 @@ function renderMapObjects() {
     node.position.x = object.x;
     node.position.z = object.z;
     mapMeshes.set(object.id, node);
+    node.getChildMeshes().forEach((mesh) => {
+      mesh.receiveShadows = true;
+      shadowGenerator.addShadowCaster(mesh);
+    });
   }
 }
 
@@ -774,6 +791,7 @@ function createPlayer(p: PlayerState) {
   addClassDetails(root, p.id, p.classId, color);
   const ring = MeshBuilder.CreateCylinder(`${p.id}-ring`, { diameter: 1.45, height: 0.025, tessellation: 48 }, scene); ring.parent = root; ring.material = transparentMat(`${p.id}-ringmat`, new Color3(0.1, 0.55, 1), 0.22); ring.metadata = { entityId: p.id };
   ring.position.y = 0.015;
+  root.getChildMeshes().forEach((mesh) => shadowGenerator.addShadowCaster(mesh));
   meshes.set(p.id, root);
   markEntityMeshes(root, p.id);
   return root;
@@ -822,6 +840,7 @@ function createEnemy(e: EnemyState) {
   addEnemyDetails(root, e, size, color);
   const ring = MeshBuilder.CreateCylinder(`${e.id}-ring`, { diameter: size * 1.55, height: 0.025, tessellation: 48 }, scene); ring.parent = root; ring.material = transparentMat(`${e.id}-ringmat`, new Color3(0.9, 0.1, 0.08), 0.24); ring.metadata = { entityId: e.id };
   ring.position.y = 0.015;
+  root.getChildMeshes().forEach((mesh) => shadowGenerator.addShadowCaster(mesh));
   meshes.set(e.id, root);
   markEntityMeshes(root, e.id);
   return root;
