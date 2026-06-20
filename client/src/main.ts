@@ -299,7 +299,8 @@ function renderUi() {
     btn.classList.toggle("selectedClass", btn.dataset.class === (me?.classId || selectedClassId));
   });
   const nameInput = document.querySelector<HTMLInputElement>("#playerName")!;
-  if (me && nameInput.value !== me.name) nameInput.value = me.name;
+  const isEditingName = document.activeElement === nameInput;
+  if (me && !isEditingName && nameInput.value !== me.name) nameInput.value = me.name;
   if (!me) return;
   text("level", `Level ${me.level}`);
   width("hp", me.hp / me.maxHealth);
@@ -880,8 +881,10 @@ function updateOverheadUi() {
     const node = meshes.get(player.id);
     if (!node) continue;
     const element = playerNameLabels.get(player.id) || createPlayerNameLabel(player);
-    const screen = projectToScreen(node.position.add(new Vector3(0, 2.05, 0)));
-    element.style.transform = `translate(${screen.x}px, ${screen.y}px) translate(-50%, -50%)`;
+    const head = node.getChildMeshes().find((mesh) => mesh.name.endsWith("-head"));
+    const headWorldPos = head ? head.getAbsolutePosition() : node.position.add(new Vector3(0, 2.05, 0));
+    const screen = projectToScreen(headWorldPos.add(new Vector3(0, 0.35, 0)));
+    element.style.transform = `translate3d(${screen.x}px, ${screen.y}px, 0) translate(-50%, -50%)`;
     element.style.display = screen.visible ? "block" : "none";
   }
   for (const enemy of Object.values(state.enemies)) {
