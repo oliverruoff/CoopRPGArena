@@ -4,7 +4,7 @@ import "./style.css";
 type Vec = { x: number; z: number };
 type CastState = { abilityId: string; targetId: string | null; duration: number; remaining: number; progress: number };
 type AutoAttackState = { remaining: number; interval: number; progress: number };
-type PlayerState = { id: string; name: string; classId: string | null; ready: boolean; hp: number; maxHealth: number; resource: number; maxResource: number; resourceType: string | null; level: number; xp: number; dead: boolean; targetId: string | null; allyTargetId: string | null; position: Vec; facing: number; jumping: boolean; abilities: string[]; cooldowns: Record<string, number>; globalCooldown: number; autoAttack: AutoAttackState; pendingUpgrades: Upgrade[]; stats: Record<string, number>; casting: CastState | null };
+type PlayerState = { id: string; name: string; classId: string | null; ready: boolean; hp: number; maxHealth: number; resource: number; maxResource: number; resourceType: string | null; level: number; xp: number; dead: boolean; targetId: string | null; allyTargetId: string | null; position: Vec; facing: number; jumping: boolean; jumpProgress: number; abilities: string[]; cooldowns: Record<string, number>; globalCooldown: number; autoAttack: AutoAttackState; pendingUpgrades: Upgrade[]; stats: Record<string, number>; casting: CastState | null };
 type EnemyState = { id: string; type: string; name: string; hp: number; maxHealth: number; position: Vec; boss: boolean; alerted?: boolean; facing?: number };
 type MapObject = { id: string; type: string; x: number; z: number; radius?: number; width?: number; depth?: number; blocksSight?: boolean; variant?: number };
 type Upgrade = { id: string; name: string };
@@ -76,14 +76,14 @@ root.innerHTML = `
 const canvas = document.querySelector<HTMLCanvasElement>("#renderCanvas")!;
 const engine = new Engine(canvas, true);
 const scene = new Scene(engine);
-scene.clearColor = new Color4(0.16, 0.17, 0.18, 1);
+scene.clearColor = new Color4(0.2, 0.21, 0.22, 1);
 const camera = new ArcRotateCamera("camera", -Math.PI / 2, 0.9, 42, Vector3.Zero(), scene);
 camera.attachControl(canvas, false);
 camera.inputs.clear();
-new HemisphericLight("light", new Vector3(0.3, 1, 0.2), scene).intensity = 0.32;
+new HemisphericLight("light", new Vector3(0.3, 1, 0.2), scene).intensity = 0.42;
 const dirLight = new DirectionalLight("dirLight", new Vector3(-0.45, -1, -0.35), scene);
 dirLight.position = new Vector3(18, 32, 18);
-dirLight.intensity = 0.58;
+dirLight.intensity = 0.66;
 const shadowGenerator = new CascadedShadowGenerator(1024, dirLight);
 shadowGenerator.useBlurCloseExponentialShadowMap = true;
 shadowGenerator.blurKernel = 16;
@@ -96,13 +96,13 @@ shadowGenerator.autoCalcDepthBounds = true;
 
 const outerGround = MeshBuilder.CreateCylinder("outer-ground", { diameter: 110, height: 0.04, tessellation: 128 }, scene);
 outerGround.position.y = -0.14;
-outerGround.material = mat("outer-ground-mat", new Color3(0.16, 0.17, 0.18));
+outerGround.material = mat("outer-ground-mat", new Color3(0.21, 0.22, 0.23));
 outerGround.receiveShadows = true;
 const floorFade = MeshBuilder.CreateCylinder("arena-floor-fade", { diameter: 61, height: 0.035, tessellation: 128 }, scene);
 floorFade.position.y = -0.12;
-floorFade.material = transparentMat("arena-floor-fade-mat", new Color3(0.45, 0.47, 0.43), 0.32);
+floorFade.material = transparentMat("arena-floor-fade-mat", new Color3(0.5, 0.52, 0.47), 0.34);
 floorFade.receiveShadows = true;
-const arenaMat = mat("arena", new Color3(0.64, 0.65, 0.59));
+const arenaMat = mat("arena", new Color3(0.72, 0.73, 0.66));
 const arena = MeshBuilder.CreateCylinder("arena-floor", { diameter: 56, height: 0.15, tessellation: 96 }, scene);
 arena.material = arenaMat;
 arena.position.y = -0.08;
@@ -353,7 +353,7 @@ function renderUi() {
   panel.style.display = me.pendingUpgrades.length ? "block" : "none";
   const end = document.querySelector<HTMLElement>("#end")!;
   const endTitle = document.querySelector<HTMLElement>("#endTitle")!;
-  endTitle.textContent = state.matchState === "victory" ? "Victory" : state.matchState === "defeat" ? "Defeat" : "";
+  endTitle.textContent = state.matchState === "victory" ? "Victory" : state.matchState === "defeat" ? "Wipe" : "";
   end.style.display = endTitle.textContent ? "grid" : "none";
   playMatchStateSound(state.matchState);
 }
@@ -490,7 +490,7 @@ function updateLobbyPreviewPlacement() {
 }
 
 function createPreviewModel(classId: string) {
-  const fake: PlayerState = { id: `preview-${classId}`, name: classInfo[classId].name, classId, ready: false, hp: 1, maxHealth: 1, resource: 0, maxResource: 1, resourceType: null, level: 1, xp: 0, dead: false, targetId: null, allyTargetId: null, position: { x: 0, z: 0 }, facing: 0, jumping: false, abilities: [], cooldowns: {}, globalCooldown: 0, autoAttack: { remaining: 0, interval: 1, progress: 0 }, pendingUpgrades: [], stats: {}, casting: null };
+  const fake: PlayerState = { id: `preview-${classId}`, name: classInfo[classId].name, classId, ready: false, hp: 1, maxHealth: 1, resource: 0, maxResource: 1, resourceType: null, level: 1, xp: 0, dead: false, targetId: null, allyTargetId: null, position: { x: 0, z: 0 }, facing: 0, jumping: false, jumpProgress: 0, abilities: [], cooldowns: {}, globalCooldown: 0, autoAttack: { remaining: 0, interval: 1, progress: 0 }, pendingUpgrades: [], stats: {}, casting: null };
   const preview = createPlayer(fake);
   meshes.delete(fake.id);
   preview.getChildMeshes().forEach((mesh) => mesh.metadata = null);
@@ -542,7 +542,8 @@ function renderWorld() {
     const previousZ = node.metadata?.z ?? p.position.z;
     node.position.x = p.position.x;
     node.position.z = p.position.z;
-    node.position.y = p.jumping ? 0.8 : p.dead ? -0.2 : 0;
+    const jumpY = p.jumping ? 4 * Math.max(0, p.jumpProgress) * Math.max(0, 1 - p.jumpProgress) * 0.9 : 0;
+    node.position.y = p.dead ? -0.2 : jumpY;
     node.setEnabled(state.matchState !== "lobby");
     const dx = p.position.x - previousX;
     const dz = p.position.z - previousZ;
@@ -567,17 +568,32 @@ function renderWorld() {
 
 function renderMapObjects() {
   if (!state) return;
+  const live = new Set((state.mapObjects || []).map((object) => object.id));
+  for (const [id, node] of mapMeshes) {
+    if (!live.has(id)) {
+      node.dispose();
+      mapMeshes.delete(id);
+    }
+  }
   for (const object of state.mapObjects || []) {
-    if (mapMeshes.has(object.id)) continue;
+    const signature = mapObjectSignature(object);
+    const existing = mapMeshes.get(object.id);
+    if (existing?.metadata?.signature === signature) continue;
+    existing?.dispose();
     const node = createMapObject(object);
     node.position.x = object.x;
     node.position.z = object.z;
+    node.metadata = { signature };
     mapMeshes.set(object.id, node);
     node.getChildMeshes().forEach((mesh) => {
       mesh.receiveShadows = true;
       shadowGenerator.addShadowCaster(mesh);
     });
   }
+}
+
+function mapObjectSignature(object: MapObject) {
+  return [object.type, object.x, object.z, object.radius, object.width, object.depth, object.variant, object.blocksSight].join(":");
 }
 
 function createMapObject(object: MapObject) {

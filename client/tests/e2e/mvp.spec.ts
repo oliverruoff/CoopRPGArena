@@ -25,7 +25,7 @@ test("single player can start, move, target, level, and win", async ({ page, req
   await page.waitForTimeout(400);
   await page.evaluate(() => window.dispatchEvent(new KeyboardEvent("keyup", { code: "KeyW" })));
   const afterMove = await (await request.get("http://127.0.0.1:8000/debug/state")).json();
-  const playerId = afterMove.you ?? Object.keys(afterMove.players)[0];
+  const playerId = Object.values<any>(afterMove.players).find((p) => p.classId === "mage").id;
   expect(afterMove.players[playerId].position.z).toBeGreaterThan(before.players[playerId].position.z);
 
   const spawn = await (await request.post("http://127.0.0.1:8000/debug/action", { data: { action: "spawn_enemy", payload: { type: "brute", position: { x: 2, z: 2 } } } })).json();
@@ -113,7 +113,7 @@ test("all players dead triggers defeat", async ({ page, request }) => {
   const state = await (await request.get("http://127.0.0.1:8000/debug/state")).json();
   const playerId = Object.keys(state.players)[0];
   await request.post("http://127.0.0.1:8000/debug/action", { data: { action: "kill_player", payload: { playerId } } });
-  await expect(page.getByTestId("end-screen")).toContainText("Defeat");
+  await expect(page.getByTestId("end-screen")).toContainText("Wipe");
   await page.getByTestId("restart-button").click();
   await expect(page.getByTestId("lobby")).toBeVisible();
   await expect(page.getByTestId("class-mage")).toBeVisible();

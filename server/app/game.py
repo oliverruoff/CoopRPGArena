@@ -149,7 +149,7 @@ class Game:
                     player.casting = None
                 player.input = msg.get("movement", {}) if not player.dead else {}
             elif typ == "jump" and self.match_state == "running" and not player.dead:
-                player.jump_until = time.monotonic() + 0.45
+                player.jump_until = time.monotonic() + 0.36
             elif typ == "select_target":
                 target_id = msg.get("targetId")
                 if target_id in self.enemies:
@@ -804,7 +804,9 @@ class Game:
             "resourceType": self.classes.get(p.class_id or "", {}).get("resourceType"),
             "level": p.level, "xp": p.xp, "dead": p.dead, "targetId": p.target_id,
             "allyTargetId": p.ally_target_id, "position": {"x": round(p.x, 2), "z": round(p.z, 2)}, "facing": round(p.facing, 2),
-            "jumping": now < p.jump_until, "abilities": p.abilities, "cooldowns": {ability: max(0, round(ends_at - now, 1)) for ability, ends_at in p.cooldowns.items()},
+            "jumping": now < p.jump_until,
+            "jumpProgress": max(0, min(1, 1 - max(0, p.jump_until - now) / 0.36)) if now < p.jump_until else 0,
+            "abilities": p.abilities, "cooldowns": {ability: max(0, round(ends_at - now, 1)) for ability, ends_at in p.cooldowns.items()},
             "globalCooldown": max(0, round(p.global_cooldown_until - now, 1)),
             "autoAttack": self._auto_attack_dict(p, now),
             "pendingUpgrades": p.pending_upgrades, "stats": p.stats,
