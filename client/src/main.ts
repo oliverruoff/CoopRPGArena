@@ -17,7 +17,7 @@ const classInfo: Record<string, { name: string; description: string; stats: stri
   warrior: { name: "Warrior", description: "A durable frontliner. Great at surviving, holding enemy attention, and smashing threats up close.", stats: ["HP 180", "Rage", "Armor 35", "Melee bruiser / tank"] },
   hunter: { name: "Hunter", description: "A mobile ranged damage dealer. Keeps pressure from afar with fast shots and strong uptime.", stats: ["HP 125", "Focus", "Attack Power 22", "Ranged sustained DPS"] },
   priest: { name: "Priest", description: "A holy support caster. Heals allies, deals holy damage, and can keep a group alive through pressure.", stats: ["HP 115", "Mana 120", "Spell Power 20", "Healer / holy caster"] },
-  mage: { name: "Mage", description: "A fragile elemental nuker. Fireball burns enemies over time; Frostbolt slows them so the team can kite.", stats: ["HP 105", "Mana 130", "Spell Power 26", "Burst / control caster"] }
+  mage: { name: "Mage", description: "A fragile elemental nuker. Firebolt burns enemies over time; Frostbolt can be learned later to help the team kite.", stats: ["HP 105", "Mana 130", "Spell Power 26", "Burst / control caster"] }
 };
 
 const root = document.querySelector<HTMLDivElement>("#app")!;
@@ -138,6 +138,8 @@ let lastPlayerFootstepAt = 0;
 let lastEnemyFoleyAt = 0;
 let reconnectTimer: number | null = null;
 let reconnectDelay = 1000;
+let hoveredAbilityId: string | null = null;
+let hoverRangeRing: Mesh | null = null;
 
 function isLocalhostOnlyUrl(url: string): boolean {
   try {
@@ -288,6 +290,7 @@ engine.runRenderLoop(() => {
   if (me) camera.setTarget(new Vector3(me.position.x, 0, me.position.z));
   updateLobbyPreviewPlacement();
   animateWorld();
+  updateHoverRangeIndicator();
   updateCastBar();
   updateAutoAttackBar();
   updateOverheadUi();
@@ -358,7 +361,7 @@ function renderUi() {
   const panel = document.querySelector<HTMLElement>("#levelPanel")!;
   const upgradeSignature = me.pendingUpgrades.map((u) => u.id).join(",");
   if (upgradeSignature !== lastUpgradeSignature) {
-    panel.innerHTML = me.pendingUpgrades.length ? `<h2>Choose Upgrade</h2><p>Pick one stat upgrade and, when available, one new spell.</p>${me.pendingUpgrades.map((u) => renderLevelChoice(u)).join("")}` : "";
+    panel.innerHTML = me.pendingUpgrades.length ? `<h2>Choose Upgrade</h2><p>Choose one: max a stat or learn a new ability.</p>${me.pendingUpgrades.map((u) => renderLevelChoice(u)).join("")}` : "";
     lastUpgradeSignature = upgradeSignature;
     upgradeChoiceInFlight = false;
   }
@@ -460,6 +463,7 @@ function showAbilityTooltip(button: HTMLButtonElement) {
   const slot = slotNumber(button.dataset.slot);
   const abilityId = me?.abilities.find((id) => abilitySlot(me, id) === slot);
   if (!abilityId) return;
+  hoveredAbilityId = abilityId;
   const ability = state.abilities[abilityId];
   const tooltip = document.querySelector<HTMLElement>("#abilityTooltip")!;
   const cost = currentAbilityCost(me, ability);
@@ -489,7 +493,42 @@ function showAbilityTooltip(button: HTMLButtonElement) {
 }
 
 function hideAbilityTooltip() {
+  hoveredAbilityId = null;
+  hoverRangeRing?.dispose();
+  hoverRangeRing = null;
   document.querySelector<HTMLElement>("#abilityTooltip")!.style.display = "none";
+}
+
+function updateHoverRangeIndicator() {
+  const me = state ? state.players[state.you] : null;
+  const ability = hoveredAbilityId && state ? state.abilities[hoveredAbilityId] : null;
+  if (!me || !ability || state?.matchState !== "running") {
+    hoverRangeRing?.dispose();
+    hoverRangeRing = null;
+    return;
+  }
+  const radius = abilityIndicatorRadius(ability);
+  if (radius <= 0) {
+    hoverRangeRing?.dispose();
+    hoverRangeRing = null;
+    return;
+  }
+  if (!hoverRangeRing || hoverRangeRing.metadata?.radius !== radius) {
+    hoverRangeRing?.dispose();
+    hoverRangeRing = MeshBuilder.CreateTorus("hover-range-ring", { diameter: radius * 2, thickness: 0.08, tessellation: 96 }, scene);
+    hoverRangeRing.rotation.x = Math.PI / 2;
+    const material = transparentMat("hover-range-ring-mat", effectColor(ability.id, ability.effects?.[0]?.school || ""), 0.55);
+    material.emissiveColor = material.diffuseColor.scale(0.8);
+    hoverRangeRing.material = material;
+    hoverRangeRing.isPickable = false;
+    hoverRangeRing.metadata = { radius };
+  }
+  hoverRangeRing.position.set(me.position.x, 0.08, me.position.z);
+}
+
+function abilityIndicatorRadius(ability: Ability) {
+  if ((ability.range || 0) > 0) return ability.range || 0;
+  return Math.max(0, ...(ability.effects || []).map((effect) => effect.radius || 0));
 }
 
 function currentAbilityCost(player: PlayerState, ability: Ability) {
@@ -509,7 +548,7 @@ function abilityDescription(abilityId: string) {
     hunter_quick_shot: "A fast cheap shot for steady pressure.",
     priest_heal: "A holy cast that restores an ally and creates healer threat.",
     priest_smite: "A holy bolt that damages one enemy.",
-    mage_fireball: "Launches a fire orb that explodes, then burns the enemy over time.",
+    mage_fireball: "Launches a fire bolt that bursts, then burns the enemy over time.",
     mage_frostbolt: "Fires an icy bolt that damages and slows the enemy for 3 seconds.",
     mage_frost_nova: "Freeze nearby enemies to the ground for 2 seconds.",
     mage_meteor: "Call down a fiery impact that damages and burns an area.",
@@ -1065,7 +1104,7 @@ function updateOverheadUi() {
     if (!node) continue;
     const element = enemyBars.get(enemy.id) || createEnemyBar(enemy);
     const screen = projectToScreen(node.position.add(new Vector3(0, enemy.boss ? 2.7 : enemy.type === "brute" ? 2.0 : 1.45, 0)));
-    element.style.transform = `translate(${screen.x}px, ${screen.y}px)`;
+    element.style.transform = `translate3d(${screen.x}px, ${screen.y}px, 0) translate(-50%, -100%)`;
     element.style.display = screen.visible ? "block" : "none";
     const currentPercent = Math.max(0, enemy.hp / enemy.maxHealth) * 100;
     const fill = element.querySelector<HTMLElement>(".enemyHpFill")!;
@@ -1151,9 +1190,11 @@ function playCastEffect(event: CombatEvent) {
   } else if (event.abilityId?.includes("smite")) {
     lightningStrike(target.position, 420);
   } else if (event.abilityId?.includes("meteor")) {
-    meteorStrike(target.position, 850);
+    meteorStrike(target.position, 850, 10);
   } else if (event.abilityId?.includes("multishot")) {
     multiArrow(source.position, target.position);
+  } else if (event.abilityId?.includes("frostbolt")) {
+    frostBolt(source.position, target.position);
   } else {
     projectile(source.position, target.position, color, 450);
     if (event.abilityId?.includes("fireball")) fireBurst(target.position, 650);
@@ -1409,6 +1450,42 @@ function fireBurst(center: Vector3, duration: number) {
   }
 }
 
+function frostBolt(from: Vector3, to: Vector3) {
+  const root = new TransformNode("frostbolt", scene);
+  const cone = MeshBuilder.CreateCylinder("frostbolt-cone", { diameterTop: 0.75, diameterBottom: 0.18, height: 1.45, tessellation: 12 }, scene);
+  cone.parent = root;
+  cone.position.z = 0.72;
+  cone.rotation.x = Math.PI / 2;
+  const trail = MeshBuilder.CreateCylinder("frostbolt-trail", { diameterTop: 0.32, diameterBottom: 0.1, height: 1.1, tessellation: 10 }, scene);
+  trail.parent = root;
+  trail.position.z = -0.35;
+  trail.rotation.x = Math.PI / 2;
+  const color = new Color3(0.22, 0.92, 1);
+  const coneMat = mat("frostbolt-cone-mat", color);
+  coneMat.emissiveColor = new Color3(0.1, 0.5, 0.8);
+  cone.material = coneMat;
+  const trailMat = transparentMat("frostbolt-trail-mat", color, 0.42);
+  trailMat.emissiveColor = new Color3(0.08, 0.42, 0.65);
+  trail.material = trailMat;
+  const start = from.add(new Vector3(0, 1.1, 0));
+  const end = to.add(new Vector3(0, 1.0, 0));
+  const direction = end.subtract(start).normalize();
+  root.position = start;
+  root.rotation.y = Math.atan2(direction.x, direction.z);
+  root.rotation.x = -Math.asin(Math.max(-1, Math.min(1, direction.y)));
+  const started = performance.now();
+  const duration = 450;
+  const observer = scene.onBeforeRenderObservable.add(() => {
+    const p = Math.min(1, (performance.now() - started) / duration);
+    root.position = Vector3.Lerp(start, end, p);
+    if (p >= 1) {
+      scene.onBeforeRenderObservable.remove(observer);
+      root.dispose();
+      frostSpikes(end, 700);
+    }
+  });
+}
+
 function frostSpikes(center: Vector3, duration: number) {
   for (let i = 0; i < 9; i++) {
     const spike = MeshBuilder.CreateCylinder("frost-spike", { diameterTop: 0, diameterBottom: 0.18, height: 0.75, tessellation: 4 }, scene);
@@ -1507,21 +1584,21 @@ function focusPulse(center: Vector3, duration: number) {
   expandingDisc("focus-pulse", center, 2.2, new Color3(0.2, 1, 0.32), duration, 0.34);
 }
 
-function meteorStrike(center: Vector3, duration: number) {
-  const start = center.add(new Vector3(-4, 8, -3));
-  const rock = MeshBuilder.CreateSphere("meteor", { diameter: 0.7, segments: 10 }, scene);
+function meteorStrike(center: Vector3, duration: number, scale = 1) {
+  const start = center.add(new Vector3(-4 * scale, 8 * scale, -3 * scale));
+  const rock = MeshBuilder.CreateSphere("meteor", { diameter: 0.7 * scale, segments: 14 }, scene);
   const material = mat("meteor-mat", new Color3(1, 0.24, 0.02));
   material.emissiveColor = new Color3(1, 0.18, 0.01);
   rock.material = material;
   const started = performance.now();
   const observer = scene.onBeforeRenderObservable.add(() => {
     const progress = Math.min(1, (performance.now() - started) / (duration * 0.55));
-    rock.position = Vector3.Lerp(start, center.add(new Vector3(0, 0.8, 0)), progress);
+    rock.position = Vector3.Lerp(start, center.add(new Vector3(0, 0.8 * scale, 0)), progress);
     if (progress >= 1) {
       scene.onBeforeRenderObservable.remove(observer);
       rock.dispose();
-      fireBurst(center, 900);
-      expandingDisc("meteor-scorch", center, 4.0, new Color3(1, 0.18, 0.02), 900, 0.28);
+      for (let i = 0; i < scale; i++) fireBurst(center.add(new Vector3((Math.random() - 0.5) * 9, 0, (Math.random() - 0.5) * 9)), 1100);
+      expandingDisc("meteor-scorch", center, 12.0, new Color3(1, 0.18, 0.02), 1200, 0.34);
     }
   });
 }

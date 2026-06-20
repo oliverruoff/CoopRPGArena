@@ -123,14 +123,17 @@ class Game:
             self._event_seq = 0
             self._ground_effect_seq = 0
 
+    def add_player_locked(self) -> Player:
+        if len(self.players) >= 5:
+            raise ValueError("Lobby is full")
+        self._player_seq += 1
+        player = Player(id=f"player_{self._player_seq}", name=f"Player {self._player_seq}")
+        self.players[player.id] = player
+        return player
+
     async def add_player(self) -> Player:
         async with self._lock:
-            if len(self.players) >= 5:
-                raise ValueError("Lobby is full")
-            self._player_seq += 1
-            player = Player(id=f"player_{self._player_seq}", name=f"Player {self._player_seq}")
-            self.players[player.id] = player
-            return player
+            return self.add_player_locked()
 
     async def remove_player(self, player_id: str) -> None:
         async with self._lock:
@@ -159,6 +162,7 @@ class Game:
             elif typ == "input":
                 movement = msg.get("movement", {})
                 if player.casting and any(movement.values()):
+                    self._cancel_cast_gcd_locked(player)
                     self._emit_locked({"type": "cast_cancelled", "sourceId": player.id, "abilityId": player.casting.get("abilityId")})
                     player.casting = None
                 player.input = msg.get("movement", {}) if not player.dead else {}
@@ -456,7 +460,7 @@ class Game:
                     dx = target.x - player.x
                     dz = target.z - player.z
                     player.facing = math.atan2(dx, dz)
-                self._finish_cast_locked(player, casting["abilityId"], casting.get("targetId"))
+                self._finish_cast_locked(player, casting["abilityId"], casting.get("targetId"), started_cast=True)
 
     def _tick_enemies_locked(self, now: float, dt: float) -> None:
         for enemy in list(self.enemies.values()):
@@ -652,16 +656,26 @@ class Game:
             dx = target.x - player.x
             dz = target.z - player.z
             player.facing = math.atan2(dx, dz)
-            player.casting = {"abilityId": ability_id, "targetId": getattr(target, "id", None), "startAt": now, "endAt": now + cast_time, "duration": cast_time}
+            gcd_until = now + self.constants["globalCooldown"] if ability.get("globalCooldown") else 0
+            if gcd_until:
+                player.global_cooldown_until = gcd_until
+            player.casting = {"abilityId": ability_id, "targetId": getattr(target, "id", None), "startAt": now, "endAt": now + cast_time, "duration": cast_time, "gcdUntil": gcd_until}
             self._emit_locked({"type": "cast", "sourceId": player.id, "targetId": getattr(target, "id", None), "abilityId": ability_id, "castTime": cast_time})
             return
         self._finish_cast_locked(player, ability_id, getattr(target, "id", None))
 
-    def _finish_cast_locked(self, player: Player, ability_id: str, target_id: str | None) -> None:
+    def _cancel_cast_gcd_locked(self, player: Player) -> None:
+        if not player.casting:
+            return
+        gcd_until = player.casting.get("gcdUntil", 0)
+        if gcd_until and player.global_cooldown_until == gcd_until:
+            player.global_cooldown_until = 0
+
+    def _finish_cast_locked(self, player: Player, ability_id: str, target_id: str | None, started_cast: bool = False) -> None:
         now = time.monotonic()
         ability = self.abilities[ability_id]
         cost = self._ability_cost_locked(player, ability)
-        if player.dead or player.resource < cost or now < player.global_cooldown_until or now < player.cooldowns.get(ability_id, 0):
+        if player.dead or player.resource < cost or (not started_cast and now < player.global_cooldown_until) or now < player.cooldowns.get(ability_id, 0):
             return
         target = player if ability["targetType"] == "self" else self.enemies.get(target_id or "") if ability["targetType"] == "enemy" else self.players.get(target_id or player.id)
         if ability["targetType"] == "ally" and (not target or getattr(target, "id", None) not in self.players):
@@ -672,7 +686,7 @@ class Game:
             return
         player.resource -= cost
         player.cooldowns[ability_id] = now + ability["cooldown"]
-        if ability.get("globalCooldown"):
+        if ability.get("globalCooldown") and not started_cast:
             player.global_cooldown_until = now + self.constants["globalCooldown"]
         self._emit_locked({"type": "cast_complete", "sourceId": player.id, "targetId": getattr(target, "id", None), "abilityId": ability_id})
         for effect in ability["effects"]:
@@ -915,7 +929,6 @@ class Game:
                 player.abilities.append(ability_id)
                 used_slots = set(player.ability_slots.values())
                 player.ability_slots[ability_id] = next(slot for slot in [1, 2, 3, 4, 5, 6, 7] if slot not in used_slots)
-            chosen_type = "spell"
         else:
             stat = upgrade["stat"]
             if upgrade["mode"] == "mult":
@@ -924,8 +937,7 @@ class Game:
                 player.stats[stat] = player.stats.get(stat, 0) + upgrade["value"]
             if stat == "maxHealth":
                 player.hp = min(player.stats["maxHealth"], player.hp + 20)
-            chosen_type = "stat"
-        player.pending_upgrades = [choice for choice in player.pending_upgrades if choice.get("choiceType", "stat") != chosen_type]
+        player.pending_upgrades = []
         player.upgrade_locked = False
 
     @staticmethod
@@ -1078,7 +1090,24 @@ class Game:
             elif action == "set_enemy_target":
                 self.players[payload["playerId"]].target_id = payload["targetId"]
             elif action == "reset_match":
-                self.players.clear(); self.enemies.clear(); self.match_state = "lobby"; self.wave = {"number": 0, "state": "lobby", "aliveEnemies": 0}; self.countdown_until = None
+                self.players.clear(); self.enemies.clear(); self.ground_effects.clear(); self.match_state = "lobby"; self.wave = {"number": 0, "state": "lobby", "aliveEnemies": 0}; self.countdown_until = None
+            elif action == "add_bot":
+                player = self.add_player_locked()
+                class_id = payload.get("classId", "warrior")
+                if class_id in self.classes:
+                    player.class_id = class_id
+                    player.ready = True
+                return {"ok": True, "playerId": player.id}
+            elif action == "cast_ability":
+                player = self.players.get(payload["playerId"])
+                if player:
+                    self._cast_ability_locked(player, int(payload.get("slot", 1)))
+                return {"ok": True}
+            elif action == "choose_upgrade":
+                player = self.players.get(payload["playerId"])
+                if player:
+                    self._choose_upgrade_locked(player, str(payload.get("upgradeId", "")))
+                return {"ok": True}
             return {"ok": True}
 
     def _emit_locked(self, event: dict[str, Any]) -> None:

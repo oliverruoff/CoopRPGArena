@@ -52,7 +52,7 @@ async def _healing_creates_threat():
         pr.casting["endAt"] = 0
         casting = pr.casting
         pr.casting = None
-        game._finish_cast_locked(pr, casting["abilityId"], casting["targetId"])
+        game._finish_cast_locked(pr, casting["abilityId"], casting["targetId"], started_cast=True)
         assert w.hp > 40
         assert enemy.threat[priest.id] > 0
 
@@ -68,6 +68,7 @@ async def _movement_cancels_cast():
     async with game._lock:
         game._start_match_locked()
         game.enemies.clear()
+        game.map_objects.clear()
         enemy = game.spawn_enemy_locked("brute", {"x": 3, "z": 0})
         m = game.players[mage.id]
         m.x = 0
@@ -78,7 +79,40 @@ async def _movement_cancels_cast():
     await game.handle_message(mage.id, {"type": "input", "movement": {"up": True}})
     state = await game.snapshot(mage.id)
     assert state["players"][mage.id]["casting"] is None
+    assert state["players"][mage.id]["globalCooldown"] == 0
     assert state["enemies"][enemy.id]["hp"] == state["enemies"][enemy.id]["maxHealth"]
+
+
+def test_cast_time_spell_gcd_starts_then_does_not_restart_on_finish():
+    asyncio.run(_cast_time_spell_gcd_starts_then_does_not_restart_on_finish())
+
+
+async def _cast_time_spell_gcd_starts_then_does_not_restart_on_finish():
+    game = Game()
+    mage = await game.add_player()
+    await game.handle_message(mage.id, {"type": "select_class", "classId": "mage"})
+    async with game._lock:
+        game._start_match_locked()
+        game.enemies.clear()
+        game.map_objects.clear()
+        enemy = game.spawn_enemy_locked("brute", {"x": 3, "z": 0})
+        player = game.players[mage.id]
+        player.pending_upgrades = game._level_choices_locked(player)
+        game._choose_upgrade_locked(player, "learn:mage_frostbolt")
+        player.resource = 100
+        player.x = 0
+        player.z = 0
+        player.target_id = enemy.id
+        game._cast_ability_locked(player, player.ability_slots["mage_frostbolt"])
+        assert player.casting["abilityId"] == "mage_frostbolt"
+        assert player.global_cooldown_until > 0
+        player.global_cooldown_until = 0
+        player.casting["endAt"] = 0
+        game._tick_players_locked(1, 0)
+        assert player.casting is None
+        assert player.global_cooldown_until == 0
+        game._cast_ability_locked(player, 1)
+        assert player.casting["abilityId"] == "mage_fireball"
 
 
 def test_same_spell_recast_does_not_restart_cast():
@@ -137,10 +171,11 @@ async def _level_up_offers_all_stats_and_unlearned_spells():
     async with game._lock:
         game._start_match_locked()
         player = game.players[mage.id]
+        assert player.abilities == ["mage_fireball"]
         game._give_xp_locked(player, 100)
         choice_ids = {choice["id"] for choice in player.pending_upgrades}
         assert {upgrade["id"] for upgrade in game.upgrades}.issubset(choice_ids)
-        assert {"learn:mage_frost_nova", "learn:mage_meteor", "learn:mage_arcane_blast"}.issubset(choice_ids)
+        assert {"learn:mage_frostbolt", "learn:mage_frost_nova", "learn:mage_meteor", "learn:mage_arcane_blast"}.issubset(choice_ids)
 
 
 def test_learning_spell_uses_next_free_slot_and_frost_nova_freezes_area():
@@ -158,19 +193,18 @@ async def _learning_spell_uses_next_free_slot_and_frost_nova_freezes_area():
         player.pending_upgrades = game._level_choices_locked(player)
         game._choose_upgrade_locked(player, "learn:mage_frost_nova")
         assert "mage_frost_nova" in player.abilities
-        assert player.ability_slots["mage_frost_nova"] == 3
-        assert all(choice.get("choiceType") == "stat" for choice in player.pending_upgrades)
+        assert player.ability_slots["mage_frost_nova"] == 2
+        assert player.pending_upgrades == []
         before_spell_power = player.stats["spellPower"]
         game._choose_upgrade_locked(player, "resource_efficiency")
-        assert player.stats["resourceCostMultiplier"] < 1
+        assert player.stats["resourceCostMultiplier"] == 1
         assert player.stats["spellPower"] == before_spell_power
-        assert player.pending_upgrades == []
         player.resource = 100
         player.x = 0
         player.z = 0
         near = game.spawn_enemy_locked("goblin", {"x": 2, "z": 0})
         far = game.spawn_enemy_locked("goblin", {"x": 8, "z": 0})
-        game._cast_ability_locked(player, 3)
+        game._cast_ability_locked(player, player.ability_slots["mage_frost_nova"])
         assert near.stun_until > 0
         assert near.slow_percent == 1.0
         assert far.stun_until == 0
@@ -194,7 +228,7 @@ async def _hunter_trap_persists_until_enemy_enters():
         player.resource = 100
         player.x = 0
         player.z = 0
-        game._cast_ability_locked(player, 3)
+        game._cast_ability_locked(player, player.ability_slots["hunter_snare_trap"])
         assert len(game.ground_effects) == 1
         game._tick_ground_effects_locked(1)
         assert len(game.ground_effects) == 1
@@ -252,7 +286,7 @@ async def _warrior_whirlwind_ticks_damage_for_three_seconds():
         player.z = 0
         enemy = game.spawn_enemy_locked("brute", {"x": 2, "z": 0})
         far = game.spawn_enemy_locked("brute", {"x": 5, "z": 0})
-        game._cast_ability_locked(player, 3)
+        game._cast_ability_locked(player, player.ability_slots["warrior_whirlwind"])
         assert player.auras
         first_hp = enemy.hp
         player.auras[0]["nextTick"] = 1
