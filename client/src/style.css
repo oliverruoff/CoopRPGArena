@@ -56,8 +56,8 @@ button:hover { filter: brightness(1.12); }
 #castFill { display: block; width: 0; height: 100%; background: linear-gradient(90deg, #f6d365, #fda085); }
 #castName { position: absolute; inset: 0; display: grid; place-items: center; color: #111827; font-size: 12px; text-shadow: 0 1px rgba(255,255,255,0.7); }
 #overhead { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
-.enemyHpBar { position: absolute; left: 0; top: 0; width: 86px; text-align: center; filter: drop-shadow(0 2px 3px rgba(0,0,0,0.35)); will-change: transform; }
-.playerNameLabel { position: absolute; left: 0; top: 0; transform: translate(-50%, -50%); padding: 2px 8px; border-radius: 999px; background: rgba(17,24,39,0.78); color: #fff; font-size: 12px; font-weight: 900; text-shadow: 0 1px 2px rgba(0,0,0,0.85); white-space: nowrap; pointer-events: none; will-change: transform; }
+.enemyHpBar { position: absolute; left: 0; top: 0; width: 86px; text-align: center; filter: drop-shadow(0 2px 3px rgba(0,0,0,0.35)); will-change: transform; transition: transform 40ms linear; }
+.playerNameLabel { position: absolute; left: 0; top: 0; transform: translate(-50%, -50%); padding: 2px 8px; border-radius: 999px; background: rgba(17,24,39,0.78); color: #fff; font-size: 12px; font-weight: 900; text-shadow: 0 1px 2px rgba(0,0,0,0.85); white-space: nowrap; pointer-events: none; will-change: transform; transition: transform 40ms linear; }
 .playerNameLabel.self { background: rgba(37,99,235,0.85); }
 .enemyHpName { margin-bottom: 2px; color: #fff; font-size: 10px; font-weight: 900; text-shadow: 0 1px 2px #000, 0 0 4px #000; white-space: nowrap; }
 .enemyHpTrack { position: relative; height: 7px; border: 1px solid rgba(25, 10, 10, 0.9); border-radius: 999px; background: rgba(40, 0, 0, 0.72); overflow: hidden; }
