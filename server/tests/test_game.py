@@ -126,6 +126,175 @@ async def _duplicate_upgrade_selection_does_not_stack():
         assert player.stats["maxHealth"] == after_once
 
 
+def test_level_up_offers_all_stats_and_unlearned_spells():
+    asyncio.run(_level_up_offers_all_stats_and_unlearned_spells())
+
+
+async def _level_up_offers_all_stats_and_unlearned_spells():
+    game = Game()
+    mage = await game.add_player()
+    await game.handle_message(mage.id, {"type": "select_class", "classId": "mage"})
+    async with game._lock:
+        game._start_match_locked()
+        player = game.players[mage.id]
+        game._give_xp_locked(player, 100)
+        choice_ids = {choice["id"] for choice in player.pending_upgrades}
+        assert {upgrade["id"] for upgrade in game.upgrades}.issubset(choice_ids)
+        assert {"learn:mage_frost_nova", "learn:mage_meteor", "learn:mage_arcane_blast"}.issubset(choice_ids)
+
+
+def test_learning_spell_uses_next_free_slot_and_frost_nova_freezes_area():
+    asyncio.run(_learning_spell_uses_next_free_slot_and_frost_nova_freezes_area())
+
+
+async def _learning_spell_uses_next_free_slot_and_frost_nova_freezes_area():
+    game = Game()
+    mage = await game.add_player()
+    await game.handle_message(mage.id, {"type": "select_class", "classId": "mage"})
+    async with game._lock:
+        game._start_match_locked()
+        game.enemies.clear()
+        player = game.players[mage.id]
+        player.pending_upgrades = game._level_choices_locked(player)
+        game._choose_upgrade_locked(player, "learn:mage_frost_nova")
+        assert "mage_frost_nova" in player.abilities
+        assert player.ability_slots["mage_frost_nova"] == 3
+        assert all(choice.get("choiceType") == "stat" for choice in player.pending_upgrades)
+        before_spell_power = player.stats["spellPower"]
+        game._choose_upgrade_locked(player, "resource_efficiency")
+        assert player.stats["resourceCostMultiplier"] < 1
+        assert player.stats["spellPower"] == before_spell_power
+        assert player.pending_upgrades == []
+        player.resource = 100
+        player.x = 0
+        player.z = 0
+        near = game.spawn_enemy_locked("goblin", {"x": 2, "z": 0})
+        far = game.spawn_enemy_locked("goblin", {"x": 8, "z": 0})
+        game._cast_ability_locked(player, 3)
+        assert near.stun_until > 0
+        assert near.slow_percent == 1.0
+        assert far.stun_until == 0
+
+
+def test_hunter_trap_persists_until_enemy_enters():
+    asyncio.run(_hunter_trap_persists_until_enemy_enters())
+
+
+async def _hunter_trap_persists_until_enemy_enters():
+    game = Game()
+    hunter = await game.add_player()
+    await game.handle_message(hunter.id, {"type": "select_class", "classId": "hunter"})
+    async with game._lock:
+        game._start_match_locked()
+        game.enemies.clear()
+        game.map_objects.clear()
+        player = game.players[hunter.id]
+        player.pending_upgrades = game._level_choices_locked(player)
+        game._choose_upgrade_locked(player, "learn:hunter_snare_trap")
+        player.resource = 100
+        player.x = 0
+        player.z = 0
+        game._cast_ability_locked(player, 3)
+        assert len(game.ground_effects) == 1
+        game._tick_ground_effects_locked(1)
+        assert len(game.ground_effects) == 1
+        enemy = game.spawn_enemy_locked("goblin", {"x": 1, "z": 0})
+        before = enemy.hp
+        game._tick_ground_effects_locked(2)
+        assert len(game.ground_effects) == 0
+        assert enemy.hp < before
+        assert enemy.stun_until > 0
+
+
+def test_hunter_adrenaline_triples_auto_shot_speed_temporarily():
+    asyncio.run(_hunter_adrenaline_triples_auto_shot_speed_temporarily())
+
+
+async def _hunter_adrenaline_triples_auto_shot_speed_temporarily():
+    game = Game()
+    hunter = await game.add_player()
+    await game.handle_message(hunter.id, {"type": "select_class", "classId": "hunter"})
+    async with game._lock:
+        game._start_match_locked()
+        game.enemies.clear()
+        game.map_objects.clear()
+        player = game.players[hunter.id]
+        player.resource = 100
+        game._finish_cast_locked(player, "hunter_adrenaline", player.id)
+        assert player.auto_attack_haste_multiplier == 3
+        assert player.auto_attack_haste_until > 0
+        enemy = game.spawn_enemy_locked("goblin", {"x": 5, "z": 0})
+        player.x = 0
+        player.z = 0
+        player.target_id = enemy.id
+        player.auto_attack_at = 0
+        game._tick_players_locked(1, 0)
+        assert round(player.auto_attack_at - 1, 3) == round(player.stats["autoAttackInterval"] / 3, 3)
+
+
+def test_warrior_whirlwind_ticks_damage_for_three_seconds():
+    asyncio.run(_warrior_whirlwind_ticks_damage_for_three_seconds())
+
+
+async def _warrior_whirlwind_ticks_damage_for_three_seconds():
+    game = Game()
+    warrior = await game.add_player()
+    await game.handle_message(warrior.id, {"type": "select_class", "classId": "warrior"})
+    async with game._lock:
+        game._start_match_locked()
+        game.enemies.clear()
+        game.map_objects.clear()
+        player = game.players[warrior.id]
+        player.pending_upgrades = game._level_choices_locked(player)
+        game._choose_upgrade_locked(player, "learn:warrior_whirlwind")
+        player.resource = 100
+        player.x = 0
+        player.z = 0
+        enemy = game.spawn_enemy_locked("brute", {"x": 2, "z": 0})
+        far = game.spawn_enemy_locked("brute", {"x": 5, "z": 0})
+        game._cast_ability_locked(player, 3)
+        assert player.auras
+        first_hp = enemy.hp
+        player.auras[0]["nextTick"] = 1
+        game._tick_player_auras_locked(player, 1)
+        after_first_tick = enemy.hp
+        assert after_first_tick < first_hp
+        assert far.hp == far.max_health
+        player.auras[0]["nextTick"] = 1.5
+        game._tick_player_auras_locked(player, 1.5)
+        assert enemy.hp < after_first_tick
+
+
+def test_priest_barrier_absorbs_damage_until_removed_or_expired():
+    asyncio.run(_priest_barrier_absorbs_damage_until_removed_or_expired())
+
+
+async def _priest_barrier_absorbs_damage_until_removed_or_expired():
+    game = Game()
+    priest = await game.add_player()
+    await game.handle_message(priest.id, {"type": "select_class", "classId": "priest"})
+    async with game._lock:
+        game._start_match_locked()
+        game.enemies.clear()
+        game.map_objects.clear()
+        player = game.players[priest.id]
+        player.pending_upgrades = game._level_choices_locked(player)
+        game._choose_upgrade_locked(player, "learn:priest_barrier")
+        player.resource = 100
+        before_hp = player.hp
+        game._finish_cast_locked(player, "priest_barrier", player.id)
+        assert player.shield > 0
+        assert player.shield_until > 0
+        remaining = game._damage_player_locked(player, 5)
+        assert remaining == 0
+        assert player.hp == before_hp
+        assert player.shield > 0
+        remaining = game._damage_player_locked(player, 999)
+        assert remaining > 0
+        assert player.shield == 0
+        assert player.shield_until == 0
+
+
 def test_mana_cost_and_regen_upgrades_apply():
     asyncio.run(_mana_cost_and_regen_upgrades_apply())
 
@@ -396,6 +565,7 @@ async def _uncleared_wave_timer_adds_next_wave_and_keeps_positions():
     await game.handle_message(p.id, {"type": "select_class", "classId": "mage"})
     async with game._lock:
         game._start_match_locked()
+        game.map_objects.clear()
         player = game.players[p.id]
         player.x = 4.25
         player.z = -3.5
