@@ -59,7 +59,7 @@ test("single player can start, move, target, level, and win", async ({ page, req
 
   await request.post("http://127.0.0.1:8000/debug/action", { data: { action: "force_wave_start", payload: { waveNumber: 10 } } });
   const bossState = await (await request.get("http://127.0.0.1:8000/debug/state")).json();
-  const bossId = Object.keys(bossState.enemies)[0];
+  const bossId = Object.values<any>(bossState.enemies).find((enemy) => enemy.boss).id;
   await request.post("http://127.0.0.1:8000/debug/action", { data: { action: "kill_enemy", payload: { enemyId: bossId } } });
   await expect(page.getByTestId("end-screen")).toContainText("Victory");
 });

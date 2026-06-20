@@ -11,6 +11,8 @@ from typing import Any
 
 
 DATA_DIR = Path(__file__).parent / "game_data"
+ACTIVE_WAVE_SECONDS = 75
+BREAK_SECONDS = 20
 
 
 def load_json(name: str) -> Any:
@@ -313,15 +315,11 @@ class Game:
 
     def _start_wave_locked(self, number: int) -> None:
         now = time.monotonic()
-        self.enemies.clear()
-        self.wave = {"number": number, "state": "active", "aliveEnemies": 0, "nextWaveAt": now + 20}
+        self.wave = {"number": number, "state": "active", "aliveEnemies": len(self.enemies), "nextWaveAt": now + ACTIVE_WAVE_SECONDS if number < 10 else None}
         for player in self.players.values():
             if player.dead:
                 player.dead = False
                 player.hp = player.stats.get("maxHealth", 100) * 0.6
-                player.x = 0
-                player.z = 0
-        self._generate_map_locked()
         if number >= 10:
             self.spawn_enemy_locked("arena_overlord")
         else:
@@ -331,10 +329,11 @@ class Game:
                 for _ in range(max(1, math.ceil(count * (0.45 + 0.18 * scale)))):
                     self.spawn_enemy_locked(typ)
         self.wave["aliveEnemies"] = len(self.enemies)
-        # Push all living entities out of any newly spawned objects
-        for player in self.players.values():
-            if not player.dead:
-                self._push_out_of_map_objects_locked(player)
+        # Initial spawn should avoid map objects; later waves preserve player positions.
+        if number == 1:
+            for player in self.players.values():
+                if not player.dead:
+                    self._push_out_of_map_objects_locked(player)
         for enemy in self.enemies.values():
             self._push_out_of_map_objects_locked(enemy)
             self._choose_wander_target_locked(enemy)
@@ -381,10 +380,10 @@ class Game:
             self._tick_players_locked(now, dt)
             self._tick_enemies_locked(now, dt)
             self._check_end_states_locked()
-            if self.match_state == "running" and self.wave.get("state") == "break" and now >= self.wave.get("nextWaveAt", now):
-                if self.wave["number"] >= 9:
-                    self._start_wave_locked(10)
-                else:
+            if self.match_state == "running" and self.wave.get("nextWaveAt") is not None and now >= self.wave.get("nextWaveAt", now):
+                if self.wave.get("state") == "break":
+                    self._start_wave_locked(min(10, self.wave["number"] + 1))
+                elif self.wave.get("state") == "active" and self.wave["number"] < 10:
                     self._start_wave_locked(self.wave["number"] + 1)
 
     def _tick_players_locked(self, now: float, dt: float) -> None:
@@ -701,9 +700,7 @@ class Game:
             self.wave["state"] = "complete"
         elif not self.enemies and self.match_state == "running" and self.wave.get("state") != "break":
             now = time.monotonic()
-            remaining = max(0, self.wave.get("nextWaveAt", now) - now)
-            if remaining > 15:
-                self.wave["nextWaveAt"] = now + 15
+            self.wave["nextWaveAt"] = now + BREAK_SECONDS
             self.wave["state"] = "break"
 
     def _give_xp_locked(self, player: Player, amount: int) -> None:
@@ -790,7 +787,7 @@ class Game:
             "countdown": max(0, round((self.countdown_until or now) - now, 1)) if self.countdown_until else None,
             "players": {pid: self._player_dict(p, now) for pid, p in self.players.items()},
             "enemies": {eid: self._enemy_dict(e) for eid, e in self.enemies.items()},
-            "wave": {**self.wave, "aliveEnemies": len(self.enemies), "nextWaveIn": max(0, round((self.wave.get("nextWaveAt", now) - now), 1)) if self.wave.get("nextWaveAt") else None},
+            "wave": {**self.wave, "aliveEnemies": len(self.enemies), "nextWaveIn": max(0, round((self.wave.get("nextWaveAt", now) - now), 1)) if self.wave.get("nextWaveAt") is not None else None},
             "mapObjects": self.map_objects,
             "events": events or [],
             "abilities": self.abilities,

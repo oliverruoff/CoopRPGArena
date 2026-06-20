@@ -384,3 +384,42 @@ async def _restart_after_defeat_returns_players_to_lobby():
     assert state["players"][p.id]["classId"] is None
     assert state["players"][p.id]["ready"] is False
     assert state["enemies"] == {}
+
+
+def test_uncleared_wave_timer_adds_next_wave_and_keeps_positions():
+    asyncio.run(_uncleared_wave_timer_adds_next_wave_and_keeps_positions())
+
+
+async def _uncleared_wave_timer_adds_next_wave_and_keeps_positions():
+    game = Game()
+    p = await game.add_player()
+    await game.handle_message(p.id, {"type": "select_class", "classId": "mage"})
+    async with game._lock:
+        game._start_match_locked()
+        player = game.players[p.id]
+        player.x = 4.25
+        player.z = -3.5
+        existing = len(game.enemies)
+        game.wave["nextWaveAt"] = 0
+    await game.tick()
+    state = await game.snapshot(p.id)
+    assert state["wave"]["number"] == 2
+    assert len(state["enemies"]) > existing
+    assert state["players"][p.id]["position"] == {"x": 4.25, "z": -3.5}
+
+
+def test_wave_clear_starts_twenty_second_prep_timer():
+    asyncio.run(_wave_clear_starts_twenty_second_prep_timer())
+
+
+async def _wave_clear_starts_twenty_second_prep_timer():
+    game = Game()
+    p = await game.add_player()
+    await game.handle_message(p.id, {"type": "select_class", "classId": "mage"})
+    async with game._lock:
+        game._start_match_locked()
+        for enemy_id in list(game.enemies):
+            game._kill_enemy_locked(enemy_id)
+    state = await game.snapshot(p.id)
+    assert state["wave"]["state"] == "break"
+    assert 19 <= state["wave"]["nextWaveIn"] <= 20

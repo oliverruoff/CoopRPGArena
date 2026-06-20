@@ -326,7 +326,13 @@ function renderUi() {
   text("xpLabel", `EXP ${me.xp}`);
   renderStatsPanel(me);
   const nextWaveIn = state.wave.nextWaveIn;
-  text("wave", nextWaveIn !== undefined && nextWaveIn > 0 ? `Wave ${state.wave.number} cleared • Next wave in ${nextWaveIn.toFixed(1)}s` : `Wave ${state.wave.number} • ${state.wave.aliveEnemies} enemies`);
+  if (state.wave.state === "break" && nextWaveIn !== undefined) {
+    text("wave", `Wave ${state.wave.number} cleared • Prepare: ${nextWaveIn.toFixed(1)}s`);
+  } else if (state.wave.state === "active" && nextWaveIn !== undefined && nextWaveIn > 0) {
+    text("wave", `Wave ${state.wave.number} • ${state.wave.aliveEnemies} enemies • Next wave in ${nextWaveIn.toFixed(1)}s`);
+  } else {
+    text("wave", `Wave ${state.wave.number} • ${state.wave.aliveEnemies} enemies`);
+  }
   document.querySelector("#party")!.innerHTML = Object.values(state.players).map((p) => `<button class="partyFrame" data-testid="party-frame" data-id="${p.id}">${p.name}<br>${p.classId || "No class"}<div class="mini"><span style="width:${Math.max(0, p.hp / p.maxHealth * 100)}%"></span></div>${p.dead ? "Down" : ""}</button>`).join("");
   document.querySelectorAll<HTMLButtonElement>(".partyFrame").forEach((b) => b.onclick = () => send({ type: "select_target", targetId: b.dataset.id }));
   const target = me.targetId ? state.enemies[me.targetId] : me.allyTargetId ? state.players[me.allyTargetId] : null;
