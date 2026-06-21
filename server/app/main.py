@@ -1,5 +1,6 @@
 import asyncio
 import os
+import time
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
@@ -9,21 +10,42 @@ from .game import game
 
 
 clients: dict[str, WebSocket] = {}
+client_map_revisions: dict[str, int] = {}
+client_static_sent_at: dict[str, float] = {}
+SIMULATION_INTERVAL = 0.05
+BROADCAST_INTERVAL = 1 / 15
+STATIC_REFRESH_INTERVAL = 2.0
 
 
 async def game_loop() -> None:
+    last_broadcast = 0.0
     while True:
         await game.tick()
-        await broadcast()
-        await asyncio.sleep(0.05)
+        now = time.monotonic()
+        if now - last_broadcast >= BROADCAST_INTERVAL:
+            await broadcast(now)
+            last_broadcast = now
+        await asyncio.sleep(SIMULATION_INTERVAL)
 
 
-async def broadcast() -> None:
+async def broadcast(now: float) -> None:
     async def send_snapshot(player_id: str, ws: WebSocket) -> None:
         try:
-            await ws.send_json(await game.snapshot(player_id))
+            snapshot = await game.snapshot(player_id, include_static=False)
+            map_revision = int(snapshot.get("mapRevision", 0))
+            include_static = (
+                client_map_revisions.get(player_id) != map_revision
+                or now - client_static_sent_at.get(player_id, 0) >= STATIC_REFRESH_INTERVAL
+            )
+            if include_static:
+                snapshot = await game.snapshot(player_id, include_static=True)
+                client_map_revisions[player_id] = int(snapshot.get("mapRevision", 0))
+                client_static_sent_at[player_id] = now
+            await ws.send_json(snapshot)
         except Exception:
             clients.pop(player_id, None)
+            client_map_revisions.pop(player_id, None)
+            client_static_sent_at.pop(player_id, None)
             await game.remove_player(player_id)
 
     await asyncio.gather(*(send_snapshot(player_id, ws) for player_id, ws in list(clients.items())))
@@ -75,7 +97,10 @@ async def websocket_endpoint(ws: WebSocket):
         return
     try:
         clients[player.id] = ws
-        await ws.send_json(await game.snapshot(player.id))
+        snapshot = await game.snapshot(player.id)
+        client_map_revisions[player.id] = int(snapshot.get("mapRevision", 0))
+        client_static_sent_at[player.id] = time.monotonic()
+        await ws.send_json(snapshot)
         while True:
             msg = await ws.receive_json()
             await game.handle_message(player.id, msg)
@@ -83,5 +108,7 @@ async def websocket_endpoint(ws: WebSocket):
         pass
     finally:
         clients.pop(player.id, None)
+        client_map_revisions.pop(player.id, None)
+        client_static_sent_at.pop(player.id, None)
         if player is not None:
             await game.remove_player(player.id)

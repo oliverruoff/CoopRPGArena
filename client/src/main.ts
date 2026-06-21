@@ -1,4 +1,4 @@
-import { AbstractMesh, ArcRotateCamera, CascadedShadowGenerator, Color3, Color4, DirectionalLight, Engine, HemisphericLight, Matrix, Mesh, MeshBuilder, PointerEventTypes, Scene, StandardMaterial, TransformNode, Vector3, VertexData } from "@babylonjs/core";
+import { ArcRotateCamera, Color3, Color4, DirectionalLight, Engine, HemisphericLight, Matrix, Mesh, MeshBuilder, PointerEventTypes, Scene, StandardMaterial, TransformNode, Vector3, VertexData } from "@babylonjs/core";
 import "./style.css";
 
 type Vec = { x: number; z: number };
@@ -11,7 +11,8 @@ type GroundEffect = { id: string; type: string; abilityId?: string; x: number; z
 type Upgrade = { id: string; name: string; choiceType?: string; abilityId?: string; description?: string };
 type Ability = { id: string; name: string; slot: number; targetType: string; cooldown: number; resourceCost?: { type: string; amount: number }; castTime?: number; range?: number; description?: string; effects?: Array<{ type: string; amount?: number; school?: string; scaling?: { stat: string; coefficient: number }; duration?: number; tickInterval?: number; slowPercent?: number; radius?: number }> };
 type CombatEvent = { id: number; type: string; sourceId?: string; targetId?: string; abilityId?: string; castTime?: number; duration?: number; amount?: number; school?: string };
-type Snapshot = { type: string; you: string; matchState: string; countdown: number | null; players: Record<string, PlayerState>; enemies: Record<string, EnemyState>; mapObjects: MapObject[]; groundEffects?: GroundEffect[]; wave: { number: number; state: string; aliveEnemies: number; nextWaveIn?: number }; abilities: Record<string, Ability>; events: CombatEvent[] };
+type Snapshot = { type: string; you: string; matchState: string; countdown: number | null; players: Record<string, PlayerState>; enemies: Record<string, EnemyState>; mapObjects: MapObject[]; mapRevision?: number; groundEffects?: GroundEffect[]; wave: { number: number; state: string; aliveEnemies: number; nextWaveIn?: number }; abilities: Record<string, Ability>; events: CombatEvent[] };
+type IncomingSnapshot = Omit<Snapshot, "mapObjects" | "abilities"> & { mapObjects?: MapObject[]; abilities?: Record<string, Ability> };
 
 const classInfo: Record<string, { name: string; description: string; stats: string[] }> = {
   warrior: { name: "Warrior", description: "A durable frontliner. Great at surviving, holding enemy attention, and smashing threats up close.", stats: ["HP 180", "Rage", "Armor 35", "Melee bruiser / tank"] },
@@ -19,6 +20,7 @@ const classInfo: Record<string, { name: string; description: string; stats: stri
   priest: { name: "Priest", description: "A holy support caster. Heals allies, deals holy damage, and can keep a group alive through pressure.", stats: ["HP 115", "Mana 120", "Spell Power 20", "Healer / holy caster"] },
   mage: { name: "Mage", description: "A fragile elemental nuker. Firebolt burns enemies over time; Frostbolt can be learned later to help the team kite.", stats: ["HP 105", "Mana 130", "Spell Power 26", "Burst / control caster"] }
 };
+const SNAPSHOT_INTERVAL_MS = 1000 / 15;
 
 const root = document.querySelector<HTMLDivElement>("#app")!;
 root.innerHTML = `
@@ -89,29 +91,20 @@ new HemisphericLight("light", new Vector3(0.3, 1, 0.2), scene).intensity = 0.42;
 const dirLight = new DirectionalLight("dirLight", new Vector3(-0.45, -1, -0.35), scene);
 dirLight.position = new Vector3(18, 32, 18);
 dirLight.intensity = 0.66;
-const shadowGenerator = new CascadedShadowGenerator(lowSpecMode ? 512 : 1024, dirLight);
-shadowGenerator.useBlurCloseExponentialShadowMap = true;
-shadowGenerator.blurKernel = lowSpecMode ? 6 : 16;
-shadowGenerator.bias = 0.0005;
-shadowGenerator.normalBias = 0.02;
-shadowGenerator.lambda = 0.8;
-shadowGenerator.cascadeBlendPercentage = 0.15;
-shadowGenerator.shadowMaxZ = 55;
-shadowGenerator.autoCalcDepthBounds = true;
 
 const outerGround = MeshBuilder.CreateCylinder("outer-ground", { diameter: 110, height: 0.04, tessellation: 128 }, scene);
 outerGround.position.y = -0.14;
 outerGround.material = mat("outer-ground-mat", new Color3(0.21, 0.22, 0.23));
-outerGround.receiveShadows = !lowSpecMode;
+outerGround.receiveShadows = false;
 const floorFade = MeshBuilder.CreateCylinder("arena-floor-fade", { diameter: 61, height: 0.035, tessellation: 128 }, scene);
 floorFade.position.y = -0.12;
 floorFade.material = transparentMat("arena-floor-fade-mat", new Color3(0.5, 0.52, 0.47), 0.34);
-floorFade.receiveShadows = !lowSpecMode;
+floorFade.receiveShadows = false;
 const arenaMat = mat("arena", new Color3(0.72, 0.73, 0.66));
 const arena = MeshBuilder.CreateCylinder("arena-floor", { diameter: 56, height: 0.15, tessellation: 96 }, scene);
 arena.material = arenaMat;
 arena.position.y = -0.08;
-arena.receiveShadows = !lowSpecMode;
+arena.receiveShadows = false;
 
 const configuredWsUrl = import.meta.env.VITE_WS_URL as string | undefined;
 const defaultWsUrl = `${window.location.protocol === "https:" ? "wss" : "ws"}://${window.location.hostname}:8000/ws`;
@@ -178,7 +171,7 @@ function connect() {
   });
   ws.addEventListener("message", (event) => {
     previousState = state;
-    state = JSON.parse(event.data) as Snapshot;
+    state = mergeSnapshot(JSON.parse(event.data) as IncomingSnapshot);
     const staticWorldSignature = worldStaticSignature(state);
     snapshotReceivedAt = performance.now();
     uiDirty = true;
@@ -419,6 +412,14 @@ function renderUi() {
   playMatchStateSound(state.matchState);
 }
 
+function mergeSnapshot(incoming: IncomingSnapshot): Snapshot {
+  return {
+    ...incoming,
+    mapObjects: incoming.mapObjects ?? state?.mapObjects ?? [],
+    abilities: incoming.abilities ?? state?.abilities ?? {}
+  };
+}
+
 function renderPendingUi() {
   if (!uiDirty) return;
   const now = performance.now();
@@ -432,7 +433,7 @@ function renderPendingUi() {
 function interpolatedPosition(id: string, current: Vec, kind: "player" | "enemy"): Vec {
   const previous = kind === "player" ? previousState?.players[id]?.position : previousState?.enemies[id]?.position;
   if (!previous || !snapshotReceivedAt) return current;
-  const alpha = Math.min(1, Math.max(0, (performance.now() - snapshotReceivedAt) / 50));
+  const alpha = Math.min(1, Math.max(0, (performance.now() - snapshotReceivedAt) / SNAPSHOT_INTERVAL_MS));
   return {
     x: previous.x + (current.x - previous.x) * alpha,
     z: previous.z + (current.z - previous.z) * alpha
@@ -820,8 +821,7 @@ function renderMapObjects() {
     node.metadata = { signature };
     mapMeshes.set(object.id, node);
     node.getChildMeshes().forEach((mesh) => {
-      mesh.receiveShadows = !lowSpecMode;
-      addShadowCaster(mesh);
+      mesh.receiveShadows = false;
     });
   }
 }
@@ -1119,7 +1119,6 @@ function createPlayer(p: PlayerState) {
   addClassDetails(root, p.id, p.classId, color);
   const ring = MeshBuilder.CreateCylinder(`${p.id}-ring`, { diameter: 1.45, height: 0.025, tessellation: 48 }, scene); ring.parent = root; ring.material = transparentMat(`${p.id}-ringmat`, new Color3(0.1, 0.55, 1), 0.22); ring.metadata = { entityId: p.id };
   ring.position.y = 0.015;
-  root.getChildMeshes().forEach(addShadowCaster);
   meshes.set(p.id, root);
   markEntityMeshes(root, p.id);
   return root;
@@ -1168,7 +1167,6 @@ function createEnemy(e: EnemyState) {
   addEnemyDetails(root, e, size, color);
   const ring = MeshBuilder.CreateCylinder(`${e.id}-ring`, { diameter: size * 1.55, height: 0.025, tessellation: 48 }, scene); ring.parent = root; ring.material = transparentMat(`${e.id}-ringmat`, new Color3(0.9, 0.1, 0.08), 0.24); ring.metadata = { entityId: e.id };
   ring.position.y = 0.015;
-  root.getChildMeshes().forEach(addShadowCaster);
   meshes.set(e.id, root);
   markEntityMeshes(root, e.id);
   return root;
@@ -2163,10 +2161,6 @@ function box(name: string, opts: { width: number; height: number; depth: number 
   const mesh = MeshBuilder.CreateBox(name, opts, scene);
   mesh.material = mat(`${name}-mat`, color);
   return mesh;
-}
-
-function addShadowCaster(mesh: AbstractMesh) {
-  if (!lowSpecMode) shadowGenerator.addShadowCaster(mesh);
 }
 
 function mat(name: string, color: Color3) {

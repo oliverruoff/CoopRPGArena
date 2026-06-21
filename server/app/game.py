@@ -102,6 +102,7 @@ class Game:
         self.events: list[dict[str, Any]] = []
         self.map_objects: list[dict[str, Any]] = []
         self.ground_effects: list[dict[str, Any]] = []
+        self._map_revision = 0
         self._event_seq = 0
         self._ground_effect_seq = 0
         self._player_seq = 0
@@ -118,6 +119,7 @@ class Game:
             self.countdown_until = None
             self.events.clear()
             self.ground_effects.clear()
+            self._map_revision = 0
             self._player_seq = 0
             self._enemy_seq = 0
             self._event_seq = 0
@@ -236,6 +238,7 @@ class Game:
 
     def _generate_map_locked(self) -> None:
         self.map_objects = []
+        self._map_revision += 1
         arena = self.constants["arenaRadius"] - 2.2
         used: list[tuple[float, float, float]] = []
         seq = 0
@@ -991,14 +994,14 @@ class Game:
             self.match_state = "defeat"
             self.wave["state"] = "failed"
 
-    async def snapshot(self, player_id: str | None = None) -> dict[str, Any]:
+    async def snapshot(self, player_id: str | None = None, include_static: bool = True) -> dict[str, Any]:
         async with self._lock:
             events = self.events[-20:]
-            return self._snapshot_locked(player_id, events)
+            return self._snapshot_locked(player_id, events, include_static)
 
-    def _snapshot_locked(self, player_id: str | None = None, events: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+    def _snapshot_locked(self, player_id: str | None = None, events: list[dict[str, Any]] | None = None, include_static: bool = True) -> dict[str, Any]:
         now = time.monotonic()
-        return {
+        snapshot = {
             "type": "state_snapshot",
             "you": player_id,
             "matchState": self.match_state,
@@ -1006,11 +1009,14 @@ class Game:
             "players": {pid: self._player_dict(p, now) for pid, p in self.players.items()},
             "enemies": {eid: self._enemy_dict(e) for eid, e in self.enemies.items()},
             "wave": {**self.wave, "aliveEnemies": len(self.enemies), "nextWaveIn": max(0, round((self.wave.get("nextWaveAt", now) - now), 1)) if self.wave.get("nextWaveAt") is not None else None},
-            "mapObjects": self.map_objects,
+            "mapRevision": self._map_revision,
             "groundEffects": self._ground_effects_dict(now),
             "events": events or [],
-            "abilities": self.abilities,
         }
+        if include_static:
+            snapshot["mapObjects"] = self.map_objects
+            snapshot["abilities"] = self.abilities
+        return snapshot
 
     def _ground_effects_dict(self, now: float) -> list[dict[str, Any]]:
         return [
