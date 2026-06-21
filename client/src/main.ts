@@ -4,21 +4,22 @@ import "./style.css";
 type Vec = { x: number; z: number };
 type CastState = { abilityId: string; targetId: string | null; duration: number; remaining: number; progress: number };
 type AutoAttackState = { remaining: number; interval: number; progress: number };
-type PlayerState = { id: string; name: string; classId: string | null; ready: boolean; hp: number; maxHealth: number; resource: number; maxResource: number; resourceType: string | null; level: number; xp: number; dead: boolean; targetId: string | null; allyTargetId: string | null; position: Vec; facing: number; jumping: boolean; jumpProgress: number; abilities: string[]; abilitySlots?: Record<string, number>; cooldowns: Record<string, number>; globalCooldown: number; autoAttack: AutoAttackState; pendingUpgrades: Upgrade[]; stats: Record<string, number>; shield?: number; shieldRemaining?: number; casting: CastState | null };
+type PlayerState = { id: string; name: string; classId: string | null; ready: boolean; hp: number; maxHealth: number; resource: number; maxResource: number; resourceType: string | null; level: number; xp: number; dead: boolean; targetId: string | null; allyTargetId: string | null; position: Vec; facing: number; jumping: boolean; jumpProgress: number; abilities: string[]; abilitySlots?: Record<string, number>; cooldowns: Record<string, number>; globalCooldown: number; autoAttack: AutoAttackState; pendingUpgrades: Upgrade[]; stats: Record<string, number>; baseStats?: Record<string, number>; shield?: number; shieldRemaining?: number; casting: CastState | null; lobbyUpgradePoints?: number; lobbyUpgrades?: Upgrade[] };
 type EnemyState = { id: string; type: string; name: string; hp: number; maxHealth: number; position: Vec; boss: boolean; alerted?: boolean; facing?: number };
 type MapObject = { id: string; type: string; x: number; z: number; radius?: number; width?: number; depth?: number; blocksSight?: boolean; variant?: number };
 type GroundEffect = { id: string; type: string; abilityId?: string; x: number; z: number; radius: number; remaining?: number };
-type Upgrade = { id: string; name: string; choiceType?: string; abilityId?: string; description?: string };
-type Ability = { id: string; name: string; slot: number; targetType: string; cooldown: number; resourceCost?: { type: string; amount: number }; castTime?: number; range?: number; description?: string; effects?: Array<{ type: string; amount?: number; school?: string; scaling?: { stat: string; coefficient: number }; duration?: number; tickInterval?: number; slowPercent?: number; radius?: number }> };
+type Upgrade = { id: string; name: string; choiceType?: string; abilityId?: string; description?: string; stat?: string; mode?: string; value?: number };
+type ClassData = { id: string; name: string; description: string; resourceType: string; startingResource: number; baseStats: Record<string, number>; statGrowth: Record<string, number>; startingAbilities: string[] };
+type Ability = { id: string; name: string; classId: string; slot: number; targetType: string; cooldown: number; resourceCost?: { type: string; amount: number }; castTime?: number; range?: number; description?: string; effects?: Array<{ type: string; amount?: number; school?: string; scaling?: { stat: string; coefficient: number }; duration?: number; tickInterval?: number; slowPercent?: number; radius?: number; multiplier?: number; center?: string }> };
 type CombatEvent = { id: number; type: string; sourceId?: string; targetId?: string; abilityId?: string; castTime?: number; duration?: number; amount?: number; school?: string };
-type Snapshot = { type: string; you: string; matchState: string; countdown: number | null; players: Record<string, PlayerState>; enemies: Record<string, EnemyState>; mapObjects: MapObject[]; mapRevision?: number; groundEffects?: GroundEffect[]; wave: { number: number; state: string; aliveEnemies: number; nextWaveIn?: number }; abilities: Record<string, Ability>; events: CombatEvent[] };
-type IncomingSnapshot = Omit<Snapshot, "mapObjects" | "abilities"> & { mapObjects?: MapObject[]; abilities?: Record<string, Ability> };
+type Snapshot = { type: string; you: string; matchState: string; countdown: number | null; players: Record<string, PlayerState>; enemies: Record<string, EnemyState>; mapObjects: MapObject[]; mapRevision?: number; groundEffects?: GroundEffect[]; wave: { number: number; state: string; aliveEnemies: number; nextWaveIn?: number }; abilities: Record<string, Ability>; classes: Record<string, ClassData>; upgrades: Upgrade[]; events: CombatEvent[] };
+type IncomingSnapshot = Omit<Snapshot, "mapObjects" | "abilities" | "classes" | "upgrades"> & { mapObjects?: MapObject[]; abilities?: Record<string, Ability>; classes?: Record<string, ClassData>; upgrades?: Upgrade[] };
 
 const classInfo: Record<string, { name: string; description: string; stats: string[] }> = {
-  warrior: { name: "Warrior", description: "A durable frontliner. Great at surviving, holding enemy attention, and smashing threats up close.", stats: ["HP 180", "Rage", "Armor 35", "Melee bruiser / tank"] },
-  hunter: { name: "Hunter", description: "A mobile ranged damage dealer. Keeps pressure from afar with fast shots and strong uptime.", stats: ["HP 125", "Focus", "Attack Power 22", "Ranged sustained DPS"] },
-  priest: { name: "Priest", description: "A holy support caster. Heals allies, deals holy damage, and can keep a group alive through pressure.", stats: ["HP 115", "Mana 120", "Spell Power 20", "Healer / holy caster"] },
-  mage: { name: "Mage", description: "A fragile elemental nuker. Firebolt burns enemies over time; Frostbolt can be learned later to help the team kite.", stats: ["HP 105", "Mana 130", "Spell Power 26", "Burst / control caster"] }
+  warrior: { name: "Warrior", description: "A durable frontliner. Great at surviving, holding enemy attention, and smashing threats up close.", stats: ["HP 162", "Rage", "Armor 32", "Melee bruiser / tank"] },
+  hunter: { name: "Hunter", description: "A mobile ranged damage dealer. Keeps pressure from afar with fast shots and strong uptime.", stats: ["HP 112", "Focus", "Attack Power 20", "Ranged sustained DPS"] },
+  priest: { name: "Priest", description: "A holy support caster. Heals allies, deals holy damage, and can keep a group alive through pressure.", stats: ["HP 103", "Mana 120", "Spell Power 18", "Healer / holy caster"] },
+  mage: { name: "Mage", description: "A fragile elemental nuker. Firebolt burns enemies over time; Frostbolt can be learned later to help the team kite.", stats: ["HP 94", "Mana 130", "Spell Power 23", "Burst / control caster"] }
 };
 const SNAPSHOT_INTERVAL_MS = 1000 / 15;
 
@@ -39,11 +40,17 @@ root.innerHTML = `
       <button data-testid="class-priest" data-class="priest">Priest</button>
       <button data-testid="class-mage" data-class="mage">Mage</button>
     </div>
+    <div id="lobbyUpgrades" data-testid="lobby-upgrades">
+      <h3>Stat Upgrades <span id="lobbyUpgradePoints" data-testid="lobby-upgrade-points">3</span></h3>
+      <p>Distribute 3 stat upgrades before readying up.</p>
+      <div id="lobbyUpgradeChoices" data-testid="lobby-upgrade-choices"></div>
+      <button id="resetLobbyUpgrades" data-testid="reset-lobby-upgrades">Reset Upgrades</button>
+    </div>
     <button id="ready" data-testid="ready-button">Ready</button>
     <div id="lobbyPlayers"></div>
-    <div id="classPreviewInfo" data-testid="class-preview-info"></div>
     <div id="countdown" data-testid="countdown"></div>
   </section>
+  <div id="classPreviewInfo" data-testid="class-preview-info"></div>
   <section id="hud">
     <div id="party" data-testid="party"></div>
     <div id="target" data-testid="target-frame">No target</div>
@@ -145,6 +152,8 @@ let reconnectDelay = 1000;
 let hoveredAbilityId: string | null = null;
 let hoverRangeRing: Mesh | null = null;
 let localPlayerName: string | null = null;
+let optimisticAllyTargetId: string | null = null;
+let lastClassPreviewInfoSignature = "";
 
 function isLocalhostOnlyUrl(url: string): boolean {
   try {
@@ -208,6 +217,21 @@ function setPlayerName(name: string) {
   send({ type: "set_name", name: localPlayerName });
 }
 
+function targetPartyPlayer(playerId: string) {
+  if (!state?.players[playerId]) return;
+  optimisticAllyTargetId = playerId;
+  const me = state.players[state.you];
+  if (me) {
+    me.allyTargetId = playerId;
+    me.targetId = null;
+  }
+  markSelectedPartyFrame(playerId);
+  text("target", `${state.players[playerId].name} ${Math.round(state.players[playerId].hp)}/${Math.round(state.players[playerId].maxHealth)}`);
+  unlockAudio();
+  playUiClickSound();
+  send({ type: "select_target", targetId: playerId });
+}
+
 function renderNameSuggestions() {
   const container = document.querySelector<HTMLElement>("#nameSuggestions")!;
   const picks = Array.from({ length: 5 }, () => pickSuggestedName());
@@ -247,16 +271,22 @@ document.querySelector<HTMLButtonElement>("#ready")!.addEventListener("click", (
   if (!selectedClassId) return;
   unlockAudio();
   playUiClickSound();
-  send({ type: "select_class", classId: selectedClassId });
   send({ type: "ready", ready: true });
 });
 document.querySelector<HTMLButtonElement>("#restart")!.addEventListener("click", () => { unlockAudio(); playUiClickSound(); send({ type: "restart_match" }); });
-document.querySelector<HTMLElement>("#party")!.addEventListener("click", (event) => {
-  const button = (event.target as HTMLElement).closest<HTMLButtonElement>(".partyFrame");
-  if (!button?.dataset.id) return;
-  unlockAudio();
-  playUiClickSound();
-  send({ type: "select_target", targetId: button.dataset.id });
+document.querySelector<HTMLElement>("#party")!.addEventListener("pointerdown", (event) => {
+  const frame = (event.target as HTMLElement).closest<HTMLElement>(".partyFrame");
+  if (!frame?.dataset.id) return;
+  event.preventDefault();
+  event.stopPropagation();
+  targetPartyPlayer(frame.dataset.id);
+});
+document.querySelector<HTMLElement>("#party")!.addEventListener("keydown", (event) => {
+  if (event.key !== "Enter" && event.key !== " ") return;
+  const frame = (event.target as HTMLElement).closest<HTMLElement>(".partyFrame");
+  if (!frame?.dataset.id) return;
+  event.preventDefault();
+  targetPartyPlayer(frame.dataset.id);
 });
 document.querySelector<HTMLElement>("#levelPanel")!.addEventListener("click", (event) => {
   const button = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-upgrade]");
@@ -270,6 +300,19 @@ document.querySelector<HTMLElement>("#levelPanel")!.addEventListener("click", (e
     });
     send({ type: "choose_upgrade", upgradeId: button.dataset.upgrade });
   }
+});
+document.querySelector<HTMLElement>("#lobbyUpgradeChoices")!.addEventListener("click", (event) => {
+  const button = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-lobby-upgrade]");
+  if (button?.dataset.lobbyUpgrade) {
+    unlockAudio();
+    playUiClickSound();
+    send({ type: "choose_lobby_upgrade", upgradeId: button.dataset.lobbyUpgrade });
+  }
+});
+document.querySelector<HTMLButtonElement>("#resetLobbyUpgrades")!.addEventListener("click", () => {
+  unlockAudio();
+  playUiClickSound();
+  send({ type: "reset_lobby_upgrades" });
 });
 document.querySelectorAll<HTMLButtonElement>("[data-slot]").forEach((button) => {
   button.addEventListener("click", () => { unlockAudio(); cast(slotNumber(button.dataset.slot)); });
@@ -306,7 +349,13 @@ scene.onPointerObservable.add((pointerInfo) => {
   unlockAudio();
   const pick = scene.pick(scene.pointerX, scene.pointerY);
   const id = pick?.pickedMesh?.metadata?.entityId;
-  if (id) send({ type: "select_target", targetId: id });
+  if (!id) return;
+  if (state?.players[id]) {
+    targetPartyPlayer(id);
+    return;
+  }
+  optimisticAllyTargetId = null;
+  send({ type: "select_target", targetId: id });
 });
 
 engine.runRenderLoop(() => {
@@ -336,11 +385,14 @@ function renderUi() {
   document.body.dataset.mode = state.matchState;
   document.querySelector<HTMLElement>("#lobby")!.style.display = state.matchState === "lobby" ? "block" : "none";
   document.querySelector<HTMLElement>("#hud")!.style.display = state.matchState === "lobby" ? "none" : "block";
+  document.querySelector<HTMLElement>("#classPreviewInfo")!.style.display = state.matchState === "lobby" ? "block" : "none";
   if (classPreview) classPreview.setEnabled(state.matchState === "lobby");
   text("countdown", state.countdown ? `Starting in ${Math.ceil(state.countdown)}` : "");
-  document.querySelector("#lobbyPlayers")!.innerHTML = `<h3 data-testid="lobby-player-count">Players connected: ${Object.keys(state.players).length}</h3>` + Object.values(state.players).map((p) => {
+  const currentState = state;
+  document.querySelector("#lobbyPlayers")!.innerHTML = `<h3 data-testid="lobby-player-count">Players connected: ${Object.keys(currentState.players).length}</h3>` + Object.values(currentState.players).map((p) => {
     const isYou = p.id === you;
-    const className = p.classId ? classInfo[p.classId]?.name || p.classId : "choosing class";
+    const classes = currentState.classes;
+    const className = p.classId ? classes[p.classId]?.name || p.classId : "choosing class";
     const status = p.ready ? "Ready" : p.classId ? "Picking..." : "Choosing name/class";
     return `<div class="lobbyPlayer${p.ready ? " ready" : ""}${isYou ? " you" : ""}" data-testid="lobby-player" data-id="${p.id}">
       <b>${p.name}${isYou ? " (you)" : ""}</b>
@@ -352,7 +404,31 @@ function renderUi() {
     btn.classList.toggle("selectedClass", Boolean(me?.classId) && btn.dataset.class === me?.classId);
   });
   const readyButton = document.querySelector<HTMLButtonElement>("#ready")!;
-  readyButton.disabled = !Boolean(me?.classId);
+  const lobbyUpgradePoints = (me?.lobbyUpgradePoints ?? 0);
+  const hasClass = Boolean(me?.classId);
+  readyButton.disabled = !hasClass || lobbyUpgradePoints > 0;
+  const lobbyUpgradesPanel = document.querySelector<HTMLElement>("#lobbyUpgrades")!;
+  lobbyUpgradesPanel.style.display = hasClass ? "block" : "none";
+  text("lobbyUpgradePoints", `${lobbyUpgradePoints}`);
+  const lobbyUpgradeChoices = document.querySelector<HTMLElement>("#lobbyUpgradeChoices")!;
+  const lobbyUpgradesSignature = (me?.lobbyUpgrades || []).map((u) => u.id).join(",") + "|" + lobbyUpgradePoints;
+  if (lobbyUpgradeChoices.dataset.signature !== lobbyUpgradesSignature) {
+    lobbyUpgradeChoices.dataset.signature = lobbyUpgradesSignature;
+    if (hasClass && lobbyUpgradePoints > 0) {
+      lobbyUpgradeChoices.innerHTML = state.upgrades.map((u) => renderLobbyUpgradeChoice(u)).join("");
+    } else if (hasClass && lobbyUpgradePoints === 0) {
+      lobbyUpgradeChoices.innerHTML = `<div class="lobbyUpgradesDone">All upgrades spent. Ready up!</div>`;
+    } else {
+      lobbyUpgradeChoices.innerHTML = "";
+    }
+  }
+  if (hasClass && me?.classId) {
+    const previewInfoSignature = `${me.classId}|${JSON.stringify(me.stats)}|${Object.keys(state.abilities).length}`;
+    if (previewInfoSignature !== lastClassPreviewInfoSignature) {
+      renderClassPreviewInfo(me.classId);
+      lastClassPreviewInfoSignature = previewInfoSignature;
+    }
+  }
   const nameInput = document.querySelector<HTMLInputElement>("#playerName")!;
   const isEditingName = document.activeElement === nameInput;
   if (me && !isEditingName && localPlayerName === null && nameInput.value !== me.name) nameInput.value = me.name;
@@ -373,7 +449,8 @@ function renderUi() {
   } else {
     text("wave", `Wave ${state.wave.number} • ${state.wave.aliveEnemies} enemies`);
   }
-  document.querySelector("#party")!.innerHTML = Object.values(state.players).map((p) => `<button class="partyFrame${me.allyTargetId === p.id ? " selectedTarget" : ""}" data-testid="party-frame" data-id="${p.id}">${p.name}<br>${p.classId || "No class"}<div class="mini"><span style="width:${Math.max(0, p.hp / p.maxHealth * 100)}%"></span></div>${p.dead ? "Down" : ""}</button>`).join("");
+  const selectedAllyId = me.allyTargetId || optimisticAllyTargetId;
+  document.querySelector("#party")!.innerHTML = Object.values(state.players).map((p) => renderPartyFrame(p, selectedAllyId)).join("");
   const target = me.targetId ? state.enemies[me.targetId] : me.allyTargetId ? state.players[me.allyTargetId] : null;
   text("target", target ? `${target.name} ${Math.round(target.hp)}/${Math.round(target.maxHealth)}` : "No target");
   for (let slot = 1; slot <= 7; slot++) {
@@ -416,7 +493,9 @@ function mergeSnapshot(incoming: IncomingSnapshot): Snapshot {
   return {
     ...incoming,
     mapObjects: incoming.mapObjects ?? state?.mapObjects ?? [],
-    abilities: incoming.abilities ?? state?.abilities ?? {}
+    abilities: incoming.abilities ?? state?.abilities ?? {},
+    classes: incoming.classes ?? state?.classes ?? {},
+    upgrades: incoming.upgrades ?? state?.upgrades ?? []
   };
 }
 
@@ -448,12 +527,37 @@ function worldStaticSignature(snapshot: Snapshot) {
 
 function renderStatsPanel(me: PlayerState) {
   const panel = document.querySelector<HTMLElement>("#statsPanel")!;
-  const orderedStats = ["maxHealth", "maxResource", "attackPower", "spellPower", "armor", "resistance", "critChance", "critMultiplier", "moveSpeed", "resourceRegen", "resourceCostMultiplier", "autoAttackDamage", "autoAttackInterval", "autoAttackRange"];
+  const orderedStats = ["maxHealth", "maxResource", "attackPower", "spellPower", "armor", "resistance", "critChance", "critMultiplier", "moveSpeed", "resourceRegen", "resourceCostMultiplier", "autoAttackDamage", "autoAttackInterval", "autoAttackRange", "cooldownReduction", "castSpeed"];
   panel.innerHTML = `<h2>Current Stats</h2>${orderedStats.map((stat) => {
     const value = me.stats?.[stat];
     if (value === undefined) return "";
-    return `<div class="statRow"><span>${statLabel(stat)}</span><b>${formatStat(stat, value)}</b></div>`;
+    const base = me.baseStats?.[stat];
+    const improvement = base !== undefined && value !== base ? formatStatImprovement(stat, value, base) : "";
+    return `<div class="statRow"><span>${statLabel(stat)}</span><b>${formatStat(stat, value)}${improvement ? ` <em class="statImprovement">${improvement}</em>` : ""}</b></div>`;
   }).join("")}`;
+}
+
+function formatStatImprovement(stat: string, current: number, base: number) {
+  if (current === base) return "";
+  const diff = current - base;
+  if (stat === "critChance" || stat === "cooldownReduction") {
+    const pct = Math.round(diff * 100);
+    return `(${pct >= 0 ? "+" : ""}${pct}%)`;
+  }
+  if (stat === "resourceCostMultiplier" || stat === "castSpeed") {
+    const sign = diff >= 0 ? "+" : "";
+    return `(${sign}${diff.toFixed(2)})`;
+  }
+  if (stat === "critMultiplier") {
+    const sign = diff >= 0 ? "+" : "";
+    return `(${sign}${diff.toFixed(1)}x)`;
+  }
+  const pct = base !== 0 ? Math.round((diff / base) * 100) : 0;
+  return `(${pct >= 0 ? "+" : ""}${pct}%)`;
+}
+
+function renderLobbyUpgradeChoice(choice: Upgrade) {
+  return `<button data-lobby-upgrade="${choice.id}" data-testid="lobby-upgrade-${choice.id}">${choice.name}</button>`;
 }
 
 function renderLevelChoice(choice: Upgrade) {
@@ -462,6 +566,25 @@ function renderLevelChoice(choice: Upgrade) {
     return `<button class="spellChoice" data-upgrade="${choice.id}"><b>${choice.name}</b><span>${ability.description || choice.description || abilityDescription(choice.abilityId)}</span></button>`;
   }
   return `<button data-upgrade="${choice.id}">${choice.name}</button>`;
+}
+
+function renderPartyFrame(player: PlayerState, selectedAllyId: string | null) {
+  const selected = selectedAllyId === player.id;
+  const hpPercent = Math.max(0, player.hp / player.maxHealth * 100);
+  return `<div class="partyFrame${selected ? " selectedTarget" : ""}${player.dead ? " dead" : ""}" role="button" tabindex="0" aria-pressed="${selected}" data-testid="party-frame" data-id="${player.id}">
+    <b>${player.name}</b><br>
+    <span>${player.classId || "No class"}</span>
+    <div class="mini"><span style="width:${hpPercent}%"></span></div>
+    ${player.dead ? `<span class="partyState">Down</span>` : ""}
+  </div>`;
+}
+
+function markSelectedPartyFrame(playerId: string) {
+  document.querySelectorAll<HTMLElement>("#party .partyFrame").forEach((frame) => {
+    const selected = frame.dataset.id === playerId;
+    frame.classList.toggle("selectedTarget", selected);
+    frame.setAttribute("aria-pressed", String(selected));
+  });
 }
 
 function abilitySlot(player: PlayerState, abilityId: string) {
@@ -496,15 +619,18 @@ function statLabel(stat: string) {
     resourceCostMultiplier: "Resource Costs",
     autoAttackDamage: "Auto Damage",
     autoAttackInterval: "Auto Speed",
-    autoAttackRange: "Auto Range"
+    autoAttackRange: "Auto Range",
+    cooldownReduction: "CD Reduction",
+    castSpeed: "Cast Speed"
   };
   return labels[stat] || stat;
 }
 
 function formatStat(stat: string, value: number) {
-  if (stat === "critChance") return `${Math.round(value * 100)}%`;
+  if (stat === "critChance" || stat === "cooldownReduction") return `${Math.round(value * 100)}%`;
   if (stat === "resourceCostMultiplier") return `${Math.round(value * 100)}%`;
   if (stat === "critMultiplier") return `${value.toFixed(1)}x`;
+  if (stat === "castSpeed") return `${value.toFixed(2)}`;
   return Number.isInteger(value) ? `${value}` : value.toFixed(1);
 }
 
@@ -643,8 +769,74 @@ function updateClassPreview(classId: string) {
   classPreview = createPreviewModel(classId);
   classPreview.scaling.setAll(2.2);
   updateLobbyPreviewPlacement();
-  const info = classInfo[classId];
-  document.querySelector("#classPreviewInfo")!.innerHTML = `<h2>${info.name}</h2><p>${info.description}</p>${info.stats.map((stat) => `<div>${stat}</div>`).join("")}`;
+  renderClassPreviewInfo(classId);
+  lastClassPreviewInfoSignature = `${classId}|${JSON.stringify(state?.players[state.you]?.stats || {})}|${Object.keys(state?.abilities || {}).length}`;
+}
+
+function renderClassPreviewInfo(classId: string) {
+  const cls = state?.classes?.[classId];
+  const fallback = classInfo[classId];
+  const name = cls?.name || fallback.name;
+  const description = cls?.description || fallback.description;
+  const statRows = renderClassStatRows(classId);
+  const abilities = Object.values(state?.abilities || {})
+    .filter((a) => a.classId === classId)
+    .sort((a, b) => a.slot - b.slot);
+  const abilitiesHtml = abilities.length
+    ? `<div class="classAbilities"><h3>Spells</h3>${abilities.map((a) => renderClassAbility(a)).join("")}</div>`
+    : "";
+  document.querySelector("#classPreviewInfo")!.innerHTML = `<h2>${name}</h2><p>${description}</p><h3>Current Class Stats</h3><div class="classStats">${statRows}</div>${abilitiesHtml}`;
+}
+
+function renderClassStatRows(classId: string) {
+  const cls = state?.classes?.[classId];
+  const me = state?.players[state.you];
+  const currentStats = me?.classId === classId && me.stats ? me.stats : cls?.baseStats || {};
+  const baseStats = me?.classId === classId && me.baseStats ? me.baseStats : cls?.baseStats || {};
+  return [
+    { label: "HP", stat: "maxHealth" },
+    { label: "Resource", stat: "maxResource" },
+    { label: "Attack Power", stat: "attackPower" },
+    { label: "Spell Power", stat: "spellPower" },
+    { label: "Armor", stat: "armor" },
+    { label: "Resistance", stat: "resistance" },
+    { label: "Crit Chance", stat: "critChance" },
+    { label: "Move Speed", stat: "moveSpeed" },
+    { label: "Auto Damage", stat: "autoAttackDamage" },
+    { label: "Cooldown Reduction", stat: "cooldownReduction" },
+    { label: "Cast Speed", stat: "castSpeed" }
+  ].filter((row) => currentStats[row.stat] !== undefined).map((row) => {
+    const value = currentStats[row.stat];
+    const base = baseStats[row.stat];
+    const improvement = base !== undefined && value !== base ? formatStatImprovement(row.stat, value, base) : "";
+    return `<div><span>${row.label}</span><b>${formatStat(row.stat, value)}${improvement ? ` <em class="statImprovement">${improvement}</em>` : ""}</b></div>`;
+  }).join("");
+}
+
+function renderClassAbility(ability: Ability) {
+  const key = slotKeys[ability.slot] || String(ability.slot);
+  const cost = ability.resourceCost ? `${ability.resourceCost.amount} ${resourceLabel(ability.resourceCost.type)}` : "None";
+  const effects = (ability.effects || []).map((effect) => formatAbilityEffectSummary(effect)).filter(Boolean).join(" • ");
+  return `<div class="classAbility">
+    <div class="classAbilityHeader"><b>${ability.name}</b><span class="classAbilityKey">${key.toUpperCase()}</span></div>
+    <div class="classAbilityTags"><span>${ability.targetType}</span><span>${ability.range || "-"}m</span><span>${ability.cooldown || 0}s CD</span><span>${ability.castTime || 0}s cast</span><span>${cost}</span></div>
+    <p>${ability.description || abilityDescription(ability.id)}</p>
+    ${effects ? `<div class="classAbilityEffects">${effects}</div>` : ""}
+  </div>`;
+}
+
+function formatAbilityEffectSummary(effect: NonNullable<Ability["effects"]>[number]) {
+  if (effect.type === "damage") return `${effect.amount || 0} ${effect.school || ""} damage${effect.radius ? ` in ${effect.radius}m` : ""}`;
+  if (effect.type === "dot") return `${effect.amount || 0} ${effect.school || ""} DoT over ${effect.duration || 0}s`;
+  if (effect.type === "heal") return `${effect.amount || 0} heal${effect.radius ? ` in ${effect.radius}m` : ""}`;
+  if (effect.type === "hot") return `${effect.amount || 0} HoT over ${effect.duration || 0}s`;
+  if (effect.type === "shield") return `${effect.amount || 0} shield for ${effect.duration || 0}s`;
+  if (effect.type === "stun") return `stun ${effect.duration || 0}s${effect.radius ? ` in ${effect.radius}m` : ""}`;
+  if (effect.type === "slow") return `slow ${Math.round((effect.slowPercent || 0) * 100)}% for ${effect.duration || 0}s`;
+  if (effect.type === "aura_damage") return `aura ${effect.amount || 0} damage for ${effect.duration || 0}s`;
+  if (effect.type === "auto_haste") return `auto attack haste x${effect.multiplier || 1} for ${effect.duration || 0}s`;
+  if (effect.type === "trap") return `trap ${effect.radius || 0}m for ${effect.duration || 0}s`;
+  return "";
 }
 
 function updateLobbyPreviewPlacement() {
@@ -657,7 +849,9 @@ function updateLobbyPreviewPlacement() {
 }
 
 function createPreviewModel(classId: string) {
-  const fake: PlayerState = { id: `preview-${classId}`, name: classInfo[classId].name, classId, ready: false, hp: 1, maxHealth: 1, resource: 0, maxResource: 1, resourceType: null, level: 1, xp: 0, dead: false, targetId: null, allyTargetId: null, position: { x: 0, z: 0 }, facing: 0, jumping: false, jumpProgress: 0, abilities: [], cooldowns: {}, globalCooldown: 0, autoAttack: { remaining: 0, interval: 1, progress: 0 }, pendingUpgrades: [], stats: {}, casting: null };
+  const cls = state?.classes?.[classId];
+  const fallback = classInfo[classId];
+  const fake: PlayerState = { id: `preview-${classId}`, name: cls?.name || fallback.name, classId, ready: false, hp: 1, maxHealth: 1, resource: 0, maxResource: 1, resourceType: null, level: 1, xp: 0, dead: false, targetId: null, allyTargetId: null, position: { x: 0, z: 0 }, facing: 0, jumping: false, jumpProgress: 0, abilities: [], cooldowns: {}, globalCooldown: 0, autoAttack: { remaining: 0, interval: 1, progress: 0 }, pendingUpgrades: [], stats: {}, casting: null };
   const preview = createPlayer(fake);
   meshes.delete(fake.id);
   preview.getChildMeshes().forEach((mesh) => mesh.metadata = null);

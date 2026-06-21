@@ -40,11 +40,14 @@ class Player:
     auto_attack_at: float = 0
     jump_until: float = 0
     stats: dict[str, float] = field(default_factory=dict)
+    base_stats: dict[str, float] = field(default_factory=dict)
     abilities: list[str] = field(default_factory=list)
     ability_slots: dict[str, int] = field(default_factory=dict)
     pending_upgrades: list[dict[str, Any]] = field(default_factory=list)
     upgrade_locked: bool = False
     casting: dict[str, Any] | None = None
+    lobby_upgrades: list[dict[str, Any]] = field(default_factory=list)
+    lobby_upgrade_points: int = 0
     facing: float = 0
     shield: float = 0
     shield_until: float = 0
@@ -160,9 +163,14 @@ class Game:
                 if class_id in self.classes:
                     player.class_id = class_id
                     player.ready = False
+                    data = self.classes[class_id]
+                    player.base_stats = dict(data["baseStats"])
+                    player.stats = dict(data["baseStats"])
+                    player.lobby_upgrades = []
+                    player.lobby_upgrade_points = 3
                     self._update_countdown_locked()
             elif typ == "ready" and self.match_state == "lobby":
-                player.ready = bool(msg.get("ready")) and player.class_id is not None
+                player.ready = bool(msg.get("ready")) and player.class_id is not None and player.lobby_upgrade_points == 0
                 self._update_countdown_locked()
             elif typ == "input":
                 movement = msg.get("movement", {})
@@ -187,6 +195,10 @@ class Game:
                 self._cast_ability_locked(player, int(msg.get("abilitySlot", 1)))
             elif typ == "choose_upgrade":
                 self._choose_upgrade_locked(player, msg.get("upgradeId"))
+            elif typ == "choose_lobby_upgrade" and self.match_state == "lobby":
+                self._choose_lobby_upgrade_locked(player, msg.get("upgradeId"))
+            elif typ == "reset_lobby_upgrades" and self.match_state == "lobby":
+                self._reset_lobby_upgrades_locked(player)
             elif typ == "restart_match" and self.match_state in {"defeat", "victory"}:
                 self._restart_to_lobby_locked()
 
@@ -216,6 +228,7 @@ class Game:
             player.auto_attack_at = 0
             player.jump_until = 0
             player.stats = {}
+            player.base_stats = {}
             player.abilities = []
             player.pending_upgrades = []
             player.upgrade_locked = False
@@ -226,13 +239,19 @@ class Game:
             player.auras = []
             player.auto_attack_haste_until = 0
             player.auto_attack_haste_multiplier = 1
+            player.lobby_upgrades = []
+            player.lobby_upgrade_points = 0
 
     def _all_ready_locked(self) -> bool:
-        return bool(self.players) and all(p.ready and p.class_id in self.classes for p in self.players.values())
+        return bool(self.players) and all(
+            p.ready and p.class_id in self.classes and p.lobby_upgrade_points == 0
+            for p in self.players.values()
+        )
 
     def _update_countdown_locked(self) -> None:
         if self._all_ready_locked():
-            self.countdown_until = time.monotonic() + 3
+            if not self.countdown_until:
+                self.countdown_until = time.monotonic() + 3
         else:
             self.countdown_until = None
 
@@ -341,7 +360,14 @@ class Game:
             player.x = math.cos(angle) * radius
             player.z = math.sin(angle) * radius
             data = self.classes[player.class_id]
+            player.base_stats = dict(data["baseStats"])
             player.stats = dict(data["baseStats"])
+            for upgrade in player.lobby_upgrades:
+                stat = upgrade["stat"]
+                if upgrade["mode"] == "mult":
+                    player.stats[stat] = player.stats.get(stat, 0) * upgrade["value"]
+                else:
+                    player.stats[stat] = player.stats.get(stat, 0) + upgrade["value"]
             player.abilities = list(data["startingAbilities"])
             player.ability_slots = {ability_id: self.abilities[ability_id]["slot"] for ability_id in player.abilities}
             player.hp = player.stats["maxHealth"]
@@ -670,11 +696,14 @@ class Game:
             dx = target.x - player.x
             dz = target.z - player.z
             player.facing = math.atan2(dx, dz)
-            gcd_until = now + self.constants["globalCooldown"] if ability.get("globalCooldown") else 0
-            if gcd_until:
+            effective_cast_time = cast_time / max(0.1, player.stats.get("castSpeed", 1.0))
+            cdr = player.stats.get("cooldownReduction", 0.0)
+            gcd_duration = self.constants["globalCooldown"] * (1 - cdr) if ability.get("globalCooldown") else 0
+            gcd_until = now + gcd_duration
+            if gcd_duration:
                 player.global_cooldown_until = gcd_until
-            player.casting = {"abilityId": ability_id, "targetId": getattr(target, "id", None), "startAt": now, "endAt": now + cast_time, "duration": cast_time, "gcdUntil": gcd_until}
-            self._emit_locked({"type": "cast", "sourceId": player.id, "targetId": getattr(target, "id", None), "abilityId": ability_id, "castTime": cast_time})
+            player.casting = {"abilityId": ability_id, "targetId": getattr(target, "id", None), "startAt": now, "endAt": now + effective_cast_time, "duration": effective_cast_time, "gcdUntil": gcd_until}
+            self._emit_locked({"type": "cast", "sourceId": player.id, "targetId": getattr(target, "id", None), "abilityId": ability_id, "castTime": effective_cast_time})
             return
         self._finish_cast_locked(player, ability_id, getattr(target, "id", None))
 
@@ -699,9 +728,10 @@ class Game:
         if target is not player and self._line_of_sight_blocked_locked(player.x, player.z, target.x, target.z):
             return
         player.resource -= cost
-        player.cooldowns[ability_id] = now + ability["cooldown"]
+        cdr = player.stats.get("cooldownReduction", 0.0)
+        player.cooldowns[ability_id] = now + ability["cooldown"] * (1 - cdr)
         if ability.get("globalCooldown") and not started_cast:
-            player.global_cooldown_until = now + self.constants["globalCooldown"]
+            player.global_cooldown_until = now + self.constants["globalCooldown"] * (1 - cdr)
         self._emit_locked({"type": "cast_complete", "sourceId": player.id, "targetId": getattr(target, "id", None), "abilityId": ability_id})
         for effect in ability["effects"]:
             amount = effect.get("amount", 0) + player.stats.get(effect.get("scaling", {}).get("stat", ""), 0) * effect.get("scaling", {}).get("coefficient", 0)
@@ -914,6 +944,31 @@ class Game:
             player.pending_upgrades = self._level_choices_locked(player)
             player.upgrade_locked = False
 
+    def _choose_lobby_upgrade_locked(self, player: Player, upgrade_id: str) -> None:
+        if self.match_state != "lobby" or player.lobby_upgrade_points <= 0:
+            return
+        upgrade = next((u for u in self.upgrades if u["id"] == upgrade_id), None)
+        if not upgrade:
+            return
+        player.lobby_upgrade_points -= 1
+        player.lobby_upgrades.append(upgrade)
+        stat = upgrade["stat"]
+        if upgrade["mode"] == "mult":
+            player.stats[stat] = player.stats.get(stat, 0) * upgrade["value"]
+        else:
+            player.stats[stat] = player.stats.get(stat, 0) + upgrade["value"]
+        player.ready = False
+        self._update_countdown_locked()
+
+    def _reset_lobby_upgrades_locked(self, player: Player) -> None:
+        if self.match_state != "lobby":
+            return
+        player.lobby_upgrade_points += len(player.lobby_upgrades)
+        player.lobby_upgrades = []
+        player.stats = dict(player.base_stats)
+        player.ready = False
+        self._update_countdown_locked()
+
     def _level_choices_locked(self, player: Player) -> list[dict[str, Any]]:
         class_id = player.class_id or "warrior"
         stat_choices = [{**upgrade, "choiceType": "stat"} for upgrade in self.upgrades]
@@ -1016,6 +1071,8 @@ class Game:
         if include_static:
             snapshot["mapObjects"] = self.map_objects
             snapshot["abilities"] = self.abilities
+            snapshot["classes"] = self.classes
+            snapshot["upgrades"] = self.upgrades
         return snapshot
 
     def _ground_effects_dict(self, now: float) -> list[dict[str, Any]]:
@@ -1038,9 +1095,11 @@ class Game:
             "abilities": p.abilities, "abilitySlots": p.ability_slots, "cooldowns": {ability: max(0, round(ends_at - now, 1)) for ability, ends_at in p.cooldowns.items()},
             "globalCooldown": max(0, round(p.global_cooldown_until - now, 1)),
             "autoAttack": self._auto_attack_dict(p, now),
-            "pendingUpgrades": p.pending_upgrades, "stats": p.stats, "shield": round(p.shield, 1),
+            "pendingUpgrades": p.pending_upgrades, "stats": p.stats, "baseStats": p.base_stats, "shield": round(p.shield, 1),
             "shieldRemaining": max(0, round(p.shield_until - now, 1)),
             "casting": self._casting_dict(p.casting, now),
+            "lobbyUpgradePoints": p.lobby_upgrade_points,
+            "lobbyUpgrades": p.lobby_upgrades,
         }
 
     @staticmethod
@@ -1114,6 +1173,11 @@ class Game:
                 if class_id in self.classes:
                     player.class_id = class_id
                     player.ready = True
+                    data = self.classes[class_id]
+                    player.base_stats = dict(data["baseStats"])
+                    player.stats = dict(data["baseStats"])
+                    player.lobby_upgrade_points = 0
+                    player.lobby_upgrades = []
                 return {"ok": True, "playerId": player.id}
             elif action == "cast_ability":
                 player = self.players.get(payload["playerId"])

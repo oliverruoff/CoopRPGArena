@@ -20,6 +20,7 @@ async def _lobby_start_and_spawn_enemy():
     game = Game()
     p = await game.add_player()
     await game.handle_message(p.id, {"type": "select_class", "classId": "mage"})
+    await _spend_lobby_upgrades(game, p.id)
     await game.handle_message(p.id, {"type": "ready", "ready": True})
     async with game._lock:
         game._start_match_locked()
@@ -36,6 +37,7 @@ async def _lobby_requires_all_players_selected_and_ready():
     assert mage.class_id is None
     assert unclassed.class_id is None
     await game.handle_message(mage.id, {"type": "select_class", "classId": "mage"})
+    await _spend_lobby_upgrades(game, mage.id)
     await game.handle_message(mage.id, {"type": "ready", "ready": True})
     await game.handle_message(unclassed.id, {"type": "ready", "ready": True})
     async with game._lock:
@@ -45,6 +47,7 @@ async def _lobby_requires_all_players_selected_and_ready():
     assert state["matchState"] == "lobby"
     assert unclassed.id in state["players"]
     await game.handle_message(unclassed.id, {"type": "select_class", "classId": "warrior"})
+    await _spend_lobby_upgrades(game, unclassed.id)
     await game.handle_message(unclassed.id, {"type": "ready", "ready": True})
     async with game._lock:
         assert game.countdown_until is not None
@@ -52,6 +55,11 @@ async def _lobby_requires_all_players_selected_and_ready():
     async with game._lock:
         assert late_joiner.class_id is None
         assert game.countdown_until is None
+
+
+async def _spend_lobby_upgrades(game: Game, player_id: str) -> None:
+    for _ in range(3):
+        await game.handle_message(player_id, {"type": "choose_lobby_upgrade", "upgradeId": "max_health"})
 
 
 def test_healing_creates_threat():

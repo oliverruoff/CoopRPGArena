@@ -5,5 +5,7 @@
   {"id":"resource_efficiency","name":"Resource Costs -15%","stat":"resourceCostMultiplier","mode":"mult","value":0.85},
   {"id":"armor","name":"Armor +15","stat":"armor","mode":"add","value":15},
   {"id":"resistance","name":"Resistance +15","stat":"resistance","mode":"add","value":15},
-  {"id":"regen","name":"Resource Regen +25%","stat":"resourceRegen","mode":"mult","value":1.25}
+  {"id":"regen","name":"Resource Regen +25%","stat":"resourceRegen","mode":"mult","value":1.25},
+  {"id":"cooldown_reduction","name":"Cooldown Reduction +5%","stat":"cooldownReduction","mode":"add","value":0.05},
+  {"id":"cast_speed","name":"Cast Speed +10%","stat":"castSpeed","mode":"mult","value":1.10}
 ]

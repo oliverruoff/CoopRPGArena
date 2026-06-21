@@ -5,7 +5,11 @@ async function startMage(page: import("@playwright/test").Page) {
   await expect(page.getByTestId("lobby")).toBeVisible();
   await page.getByTestId("class-mage").click();
   await expect(page.getByTestId("class-preview-info")).toContainText("Mage");
-  await expect(page.getByTestId("class-preview-info")).toContainText("Fireball burns");
+  await expect(page.getByTestId("class-preview-info")).toContainText("burns enemies over time");
+  for (let i = 0; i < 3; i++) {
+    await page.getByTestId("lobby-upgrade-max_health").click();
+  }
+  await expect(page.getByTestId("lobby-upgrade-points")).toContainText("0");
   await page.getByTestId("ready-button").click();
   await expect(page.getByTestId("wave-counter")).toContainText("Wave 1", { timeout: 14000 });
 }
@@ -25,6 +29,9 @@ test("lobby waits for every player to select a class and ready", async ({ browse
     await expect(playerOne.getByTestId("class-mage")).not.toHaveClass(/selectedClass/);
 
     await playerTwo.getByTestId("class-warrior").click();
+    for (let i = 0; i < 3; i++) {
+      await playerTwo.getByTestId("lobby-upgrade-max_health").click();
+    }
     await expect(playerTwo.getByTestId("ready-button")).toBeEnabled();
     await playerTwo.getByTestId("ready-button").click();
     await playerTwo.waitForTimeout(3500);
@@ -32,6 +39,9 @@ test("lobby waits for every player to select a class and ready", async ({ browse
     await expect(playerTwo.getByTestId("countdown")).toBeEmpty();
 
     await playerOne.getByTestId("class-mage").click();
+    for (let i = 0; i < 3; i++) {
+      await playerOne.getByTestId("lobby-upgrade-max_health").click();
+    }
     await expect(playerOne.getByTestId("ready-button")).toBeEnabled();
     await playerOne.getByTestId("ready-button").click();
     await expect(playerOne.getByTestId("wave-counter")).toContainText("Wave 1", { timeout: 7000 });
@@ -97,7 +107,13 @@ test("priest can heal ally and create threat", async ({ browser, request }) => {
   await priest.goto("/");
   await warrior.goto("/");
   await priest.getByTestId("class-priest").click();
+  for (let i = 0; i < 3; i++) {
+    await priest.getByTestId("lobby-upgrade-max_health").click();
+  }
   await warrior.getByTestId("class-warrior").click();
+  for (let i = 0; i < 3; i++) {
+    await warrior.getByTestId("lobby-upgrade-max_health").click();
+  }
   await priest.getByTestId("ready-button").click();
   await warrior.getByTestId("ready-button").click();
   await expect(priest.getByTestId("wave-counter")).toContainText("Wave 1", { timeout: 7000 });
@@ -128,6 +144,9 @@ test("players can set a name and see it in lobby and world", async ({ page }) =>
   const suggestedName = await page.getByTestId("name-suggestions").getByRole("button").first().innerText();
   await page.getByTestId("name-suggestions").getByRole("button").first().click();
   await page.getByTestId("class-mage").click();
+  for (let i = 0; i < 3; i++) {
+    await page.getByTestId("lobby-upgrade-max_health").click();
+  }
   await page.getByTestId("ready-button").click();
   await expect(page.getByTestId("lobby-player")).toContainText(suggestedName);
   await expect(page.getByTestId("lobby-player")).toContainText("Mage");
