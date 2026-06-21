@@ -17,6 +17,8 @@ button:hover { filter: brightness(1.12); }
 [data-testid="class-mage"] { background: #313ca3; }
 [data-class].selectedClass { outline: 3px solid #facc15; outline-offset: 2px; }
 #ready { width: 100%; background: #111827; }
+button:disabled { background: #9ca3af; color: rgba(255,255,255,0.72); cursor: not-allowed; filter: grayscale(0.35); }
+button:disabled:hover { filter: grayscale(0.35); }
 #classPreviewInfo { position: fixed; left: min(540px, 52vw); top: 8vh; width: min(340px, 38vw); padding: 18px; border-radius: 22px; background: rgba(17,24,39,0.52); color: #fff; box-shadow: 0 20px 70px rgba(0,0,0,0.18); backdrop-filter: blur(10px); }
 #classPreviewInfo h2 { margin: 0 0 8px; font-size: 31px; }
 #classPreviewInfo p { margin: 0 0 14px; line-height: 1.35; color: rgba(255,255,255,0.78); }
@@ -32,8 +34,9 @@ button:hover { filter: brightness(1.12); }
 .lobbyStatus { font-weight: 800; color: #9ca3af; }
 .lobbyPlayer.ready .lobbyStatus { color: #16a34a; }
 #hud { display: none; position: absolute; inset: 0; pointer-events: none; }
-#party { position: absolute; top: 20px; left: 20px; display: grid; gap: 8px; pointer-events: auto; }
-.partyFrame { width: 170px; padding: 10px; text-align: left; background: rgba(20,26,38,0.82); }
+#party { position: absolute; top: 20px; left: 20px; display: grid; gap: 8px; pointer-events: auto; cursor: pointer; }
+.partyFrame { width: 170px; padding: 10px; text-align: left; background: rgba(20,26,38,0.82); border: 2px solid transparent; }
+.partyFrame.selectedTarget { border-color: #60a5fa; background: rgba(59,130,246,0.18); }
 .mini, .bar { height: 12px; background: rgba(0,0,0,0.22); border-radius: 999px; overflow: hidden; }
 .mini span, .bar span { display: block; height: 100%; background: #46d06f; }
 #target { position: absolute; top: 20px; left: 50%; transform: translateX(-50%); min-width: 260px; padding: 14px; border-radius: 18px; background: rgba(255,255,255,0.88); text-align: center; font-weight: 900; }

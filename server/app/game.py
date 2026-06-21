@@ -129,6 +129,8 @@ class Game:
         self._player_seq += 1
         player = Player(id=f"player_{self._player_seq}", name=f"Player {self._player_seq}")
         self.players[player.id] = player
+        if self.match_state == "lobby":
+            self._update_countdown_locked()
         return player
 
     async def add_player(self) -> Player:
@@ -156,6 +158,7 @@ class Game:
                 if class_id in self.classes:
                     player.class_id = class_id
                     player.ready = False
+                    self._update_countdown_locked()
             elif typ == "ready" and self.match_state == "lobby":
                 player.ready = bool(msg.get("ready")) and player.class_id is not None
                 self._update_countdown_locked()
@@ -223,11 +226,10 @@ class Game:
             player.auto_attack_haste_multiplier = 1
 
     def _all_ready_locked(self) -> bool:
-        classed = [p for p in self.players.values() if p.class_id]
-        return bool(classed) and all(p.ready for p in classed)
+        return bool(self.players) and all(p.ready and p.class_id in self.classes for p in self.players.values())
 
     def _update_countdown_locked(self) -> None:
-        if self._all_ready_locked() or (len(self.players) == 1 and self.players[next(iter(self.players))].ready):
+        if self._all_ready_locked():
             self.countdown_until = time.monotonic() + 3
         else:
             self.countdown_until = None
@@ -318,6 +320,15 @@ class Game:
             add("ruin", spot[0], spot[1], radius=round(random.uniform(1.3, 2.0), 2), variant=random.randint(0, 2))
 
     def _start_match_locked(self) -> None:
+        if any(player.ready for player in self.players.values()) and not self._all_ready_locked():
+            self.countdown_until = None
+            return
+        if not self.players:
+            self.countdown_until = None
+            return
+        if any(player.class_id not in self.classes for player in self.players.values()):
+            self.countdown_until = None
+            return
         self.match_state = "running"
         self.countdown_until = None
         self._generate_map_locked()
@@ -326,7 +337,7 @@ class Game:
             angle = index * math.tau / max(1, len(self.players))
             player.x = math.cos(angle) * radius
             player.z = math.sin(angle) * radius
-            data = self.classes[player.class_id or "warrior"]
+            data = self.classes[player.class_id]
             player.stats = dict(data["baseStats"])
             player.abilities = list(data["startingAbilities"])
             player.ability_slots = {ability_id: self.abilities[ability_id]["slot"] for ability_id in player.abilities}
@@ -402,7 +413,7 @@ class Game:
             dt = min(0.1, now - self._last_tick)
             self._last_tick = now
             if self.match_state == "lobby" and self.countdown_until and now >= self.countdown_until:
-                if self._all_ready_locked() or (len(self.players) == 1 and self.players[next(iter(self.players))].ready):
+                if self._all_ready_locked():
                     self._start_match_locked()
                 else:
                     self.countdown_until = None

@@ -24,6 +24,7 @@ async def broadcast() -> None:
             await ws.send_json(await game.snapshot(player_id))
         except Exception:
             clients.pop(player_id, None)
+            await game.remove_player(player_id)
 
 
 @asynccontextmanager
@@ -64,14 +65,15 @@ async def debug_action(body: dict):
 @app.websocket("/ws")
 async def websocket_endpoint(ws: WebSocket):
     await ws.accept()
+    player = None
     try:
         player = await game.add_player()
     except ValueError:
         await ws.close(code=1008)
         return
-    clients[player.id] = ws
-    await ws.send_json(await game.snapshot(player.id))
     try:
+        clients[player.id] = ws
+        await ws.send_json(await game.snapshot(player.id))
         while True:
             msg = await ws.receive_json()
             await game.handle_message(player.id, msg)
@@ -79,4 +81,5 @@ async def websocket_endpoint(ws: WebSocket):
         pass
     finally:
         clients.pop(player.id, None)
-        await game.remove_player(player.id)
+        if player is not None:
+            await game.remove_player(player.id)

@@ -115,6 +115,7 @@ const defaultWsUrl = `${window.location.protocol === "https:" ? "wss" : "ws"}://
 // fall back to the page's host so same-network play works out of the box.
 const wsUrl = configuredWsUrl && !isLocalhostOnlyUrl(configuredWsUrl) ? configuredWsUrl : defaultWsUrl;
 let ws: WebSocket;
+const sendQueue: unknown[] = [];
 let state: Snapshot | null = null;
 const meshes = new Map<string, TransformNode>();
 const mapMeshes = new Map<string, TransformNode>();
@@ -127,7 +128,7 @@ const spinVisuals = new Map<string, number>();
 let lastEventId = 0;
 let lastUpgradeSignature = "";
 let upgradeChoiceInFlight = false;
-let selectedClassId = "mage";
+let selectedClassId: string | null = null;
 let classPreview: TransformNode | null = null;
 let previousMatchState: string | null = null;
 let audioContext: AudioContext | null = null;
@@ -140,6 +141,7 @@ let reconnectTimer: number | null = null;
 let reconnectDelay = 1000;
 let hoveredAbilityId: string | null = null;
 let hoverRangeRing: Mesh | null = null;
+let localPlayerName: string | null = null;
 
 function isLocalhostOnlyUrl(url: string): boolean {
   try {
@@ -194,8 +196,9 @@ function pickSuggestedName() {
 
 function setPlayerName(name: string) {
   const input = document.querySelector<HTMLInputElement>("#playerName")!;
-  input.value = name;
-  send({ type: "set_name", name: name.trim().slice(0, 18) });
+  localPlayerName = name.trim().slice(0, 18);
+  input.value = localPlayerName;
+  send({ type: "set_name", name: localPlayerName });
 }
 
 function renderNameSuggestions() {
@@ -211,7 +214,7 @@ function renderNameSuggestions() {
   });
 }
 
-document.querySelector<HTMLInputElement>("#playerName")!.addEventListener("change", () => {
+document.querySelector<HTMLInputElement>("#playerName")!.addEventListener("input", () => {
   setPlayerName(document.querySelector<HTMLInputElement>("#playerName")!.value);
 });
 document.querySelector<HTMLInputElement>("#playerName")!.addEventListener("keydown", (event) => {
@@ -227,13 +230,27 @@ renderNameSuggestions();
 document.querySelectorAll<HTMLButtonElement>("[data-class]").forEach((button) => {
   button.addEventListener("click", () => {
     unlockAudio();
-    selectedClassId = button.dataset.class || "mage";
+    selectedClassId = button.dataset.class || null;
+    if (!selectedClassId) return;
     updateClassPreview(selectedClassId);
     send({ type: "select_class", classId: selectedClassId });
   });
 });
-document.querySelector<HTMLButtonElement>("#ready")!.addEventListener("click", () => { unlockAudio(); playUiClickSound(); send({ type: "ready", ready: true }); });
+document.querySelector<HTMLButtonElement>("#ready")!.addEventListener("click", () => {
+  if (!selectedClassId) return;
+  unlockAudio();
+  playUiClickSound();
+  send({ type: "select_class", classId: selectedClassId });
+  send({ type: "ready", ready: true });
+});
 document.querySelector<HTMLButtonElement>("#restart")!.addEventListener("click", () => { unlockAudio(); playUiClickSound(); send({ type: "restart_match" }); });
+document.querySelector<HTMLElement>("#party")!.addEventListener("click", (event) => {
+  const button = (event.target as HTMLElement).closest<HTMLButtonElement>(".partyFrame");
+  if (!button?.dataset.id) return;
+  unlockAudio();
+  playUiClickSound();
+  send({ type: "select_target", targetId: button.dataset.id });
+});
 document.querySelector<HTMLElement>("#levelPanel")!.addEventListener("click", (event) => {
   const button = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-upgrade]");
   if (button?.dataset.upgrade && !upgradeChoiceInFlight) {
@@ -296,7 +313,7 @@ engine.runRenderLoop(() => {
   updateOverheadUi();
   scene.render();
 });
-updateClassPreview(selectedClassId);
+document.querySelector("#classPreviewInfo")!.innerHTML = `<h2>Choose a class</h2><p>Select a class to preview it and enable Ready.</p>`;
 window.addEventListener("resize", () => engine.resize());
 
 function renderUi() {
@@ -319,11 +336,13 @@ function renderUi() {
     </div>`;
   }).join("");
   document.querySelectorAll<HTMLButtonElement>("[data-class]").forEach((btn) => {
-    btn.classList.toggle("selectedClass", btn.dataset.class === (me?.classId || selectedClassId));
+    btn.classList.toggle("selectedClass", Boolean(me?.classId) && btn.dataset.class === me?.classId);
   });
+  const readyButton = document.querySelector<HTMLButtonElement>("#ready")!;
+  readyButton.disabled = !Boolean(me?.classId);
   const nameInput = document.querySelector<HTMLInputElement>("#playerName")!;
   const isEditingName = document.activeElement === nameInput;
-  if (me && !isEditingName && nameInput.value !== me.name) nameInput.value = me.name;
+  if (me && !isEditingName && localPlayerName === null && nameInput.value !== me.name) nameInput.value = me.name;
   if (!me) return;
   text("level", `Level ${me.level}`);
   width("hp", me.hp / me.maxHealth);
@@ -341,8 +360,7 @@ function renderUi() {
   } else {
     text("wave", `Wave ${state.wave.number} • ${state.wave.aliveEnemies} enemies`);
   }
-  document.querySelector("#party")!.innerHTML = Object.values(state.players).map((p) => `<button class="partyFrame" data-testid="party-frame" data-id="${p.id}">${p.name}<br>${p.classId || "No class"}<div class="mini"><span style="width:${Math.max(0, p.hp / p.maxHealth * 100)}%"></span></div>${p.dead ? "Down" : ""}</button>`).join("");
-  document.querySelectorAll<HTMLButtonElement>(".partyFrame").forEach((b) => b.onclick = () => send({ type: "select_target", targetId: b.dataset.id }));
+  document.querySelector("#party")!.innerHTML = Object.values(state.players).map((p) => `<button class="partyFrame${me.allyTargetId === p.id ? " selectedTarget" : ""}" data-testid="party-frame" data-id="${p.id}">${p.name}<br>${p.classId || "No class"}<div class="mini"><span style="width:${Math.max(0, p.hp / p.maxHealth * 100)}%"></span></div>${p.dead ? "Down" : ""}</button>`).join("");
   const target = me.targetId ? state.enemies[me.targetId] : me.allyTargetId ? state.players[me.allyTargetId] : null;
   text("target", target ? `${target.name} ${Math.round(target.hp)}/${Math.round(target.maxHealth)}` : "No target");
   for (let slot = 1; slot <= 7; slot++) {
@@ -863,7 +881,8 @@ function updateSelectionRing(node: TransformNode, kind: "self" | "enemy" | "ally
 }
 
 function updateEnemyFov(node: TransformNode, enemy: EnemyState) {
-  const cone = node.getChildMeshes().find((mesh) => mesh.name.endsWith("-fov")) || createFovCone(`${enemy.id}-fov`);
+  const cone = node.getChildMeshes().find((mesh) => mesh.name.endsWith("-fov")) as Mesh | undefined || createFovCone(`${enemy.id}-fov`);
+  updateFovCone(cone, enemy);
   cone.parent = node;
   cone.position.set(0, 0.025, 0);
   cone.rotation.y = enemy.facing || 0;
@@ -876,24 +895,87 @@ function updateEnemyFov(node: TransformNode, enemy: EnemyState) {
 
 function createFovCone(name: string) {
   const mesh = new Mesh(name, scene);
-  const range = 12.5;
-  const halfAngle = Math.PI * 62 / 180;
-  const segments = 24;
+  mesh.material = transparentMat(`${name}-mat`, new Color3(1, 0.7, 0.1), 0.22);
+  (mesh.material as StandardMaterial).backFaceCulling = false;
+  mesh.isPickable = false;
+  return mesh;
+}
+
+function updateFovCone(mesh: Mesh, enemy: EnemyState) {
+  const range = 11;
+  const halfAngle = Math.PI * 55 / 180;
+  const segments = 36;
   const positions = [0, 0, 0];
   const indices: number[] = [];
+  const mapObs = state?.mapObjects || [];
+  const ex = enemy.position.x;
+  const ez = enemy.position.z;
+  const facing = enemy.facing || 0;
   for (let i = 0; i <= segments; i++) {
     const angle = -halfAngle + (halfAngle * 2 * i) / segments;
-    positions.push(Math.sin(angle) * range, 0, Math.cos(angle) * range);
+    const localX = Math.sin(angle) * range;
+    const localZ = Math.cos(angle) * range;
+    const world = rotateFovPoint(localX, localZ, facing);
+    const hit = losHitDist(ex, ez, ex + world.x, ez + world.z, mapObs);
+    const visibleDistance = Math.max(0.5, Math.min(range, hit === null ? range : hit - 0.18));
+    positions.push(Math.sin(angle) * visibleDistance, 0, Math.cos(angle) * visibleDistance);
     if (i > 0) indices.push(0, i, i + 1);
   }
   const vertexData = new VertexData();
   vertexData.positions = positions;
   vertexData.indices = indices;
-  vertexData.applyToMesh(mesh);
-  mesh.material = transparentMat(`${name}-mat`, new Color3(1, 0.7, 0.1), 0.22);
-  (mesh.material as StandardMaterial).backFaceCulling = false;
-  mesh.isPickable = false;
-  return mesh;
+  vertexData.applyToMesh(mesh, true);
+}
+
+function rotateFovPoint(x: number, z: number, facing: number) {
+  const s = Math.sin(facing);
+  const c = Math.cos(facing);
+  return { x: x * c + z * s, z: z * c - x * s };
+}
+
+function losHitDist(x1: number, z1: number, x2: number, z2: number, mapObs: MapObject[]): number | null {
+  let best: number | null = null;
+  for (const obj of mapObs) {
+    if (!obj.blocksSight) continue;
+    const hit = segHitDist(x1, z1, x2, z2, obj);
+    if (hit !== null && (best === null || hit < best)) best = hit;
+  }
+  return best;
+}
+
+function segHitDist(x1: number, z1: number, x2: number, z2: number, obj: MapObject): number | null {
+  if (obj.width != null && obj.depth != null) {
+    const minX = obj.x - obj.width / 2;
+    const maxX = obj.x + obj.width / 2;
+    const minZ = obj.z - obj.depth / 2;
+    const maxZ = obj.z + obj.depth / 2;
+    const dx = x2 - x1;
+    const dz = z2 - z1;
+    let tMin = 0;
+    let tMax = 1;
+    for (const [start, delta, low, high] of [[x1, dx, minX, maxX], [z1, dz, minZ, maxZ]] as [number, number, number, number][]) {
+      if (Math.abs(delta) < 0.0001) {
+        if (start < low || start > high) return null;
+      } else {
+        const t1 = (low - start) / delta;
+        const t2 = (high - start) / delta;
+        tMin = Math.max(tMin, Math.min(t1, t2));
+        tMax = Math.min(tMax, Math.max(t1, t2));
+        if (tMin > tMax) return null;
+      }
+    }
+    return tMin * Math.hypot(dx, dz);
+  }
+  const r = obj.radius || 0.8;
+  const dx = x2 - x1;
+  const dz = z2 - z1;
+  const lSq = dx * dx + dz * dz;
+  if (lSq <= 0) return Math.hypot(obj.x - x1, obj.z - z1) <= r ? 0 : null;
+  const t = Math.max(0, Math.min(1, ((obj.x - x1) * dx + (obj.z - z1) * dz) / lSq));
+  const cx = x1 + t * dx;
+  const cz = z1 + t * dz;
+  if (Math.hypot(obj.x - cx, obj.z - cz) <= r) return t * Math.hypot(dx, dz);
+  return null;
 }
 
 function animateWorld() {
@@ -2047,7 +2129,6 @@ function transparentMat(name: string, color: Color3, alpha: number) {
 }
 
 function cast(slot: number) { if (Number.isFinite(slot)) send({ type: "cast_ability", abilitySlot: slot }); }
-const sendQueue: unknown[] = [];
 function flushSendQueue() {
   while (sendQueue.length && ws?.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify(sendQueue.shift()));

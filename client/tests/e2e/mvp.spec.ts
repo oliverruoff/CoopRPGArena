@@ -14,6 +14,33 @@ test.beforeEach(async ({ request }) => {
   await request.post("http://127.0.0.1:8000/debug/action", { data: { action: "reset_match", payload: {} } });
 });
 
+test("lobby waits for every player to select a class and ready", async ({ browser }) => {
+  const playerOne = await browser.newPage();
+  const playerTwo = await browser.newPage();
+  try {
+    await playerOne.goto("/");
+    await playerTwo.goto("/");
+    await expect(playerOne.getByTestId("ready-button")).toBeDisabled();
+    await expect(playerTwo.getByTestId("ready-button")).toBeDisabled();
+    await expect(playerOne.getByTestId("class-mage")).not.toHaveClass(/selectedClass/);
+
+    await playerTwo.getByTestId("class-warrior").click();
+    await expect(playerTwo.getByTestId("ready-button")).toBeEnabled();
+    await playerTwo.getByTestId("ready-button").click();
+    await playerTwo.waitForTimeout(3500);
+    await expect(playerTwo.getByTestId("lobby")).toBeVisible();
+    await expect(playerTwo.getByTestId("countdown")).toBeEmpty();
+
+    await playerOne.getByTestId("class-mage").click();
+    await expect(playerOne.getByTestId("ready-button")).toBeEnabled();
+    await playerOne.getByTestId("ready-button").click();
+    await expect(playerOne.getByTestId("wave-counter")).toContainText("Wave 1", { timeout: 7000 });
+  } finally {
+    await playerOne.close();
+    await playerTwo.close();
+  }
+});
+
 test("single player can start, move, target, level, and win", async ({ page, request }) => {
   await startMage(page);
   await expect(page.getByTestId("hp-label")).toContainText("HP");

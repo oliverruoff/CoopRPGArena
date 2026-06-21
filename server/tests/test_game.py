@@ -12,6 +12,10 @@ def test_lobby_start_and_spawn_enemy():
     asyncio.run(_lobby_start_and_spawn_enemy())
 
 
+def test_lobby_requires_all_players_selected_and_ready():
+    asyncio.run(_lobby_requires_all_players_selected_and_ready())
+
+
 async def _lobby_start_and_spawn_enemy():
     game = Game()
     p = await game.add_player()
@@ -23,6 +27,31 @@ async def _lobby_start_and_spawn_enemy():
     assert state["matchState"] == "running"
     assert state["players"][p.id]["classId"] == "mage"
     assert state["enemies"]
+
+
+async def _lobby_requires_all_players_selected_and_ready():
+    game = Game()
+    mage = await game.add_player()
+    unclassed = await game.add_player()
+    assert mage.class_id is None
+    assert unclassed.class_id is None
+    await game.handle_message(mage.id, {"type": "select_class", "classId": "mage"})
+    await game.handle_message(mage.id, {"type": "ready", "ready": True})
+    await game.handle_message(unclassed.id, {"type": "ready", "ready": True})
+    async with game._lock:
+        assert game.countdown_until is None
+        game._start_match_locked()
+    state = await game.snapshot(mage.id)
+    assert state["matchState"] == "lobby"
+    assert unclassed.id in state["players"]
+    await game.handle_message(unclassed.id, {"type": "select_class", "classId": "warrior"})
+    await game.handle_message(unclassed.id, {"type": "ready", "ready": True})
+    async with game._lock:
+        assert game.countdown_until is not None
+    late_joiner = await game.add_player()
+    async with game._lock:
+        assert late_joiner.class_id is None
+        assert game.countdown_until is None
 
 
 def test_healing_creates_threat():
