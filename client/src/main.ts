@@ -22,6 +22,7 @@ const classInfo: Record<string, { name: string; description: string; stats: stri
   mage: { name: "Mage", description: "A fragile elemental nuker. Firebolt burns enemies over time; Frostbolt can be learned later to help the team kite.", stats: ["HP 94", "Mana 130", "Spell Power 23", "Burst / control caster"] }
 };
 const SNAPSHOT_INTERVAL_MS = 1000 / 15;
+const JUMP_DURATION_SECONDS = 0.36;
 
 const root = document.querySelector<HTMLDivElement>("#app")!;
 root.innerHTML = `
@@ -926,8 +927,11 @@ function renderWorld() {
     const position = interpolatedPosition(p.id, p.position, "player");
     node.position.x = position.x;
     node.position.z = position.z;
-    const jumpY = p.jumping ? 4 * Math.max(0, p.jumpProgress) * Math.max(0, 1 - p.jumpProgress) * 0.9 : 0;
-    node.position.y = p.dead ? -0.2 : jumpY;
+    const jumpElapsed = Math.max(0, (performance.now() - snapshotReceivedAt) / 1000);
+    const jumpProgress = p.jumping ? Math.min(1, Math.max(0, p.jumpProgress) + jumpElapsed / JUMP_DURATION_SECONDS) : 1;
+    const jumpY = p.jumping ? 4 * jumpProgress * (1 - jumpProgress) * 0.9 : 0;
+    const targetY = p.dead ? -0.2 : jumpY;
+    node.position.y = lerpValue(node.position.y, targetY, p.jumping ? 0.42 : 0.3);
     node.setEnabled(state.matchState !== "lobby");
     const previous = previousState?.players[p.id]?.position;
     const serverDx = previous ? p.position.x - previous.x : 0;
