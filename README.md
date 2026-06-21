@@ -1,7 +1,7 @@
 # Coop RPG Arena
 
 <p align="center">
-  <img src="media/gameplay.gif" alt="Coop RPG Arena gameplay" width="640" />
+  <img src="media/gameplay.gif" alt="Coop RPG Arena in-game combat preview" width="640" />
 </p>
 
 A browser-based cooperative RPG arena — up to 5 players fight waves of enemies together, choose class upgrades, and combine abilities in real-time.
