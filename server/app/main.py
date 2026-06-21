@@ -19,12 +19,14 @@ async def game_loop() -> None:
 
 
 async def broadcast() -> None:
-    for player_id, ws in list(clients.items()):
+    async def send_snapshot(player_id: str, ws: WebSocket) -> None:
         try:
             await ws.send_json(await game.snapshot(player_id))
         except Exception:
             clients.pop(player_id, None)
             await game.remove_player(player_id)
+
+    await asyncio.gather(*(send_snapshot(player_id, ws) for player_id, ws in list(clients.items())))
 
 
 @asynccontextmanager

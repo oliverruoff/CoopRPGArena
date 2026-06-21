@@ -1,4 +1,4 @@
-import { ArcRotateCamera, CascadedShadowGenerator, Color3, Color4, DirectionalLight, Engine, HemisphericLight, Matrix, Mesh, MeshBuilder, PointerEventTypes, Scene, StandardMaterial, TransformNode, Vector3, VertexData } from "@babylonjs/core";
+import { AbstractMesh, ArcRotateCamera, CascadedShadowGenerator, Color3, Color4, DirectionalLight, Engine, HemisphericLight, Matrix, Mesh, MeshBuilder, PointerEventTypes, Scene, StandardMaterial, TransformNode, Vector3, VertexData } from "@babylonjs/core";
 import "./style.css";
 
 type Vec = { x: number; z: number };
@@ -75,7 +75,11 @@ root.innerHTML = `
 `;
 
 const canvas = document.querySelector<HTMLCanvasElement>("#renderCanvas")!;
-const engine = new Engine(canvas, true);
+const qualityOverride = new URLSearchParams(window.location.search).get("quality");
+const remoteHost = !["localhost", "127.0.0.1", ""].includes(window.location.hostname);
+const lowSpecMode = qualityOverride === "low" || (qualityOverride !== "high" && remoteHost);
+const engine = new Engine(canvas, !lowSpecMode);
+engine.setHardwareScalingLevel(lowSpecMode ? 1.75 : 1);
 const scene = new Scene(engine);
 scene.clearColor = new Color4(0.2, 0.21, 0.22, 1);
 const camera = new ArcRotateCamera("camera", -Math.PI / 2, 0.9, 42, Vector3.Zero(), scene);
@@ -85,9 +89,9 @@ new HemisphericLight("light", new Vector3(0.3, 1, 0.2), scene).intensity = 0.42;
 const dirLight = new DirectionalLight("dirLight", new Vector3(-0.45, -1, -0.35), scene);
 dirLight.position = new Vector3(18, 32, 18);
 dirLight.intensity = 0.66;
-const shadowGenerator = new CascadedShadowGenerator(1024, dirLight);
+const shadowGenerator = new CascadedShadowGenerator(lowSpecMode ? 512 : 1024, dirLight);
 shadowGenerator.useBlurCloseExponentialShadowMap = true;
-shadowGenerator.blurKernel = 16;
+shadowGenerator.blurKernel = lowSpecMode ? 6 : 16;
 shadowGenerator.bias = 0.0005;
 shadowGenerator.normalBias = 0.02;
 shadowGenerator.lambda = 0.8;
@@ -98,16 +102,16 @@ shadowGenerator.autoCalcDepthBounds = true;
 const outerGround = MeshBuilder.CreateCylinder("outer-ground", { diameter: 110, height: 0.04, tessellation: 128 }, scene);
 outerGround.position.y = -0.14;
 outerGround.material = mat("outer-ground-mat", new Color3(0.21, 0.22, 0.23));
-outerGround.receiveShadows = true;
+outerGround.receiveShadows = !lowSpecMode;
 const floorFade = MeshBuilder.CreateCylinder("arena-floor-fade", { diameter: 61, height: 0.035, tessellation: 128 }, scene);
 floorFade.position.y = -0.12;
 floorFade.material = transparentMat("arena-floor-fade-mat", new Color3(0.5, 0.52, 0.47), 0.34);
-floorFade.receiveShadows = true;
+floorFade.receiveShadows = !lowSpecMode;
 const arenaMat = mat("arena", new Color3(0.72, 0.73, 0.66));
 const arena = MeshBuilder.CreateCylinder("arena-floor", { diameter: 56, height: 0.15, tessellation: 96 }, scene);
 arena.material = arenaMat;
 arena.position.y = -0.08;
-arena.receiveShadows = true;
+arena.receiveShadows = !lowSpecMode;
 
 const configuredWsUrl = import.meta.env.VITE_WS_URL as string | undefined;
 const defaultWsUrl = `${window.location.protocol === "https:" ? "wss" : "ws"}://${window.location.hostname}:8000/ws`;
@@ -117,6 +121,12 @@ const wsUrl = configuredWsUrl && !isLocalhostOnlyUrl(configuredWsUrl) ? configur
 let ws: WebSocket;
 const sendQueue: unknown[] = [];
 let state: Snapshot | null = null;
+let previousState: Snapshot | null = null;
+let snapshotReceivedAt = 0;
+let uiDirty = true;
+let lastUiRenderAt = 0;
+let staticWorldDirty = true;
+let lastStaticWorldSignature = "";
 const meshes = new Map<string, TransformNode>();
 const mapMeshes = new Map<string, TransformNode>();
 const groundEffectMeshes = new Map<string, TransformNode>();
@@ -167,10 +177,14 @@ function connect() {
     flushSendQueue();
   });
   ws.addEventListener("message", (event) => {
+    previousState = state;
     state = JSON.parse(event.data) as Snapshot;
+    const staticWorldSignature = worldStaticSignature(state);
+    snapshotReceivedAt = performance.now();
+    uiDirty = true;
+    staticWorldDirty = staticWorldSignature !== lastStaticWorldSignature;
+    lastStaticWorldSignature = staticWorldSignature;
     processEvents(state.events);
-    renderUi();
-    renderWorld();
   });
   ws.addEventListener("close", () => {
     text("connection", "Disconnected — reconnecting...");
@@ -303,8 +317,14 @@ scene.onPointerObservable.add((pointerInfo) => {
 });
 
 engine.runRenderLoop(() => {
-  const me = state?.players[state.you];
-  if (me) camera.setTarget(new Vector3(me.position.x, 0, me.position.z));
+  const currentState = state;
+  const me = currentState?.players[currentState.you];
+  if (me) {
+    const position = interpolatedPosition(currentState.you, me.position, "player");
+    camera.setTarget(new Vector3(position.x, 0, position.z));
+  }
+  renderPendingUi();
+  renderWorld();
   updateLobbyPreviewPlacement();
   animateWorld();
   updateHoverRangeIndicator();
@@ -397,6 +417,32 @@ function renderUi() {
   endTitle.textContent = state.matchState === "victory" ? "Victory" : state.matchState === "defeat" ? "Wipe" : "";
   end.style.display = endTitle.textContent ? "grid" : "none";
   playMatchStateSound(state.matchState);
+}
+
+function renderPendingUi() {
+  if (!uiDirty) return;
+  const now = performance.now();
+  const interval = state?.matchState === "running" ? 100 : 50;
+  if (now - lastUiRenderAt < interval) return;
+  renderUi();
+  uiDirty = false;
+  lastUiRenderAt = now;
+}
+
+function interpolatedPosition(id: string, current: Vec, kind: "player" | "enemy"): Vec {
+  const previous = kind === "player" ? previousState?.players[id]?.position : previousState?.enemies[id]?.position;
+  if (!previous || !snapshotReceivedAt) return current;
+  const alpha = Math.min(1, Math.max(0, (performance.now() - snapshotReceivedAt) / 50));
+  return {
+    x: previous.x + (current.x - previous.x) * alpha,
+    z: previous.z + (current.z - previous.z) * alpha
+  };
+}
+
+function worldStaticSignature(snapshot: Snapshot) {
+  const map = snapshot.mapObjects.map((object) => mapObjectSignature(object)).join("|");
+  const effects = (snapshot.groundEffects || []).map((effect) => `${effect.id}:${effect.type}:${effect.x}:${effect.z}:${effect.radius}`).join("|");
+  return `${map}#${effects}`;
 }
 
 function renderStatsPanel(me: PlayerState) {
@@ -647,8 +693,11 @@ function updateAutoAttackBar() {
 
 function renderWorld() {
   if (!state) return;
-  renderMapObjects();
-  renderGroundEffects();
+  if (staticWorldDirty) {
+    renderMapObjects();
+    renderGroundEffects();
+    staticWorldDirty = false;
+  }
   const live = new Set([...Object.keys(state.players), ...Object.keys(state.enemies)]);
   for (const [id, node] of meshes) if (!live.has(id)) { node.dispose(); meshes.delete(id); removeEnemyBar(id); }
   for (const p of Object.values(state.players)) {
@@ -659,29 +708,31 @@ function renderWorld() {
       node = undefined;
     }
     node ||= createPlayer(p);
-    const previousX = node.metadata?.x ?? p.position.x;
-    const previousZ = node.metadata?.z ?? p.position.z;
-    node.position.x = p.position.x;
-    node.position.z = p.position.z;
+    const previousX = node.position.x;
+    const previousZ = node.position.z;
+    const position = interpolatedPosition(p.id, p.position, "player");
+    node.position.x = position.x;
+    node.position.z = position.z;
     const jumpY = p.jumping ? 4 * Math.max(0, p.jumpProgress) * Math.max(0, 1 - p.jumpProgress) * 0.9 : 0;
     node.position.y = p.dead ? -0.2 : jumpY;
     node.setEnabled(state.matchState !== "lobby");
-    const dx = p.position.x - previousX;
-    const dz = p.position.z - previousZ;
+    const dx = position.x - previousX;
+    const dz = position.z - previousZ;
     const moving = Math.hypot(dx, dz) > 0.03;
     if (moving) {
       node.rotation.y = Math.atan2(dx, dz);
     } else if (Math.abs(p.facing) > 0.01 || p.facing !== 0) {
       node.rotation.y = p.facing;
     }
-    node.metadata = { ...(node.metadata || {}), x: p.position.x, z: p.position.z, moving, entityId: p.id, classId: p.classId };
+    node.metadata = { ...(node.metadata || {}), x: position.x, z: position.z, moving, entityId: p.id, classId: p.classId };
     updateSelectionRing(node, p.id === state.you ? "self" : meTargetKind(p.id));
     updateActiveShield(node, p);
   }
   for (const e of Object.values(state.enemies)) {
     const node = meshes.get(e.id) || createEnemy(e);
-    node.position.x = e.position.x;
-    node.position.z = e.position.z;
+    const position = interpolatedPosition(e.id, e.position, "enemy");
+    node.position.x = position.x;
+    node.position.z = position.z;
     node.metadata = { ...(node.metadata || {}), entityId: e.id };
     updateSelectionRing(node, meTargetKind(e.id));
     updateEnemyFov(node, e);
@@ -769,8 +820,8 @@ function renderMapObjects() {
     node.metadata = { signature };
     mapMeshes.set(object.id, node);
     node.getChildMeshes().forEach((mesh) => {
-      mesh.receiveShadows = true;
-      shadowGenerator.addShadowCaster(mesh);
+      mesh.receiveShadows = !lowSpecMode;
+      addShadowCaster(mesh);
     });
   }
 }
@@ -1068,7 +1119,7 @@ function createPlayer(p: PlayerState) {
   addClassDetails(root, p.id, p.classId, color);
   const ring = MeshBuilder.CreateCylinder(`${p.id}-ring`, { diameter: 1.45, height: 0.025, tessellation: 48 }, scene); ring.parent = root; ring.material = transparentMat(`${p.id}-ringmat`, new Color3(0.1, 0.55, 1), 0.22); ring.metadata = { entityId: p.id };
   ring.position.y = 0.015;
-  root.getChildMeshes().forEach((mesh) => shadowGenerator.addShadowCaster(mesh));
+  root.getChildMeshes().forEach(addShadowCaster);
   meshes.set(p.id, root);
   markEntityMeshes(root, p.id);
   return root;
@@ -1117,7 +1168,7 @@ function createEnemy(e: EnemyState) {
   addEnemyDetails(root, e, size, color);
   const ring = MeshBuilder.CreateCylinder(`${e.id}-ring`, { diameter: size * 1.55, height: 0.025, tessellation: 48 }, scene); ring.parent = root; ring.material = transparentMat(`${e.id}-ringmat`, new Color3(0.9, 0.1, 0.08), 0.24); ring.metadata = { entityId: e.id };
   ring.position.y = 0.015;
-  root.getChildMeshes().forEach((mesh) => shadowGenerator.addShadowCaster(mesh));
+  root.getChildMeshes().forEach(addShadowCaster);
   meshes.set(e.id, root);
   markEntityMeshes(root, e.id);
   return root;
@@ -2112,6 +2163,10 @@ function box(name: string, opts: { width: number; height: number; depth: number 
   const mesh = MeshBuilder.CreateBox(name, opts, scene);
   mesh.material = mat(`${name}-mat`, color);
   return mesh;
+}
+
+function addShadowCaster(mesh: AbstractMesh) {
+  if (!lowSpecMode) shadowGenerator.addShadowCaster(mesh);
 }
 
 function mat(name: string, color: Color3) {
