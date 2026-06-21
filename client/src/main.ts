@@ -154,6 +154,7 @@ let hoverRangeRing: Mesh | null = null;
 let localPlayerName: string | null = null;
 let optimisticAllyTargetId: string | null = null;
 let lastClassPreviewInfoSignature = "";
+let castBarVisualProgress = 0;
 
 function isLocalhostOnlyUrl(url: string): boolean {
   try {
@@ -519,6 +520,18 @@ function interpolatedPosition(id: string, current: Vec, kind: "player" | "enemy"
   };
 }
 
+function lerpValue(current: number, target: number, amount: number) {
+  return current + (target - current) * amount;
+}
+
+function angleDelta(current: number, target: number) {
+  return Math.atan2(Math.sin(target - current), Math.cos(target - current));
+}
+
+function lerpAngle(current: number, target: number, amount: number) {
+  return current + angleDelta(current, target) * amount;
+}
+
 function worldStaticSignature(snapshot: Snapshot) {
   const map = snapshot.mapObjects.map((object) => mapObjectSignature(object)).join("|");
   const effects = (snapshot.groundEffects || []).map((effect) => `${effect.id}:${effect.type}:${effect.x}:${effect.z}:${effect.radius}`).join("|");
@@ -864,11 +877,18 @@ function updateCastBar() {
   const me = state?.players[state.you];
   if (!me?.casting) {
     cast.style.display = "none";
+    castBarVisualProgress = 0;
+    fill.style.transform = "scaleX(0)";
     return;
   }
   const ability = state?.abilities[me.casting.abilityId];
+  const elapsed = Math.max(0, (performance.now() - snapshotReceivedAt) / 1000);
+  const duration = Math.max(0.01, me.casting.duration);
+  const remaining = Math.max(0, me.casting.remaining - elapsed);
+  const progress = Math.max(0, Math.min(1, 1 - remaining / duration));
+  castBarVisualProgress = Math.max(castBarVisualProgress, progress);
   cast.style.display = "block";
-  fill.style.width = `${Math.max(0, Math.min(1, me.casting.progress)) * 100}%`;
+  fill.style.transform = `scaleX(${castBarVisualProgress})`;
   text("castName", ability?.name || "Casting");
 }
 
@@ -903,23 +923,31 @@ function renderWorld() {
       node = undefined;
     }
     node ||= createPlayer(p);
-    const previousX = node.position.x;
-    const previousZ = node.position.z;
     const position = interpolatedPosition(p.id, p.position, "player");
     node.position.x = position.x;
     node.position.z = position.z;
     const jumpY = p.jumping ? 4 * Math.max(0, p.jumpProgress) * Math.max(0, 1 - p.jumpProgress) * 0.9 : 0;
     node.position.y = p.dead ? -0.2 : jumpY;
     node.setEnabled(state.matchState !== "lobby");
-    const dx = position.x - previousX;
-    const dz = position.z - previousZ;
-    const moving = Math.hypot(dx, dz) > 0.03;
-    if (moving) {
-      node.rotation.y = Math.atan2(dx, dz);
+    const previous = previousState?.players[p.id]?.position;
+    const serverDx = previous ? p.position.x - previous.x : 0;
+    const serverDz = previous ? p.position.z - previous.z : 0;
+    const inputDx = (input.right ? 1 : 0) - (input.left ? 1 : 0);
+    const inputDz = (input.up ? 1 : 0) - (input.down ? 1 : 0);
+    const inputMoving = p.id === state.you && Math.hypot(inputDx, inputDz) > 0;
+    const serverMoving = Math.hypot(serverDx, serverDz) > 0.025;
+    const moving = inputMoving || serverMoving;
+    let targetFacing = Number(node.metadata?.visualFacing ?? node.rotation.y);
+    if (inputMoving) {
+      targetFacing = Math.atan2(inputDx, inputDz);
+    } else if (serverMoving) {
+      targetFacing = Math.atan2(serverDx, serverDz);
     } else if (Math.abs(p.facing) > 0.01 || p.facing !== 0) {
-      node.rotation.y = p.facing;
+      targetFacing = p.facing;
     }
-    node.metadata = { ...(node.metadata || {}), x: position.x, z: position.z, moving, entityId: p.id, classId: p.classId };
+    const visualFacing = lerpAngle(Number(node.metadata?.visualFacing ?? node.rotation.y), targetFacing, moving ? 0.28 : 0.16);
+    node.rotation.y = visualFacing;
+    node.metadata = { ...(node.metadata || {}), x: position.x, z: position.z, moving, visualFacing, entityId: p.id, classId: p.classId };
     updateSelectionRing(node, p.id === state.you ? "self" : meTargetKind(p.id));
     updateActiveShield(node, p);
   }
@@ -1225,6 +1253,8 @@ function segHitDist(x1: number, z1: number, x2: number, z2: number, obj: MapObje
 
 function animateWorld() {
   const t = performance.now() / 1000;
+  const dt = Math.min(0.05, engine.getDeltaTime() / 1000);
+  const poseBlend = Math.min(1, dt * 18);
   let playerIsMoving = false;
   for (const [id, node] of meshes) {
     if (!state?.players[id]) continue;
@@ -1239,42 +1269,53 @@ function animateWorld() {
     const head = node.getChildMeshes().find((mesh) => mesh.name.endsWith("-head"));
     const leftArm = node.getChildMeshes().find((mesh) => mesh.name.endsWith("-left-arm"));
     const rightArm = node.getChildMeshes().find((mesh) => mesh.name.endsWith("-right-arm"));
-    const bob = moving ? Math.abs(Math.sin(t * 10)) * 0.12 : Math.sin(t * 2) * 0.025;
+    const moveBlend = Number(node.metadata?.moveBlend || 0) + ((moving ? 1 : 0) - Number(node.metadata?.moveBlend || 0)) * Math.min(1, dt * 12);
+    const gaitPhase = Number(node.metadata?.gaitPhase || 0) + dt * (3.5 + moveBlend * 6.5);
+    node.metadata = { ...(node.metadata || {}), moveBlend, gaitPhase };
+    const gait = Math.sin(gaitPhase);
+    const bob = Math.abs(gait) * 0.12 * moveBlend + Math.sin(t * 2) * 0.025 * (1 - moveBlend);
     if (body) {
-      body.position.y = 0.7 + bob;
-      body.rotation.z = moving ? Math.sin(t * 10) * 0.08 : 0;
+      body.position.y = lerpValue(body.position.y, 0.7 + bob, poseBlend);
+      body.rotation.z = lerpValue(body.rotation.z, gait * 0.08 * moveBlend, poseBlend);
     }
-    if (head) head.position.y = 1.45 + bob * 0.8;
+    if (head) head.position.y = lerpValue(head.position.y, 1.45 + bob * 0.8, poseBlend);
     if (leftArm && rightArm) {
+      let leftX = gait * 0.55 * moveBlend - 0.06 * (1 - moveBlend);
+      let rightX = -gait * 0.55 * moveBlend - 0.06 * (1 - moveBlend);
+      let leftZ = -0.16;
+      let rightZ = 0.16;
+      let leftY = 0.92 + bob * 0.6;
+      let rightY = 0.92 + bob * 0.6;
       if (spinning) {
-        leftArm.rotation.x = -1.35;
-        rightArm.rotation.x = -1.35;
-        leftArm.rotation.z = -0.75;
-        rightArm.rotation.z = 0.75;
+        leftX = -1.35;
+        rightX = -1.35;
+        leftZ = -0.75;
+        rightZ = 0.75;
       } else if (casting) {
         const pulse = Math.sin(t * 14) * 0.12;
-        leftArm.rotation.x = -1.95 + pulse;
-        rightArm.rotation.x = -1.95 - pulse;
-        leftArm.rotation.z = -0.55;
-        rightArm.rotation.z = 0.55;
-        leftArm.position.y = 1.1 + Math.abs(pulse) * 0.25;
-        rightArm.position.y = 1.1 + Math.abs(pulse) * 0.25;
+        leftX = -1.95 + pulse;
+        rightX = -1.95 - pulse;
+        leftZ = -0.55;
+        rightZ = 0.55;
+        leftY = 1.1 + Math.abs(pulse) * 0.25;
+        rightY = 1.1 + Math.abs(pulse) * 0.25;
       } else if (autoSwing > 0) {
         const swing = Math.sin((1 - autoSwing) * Math.PI);
-        rightArm.rotation.x = -1.6 * swing - 0.18;
-        rightArm.rotation.z = 0.35 + swing * 0.35;
-        leftArm.rotation.x = moving ? Math.sin(t * 10) * 0.35 : -0.05;
-        leftArm.rotation.z = -0.16;
-        rightArm.position.y = 0.95 + swing * 0.18 + bob * 0.45;
-        leftArm.position.y = 0.92 + bob * 0.6;
-      } else {
-        leftArm.rotation.x = moving ? Math.sin(t * 10) * 0.55 : -0.06;
-        rightArm.rotation.x = moving ? -Math.sin(t * 10) * 0.55 : -0.06;
-        leftArm.rotation.z = -0.16;
-        rightArm.rotation.z = 0.16;
-        leftArm.position.y = 0.92 + bob * 0.6;
-        rightArm.position.y = 0.92 + bob * 0.6;
+        rightX = -1.6 * swing - 0.18;
+        rightZ = 0.35 + swing * 0.35;
+        leftX = gait * 0.35 * moveBlend - 0.05 * (1 - moveBlend);
+        rightY = 0.95 + swing * 0.18 + bob * 0.45;
       }
+      leftArm.rotation.x = lerpValue(leftArm.rotation.x, leftX, poseBlend);
+      rightArm.rotation.x = lerpValue(rightArm.rotation.x, rightX, poseBlend);
+      leftArm.rotation.z = lerpValue(leftArm.rotation.z, leftZ, poseBlend);
+      rightArm.rotation.z = lerpValue(rightArm.rotation.z, rightZ, poseBlend);
+      leftArm.position.x = lerpValue(leftArm.position.x, -0.58, poseBlend);
+      rightArm.position.x = lerpValue(rightArm.position.x, 0.58, poseBlend);
+      leftArm.position.y = lerpValue(leftArm.position.y, leftY, poseBlend);
+      rightArm.position.y = lerpValue(rightArm.position.y, rightY, poseBlend);
+      leftArm.position.z = lerpValue(leftArm.position.z, 0, poseBlend);
+      rightArm.position.z = lerpValue(rightArm.position.z, 0, poseBlend);
     }
     const shield = node.getChildMeshes().find((mesh) => mesh.name.endsWith("-active-shield"));
     if (shield) {
