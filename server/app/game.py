@@ -315,7 +315,15 @@ class Game:
             spot = place_spot(2.5, arena, 1.0)
             if not spot:
                 continue
-            add("tree", spot[0], spot[1], radius=round(random.uniform(0.85, 1.45), 2), variant=random.randint(0, 4))
+            add("tree", spot[0], spot[1], radius=round(random.uniform(0.85, 1.45), 2), variant=random.randint(0, 4), blocksSight=True)
+
+        # Tubes provide compact sight blockers without adding more wall-like barriers.
+        tube_count = random.randint(4, 7)
+        for _ in range(tube_count):
+            spot = place_spot(3.0, arena - 0.5, 0.95)
+            if not spot:
+                continue
+            add("tube", spot[0], spot[1], radius=round(random.uniform(0.65, 1.1), 2), variant=random.randint(0, 2), blocksSight=True)
 
         # Bushes
         bush_count = random.randint(8, 14)

@@ -1113,6 +1113,20 @@ function createMapObject(object: MapObject) {
     const material = mat(`${object.id}-crystal-mat`, new Color3(0.3, 0.92, 1));
     material.emissiveColor = new Color3(0.08, 0.38, 0.48);
     crystal.material = material;
+  } else if (object.type === "tube") {
+    const variant = object.variant || 0;
+    const radius = object.radius || 0.85;
+    const tube = MeshBuilder.CreateCylinder(`${object.id}-tube`, { diameter: radius * 1.55, height: 2.4 + variant * 0.25, tessellation: 16 }, scene);
+    tube.parent = root;
+    tube.position.y = (2.4 + variant * 0.25) / 2;
+    tube.material = mat(`${object.id}-tube-mat`, variant === 1 ? new Color3(0.38, 0.42, 0.46) : variant === 2 ? new Color3(0.28, 0.46, 0.5) : new Color3(0.44, 0.45, 0.48));
+    const rimColor = new Color3(0.18, 0.2, 0.23);
+    for (const y of [0.14, 2.26 + variant * 0.25]) {
+      const rim = MeshBuilder.CreateTorus(`${object.id}-tube-rim-${y}`, { diameter: radius * 1.56, thickness: 0.16, tessellation: 16 }, scene);
+      rim.parent = root;
+      rim.position.y = y;
+      rim.material = mat(`${object.id}-tube-rim-${y}-mat`, rimColor);
+    }
   } else if (object.type === "well") {
     const well = MeshBuilder.CreateCylinder(`${object.id}-well`, { diameter: 2.45, height: 1.0, tessellation: 18 }, scene);
     well.parent = root;

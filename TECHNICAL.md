@@ -330,7 +330,7 @@ At wave 9: health ×1.96, damage ×1.64, xp ×1.40.
 ### 6.4 Enemy AI
 
 1. **Idle/Patrol**: Walk to random points at 42% move speed. Re-pick destination every 5–9 seconds or on arrival.
-2. **Vision check**: 55-degree cone, 11-unit range, line-of-sight check (walls block, trees/bushes don't).
+2. **Vision check**: 55-degree cone, 11-unit range, line-of-sight check (walls, trees, and tubes block; bushes don't).
 3. **Alert**: On first sight of a player, emit `enemy_alert` event, target closest player.
 4. **Chase**: Move toward highest-threat target at full speed.
 5. **Attack**: When within `attackRange`, attack on cooldown.
@@ -346,7 +346,7 @@ At wave 9: health ×1.96, damage ×1.64, xp ×1.40.
 Two types of map objects:
 
 - **Rectangular** (walls): AABB intersection with 0.55 padding. Entity pushed to nearest edge. 3 iterations of push-out.
-- **Circular** (trees, bushes, rocks, ruins): Circle-circle push-out at `radius + 0.55` minimum distance.
+- **Circular** (trees, tubes, bushes, rocks, ruins): Circle-circle push-out at `radius + 0.55` minimum distance.
 
 Arena boundary: entities clamped to `arenaRadius - 1 = 27` units from center.
 
@@ -354,7 +354,7 @@ Arena boundary: entities clamped to `arenaRadius - 1 = 27` units from center.
 
 - Walls use slab-based ray-AABB intersection
 - Circular objects use closest-point-on-segment distance check
-- Only objects with `blocksSight: true` (walls) block line of sight
+- Only objects with `blocksSight: true` (walls, trees, tubes) block line of sight
 - Max vision range: 11 units
 
 ---
@@ -456,7 +456,8 @@ On match start, `_generate_map_locked()` places:
 | Object | Count | Details |
 |---|---|---|
 | Walls | 2–4 | Width 4–9, depth 2.5–2.8, random rotation. Block movement + line of sight. |
-| Trees | 12–18 | 5 variant types. Block movement only. |
+| Trees | 12–18 | 5 variant types. Block movement + line of sight. |
+| Tubes | 4–7 | 3 variants. Block movement + line of sight. |
 | Bushes | 8–14 | 3 variants. Block movement only. |
 | Rocks | 4–8 | Block movement only. |
 | Ruins | 2–4 | Block movement only. |

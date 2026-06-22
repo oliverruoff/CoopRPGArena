@@ -8,6 +8,17 @@ def test_mitigation_reduces_damage():
     assert round(Game._mitigate(100, 100), 2) == 50
 
 
+def test_trees_and_tubes_block_line_of_sight():
+    game = Game()
+    game.map_objects = [
+        {"id": "tree_1", "type": "tree", "x": 2, "z": 0, "radius": 0.9, "blocksSight": True},
+        {"id": "tube_2", "type": "tube", "x": 2, "z": 2, "radius": 0.7, "blocksSight": True},
+    ]
+    assert game._line_of_sight_blocked_locked(0, 0, 4, 0)
+    assert game._line_of_sight_blocked_locked(0, 2, 4, 2)
+    assert not game._line_of_sight_blocked_locked(0, 4, 4, 4)
+
+
 def test_lobby_start_and_spawn_enemy():
     asyncio.run(_lobby_start_and_spawn_enemy())
 
