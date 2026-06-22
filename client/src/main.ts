@@ -1070,6 +1070,9 @@ function createGroundDressing() {
     stone.material = mat(`arena-edge-stone-${i}-mat`, i % 5 === 0 ? palette.stoneLight : palette.stone);
     stone.isPickable = false;
   }
+
+  createGrassMesh("arena-field-grass", null, 52, lowSpecMode ? 160 : 360, palette.leafDark.scale(1.02), false);
+  createGrassMesh("arena-edge-grass", null, 26.2, lowSpecMode ? 58 : 118, palette.leafDark.scale(1.08), true);
 }
 
 function addContactShadow(parent: TransformNode, name: string, diameter: number, alpha = 0.16, flatten = 1) {
@@ -1080,6 +1083,50 @@ function addContactShadow(parent: TransformNode, name: string, diameter: number,
   shadow.material = transparentMat(`${name}-mat`, palette.shadow, alpha);
   shadow.isPickable = false;
   return shadow;
+}
+
+function addPropGrass(parent: TransformNode, object: MapObject, diameter: number, count: number) {
+  if (object.type === "crystal" || object.type === "tube") return;
+  createGrassMesh(`${object.id}-grass`, parent, diameter, lowSpecMode ? Math.ceil(count * 0.45) : count, palette.leafDark, false);
+}
+
+function createGrassMesh(name: string, parent: TransformNode | null, spread: number, count: number, color: Color3, ringOnly: boolean) {
+  const positions: number[] = [];
+  const indices: number[] = [];
+  for (let i = 0; i < count; i++) {
+    const angle = (i / count) * Math.PI * 2 + Math.sin(i * 12.9898) * 0.22;
+    const radius = ringOnly ? spread + Math.sin(i * 78.233) * 1.35 : Math.sqrt((i * 37.719) % 1) * spread * 0.5;
+    const x = Math.cos(angle) * radius;
+    const z = Math.sin(angle) * radius;
+    const bladeAngle = angle + Math.PI / 2 + Math.sin(i * 4.17) * 0.8;
+    const width = 0.09 + ((i * 13) % 7) * 0.012;
+    const height = 0.34 + ((i * 17) % 9) * 0.045;
+    const lean = 0.08 + ((i * 19) % 5) * 0.018;
+    const dx = Math.cos(bladeAngle) * width;
+    const dz = Math.sin(bladeAngle) * width;
+    const lx = Math.cos(bladeAngle + Math.PI / 2) * lean;
+    const lz = Math.sin(bladeAngle + Math.PI / 2) * lean;
+    const base = positions.length / 3;
+    positions.push(
+      x - dx, 0.035, z - dz,
+      x + dx, 0.035, z + dz,
+      x + dx * 0.22 + lx, height, z + dz * 0.22 + lz,
+      x - dx * 0.22 + lx, height * 0.92, z - dz * 0.22 + lz
+    );
+    indices.push(base, base + 1, base + 2, base, base + 2, base + 3);
+  }
+  const mesh = new Mesh(name, scene);
+  const data = new VertexData();
+  data.positions = positions;
+  data.indices = indices;
+  data.applyToMesh(mesh, true);
+  mesh.parent = parent;
+  mesh.isPickable = false;
+  const material = mat(`${name}-mat`, color);
+  material.backFaceCulling = false;
+  material.specularColor = Color3.Black();
+  mesh.material = material;
+  return mesh;
 }
 
 function renderMapObjects() {
@@ -1171,6 +1218,7 @@ function createMapObject(object: MapObject) {
       layer.parent = root;
       layer.position.y = i * wallHeight / (layerCount + 1);
     }
+    addPropGrass(root, object, Math.max(width, depth) * 0.95, 14);
   } else if (object.type === "tree") {
     const variant = object.variant || 0;
     const scale = (object.radius || 1.0) / 1.0;
@@ -1201,6 +1249,7 @@ function createMapObject(object: MapObject) {
       upper.parent = root; upper.position.set(0.26, 3.05, -0.12); upper.scaling.y = 0.95; upper.material = mat(`${object.id}-crown-upper-mat`, crownColor.scale(1.08));
     }
     root.scaling.setAll(scale);
+    addPropGrass(root, object, 2.2, 10);
   } else if (object.type === "bush") {
     const variant = object.variant || 0;
     const radius = object.radius || 0.7;
@@ -1219,6 +1268,7 @@ function createMapObject(object: MapObject) {
       berries.position.set(0.25, 0.7, 0.1);
       berries.material = mat(`${object.id}-berries-mat`, new Color3(0.85, 0.2, 0.25));
     }
+    addPropGrass(root, object, radius * 1.35, 5);
   } else if (object.type === "crystal") {
     addContactShadow(root, `${object.id}-shadow`, 1.8, 0.14);
     const crystal = MeshBuilder.CreateCylinder(`${object.id}-crystal`, { diameterTop: 0.18, diameterBottom: 1.15, height: 2.65, tessellation: 5 }, scene);
@@ -1253,6 +1303,7 @@ function createMapObject(object: MapObject) {
     water.parent = root;
     water.position.y = 1.03;
     water.material = transparentMat(`${object.id}-water-mat`, new Color3(0.22, 0.62, 1), 0.58);
+    addPropGrass(root, object, 2.5, 10);
   } else if (object.type === "rock") {
     const radius = object.radius || 0.8;
     addContactShadow(root, `${object.id}-shadow`, radius * 1.85, 0.15);
@@ -1260,6 +1311,7 @@ function createMapObject(object: MapObject) {
     main.parent = root; main.position.y = radius * 0.46; main.scaling.set(1.18, 0.62, 0.86); main.material = mat(`${object.id}-rock-main-mat`, palette.stone);
     const chip = MeshBuilder.CreateSphere(`${object.id}-rock-chip`, { diameter: radius * 0.8, segments: 5 }, scene);
     chip.parent = root; chip.position.set(radius * 0.42, radius * 0.36, -radius * 0.16); chip.scaling.set(0.82, 0.48, 0.7); chip.material = mat(`${object.id}-rock-chip-mat`, palette.stoneLight.scale(0.9));
+    addPropGrass(root, object, radius * 1.5, 5);
   } else if (object.type === "ruin") {
     const radius = object.radius || 1.5;
     addContactShadow(root, `${object.id}-shadow`, radius * 2.25, 0.17, 0.8);
@@ -1271,12 +1323,14 @@ function createMapObject(object: MapObject) {
     broken.parent = root; broken.position.set(radius * 0.58, 0.5, radius * 0.16); broken.rotation.z = -0.22;
     const rune = MeshBuilder.CreateCylinder(`${object.id}-rune`, { diameter: radius * 0.55, height: 0.035, tessellation: 6 }, scene);
     rune.parent = root; rune.position.set(-radius * 0.22, 1.38, -0.18); rune.rotation.x = Math.PI / 2; rune.material = transparentMat(`${object.id}-rune-mat`, palette.magic, 0.46);
+    addPropGrass(root, object, radius * 1.8, 10);
   } else {
     addContactShadow(root, `${object.id}-shadow`, (object.radius || 1) * 1.8, 0.15);
     const pillar = MeshBuilder.CreateCylinder(`${object.id}-pillar`, { diameter: (object.radius || 1) * 1.35, height: 2.9, tessellation: 10 }, scene);
     pillar.parent = root;
     pillar.position.y = 1.45;
     pillar.material = mat(`${object.id}-pillar-mat`, new Color3(0.58, 0.57, 0.52));
+    addPropGrass(root, object, (object.radius || 1) * 1.5, 6);
   }
   return root;
 }
@@ -1574,12 +1628,74 @@ function createEnemy(e: EnemyState) {
   addContactShadow(root, `${e.id}-contact-shadow`, size * 1.7, e.boss ? 0.24 : 0.2, 0.82);
   const body = box(`${e.id}-body`, { width: size, height: size, depth: size }, color); body.parent = root; body.position.y = size / 2; body.metadata = { entityId: e.id, baseY: body.position.y };
   const head = box(`${e.id}-head`, { width: size * 0.72, height: size * 0.46, depth: size * 0.62 }, color.scale(1.12)); head.parent = root; head.position.y = size * 1.12; head.metadata = { entityId: e.id, baseY: head.position.y };
+  addEnemyIdentityDetails(root, e, size, color);
   addEnemyDetails(root, e, size, color);
   const ring = MeshBuilder.CreateCylinder(`${e.id}-ring`, { diameter: size * 1.55, height: 0.025, tessellation: 48 }, scene); ring.parent = root; ring.material = transparentMat(`${e.id}-ringmat`, new Color3(0.9, 0.1, 0.08), 0.24); ring.metadata = { entityId: e.id };
   ring.position.y = 0.015;
   meshes.set(e.id, root);
   markEntityMeshes(root, e.id);
   return root;
+}
+
+function addEnemyIdentityDetails(root: TransformNode, e: EnemyState, size: number, color: Color3) {
+  const eyeColor = e.boss ? new Color3(1, 0.08, 0.02) : e.type === "shaman" ? new Color3(0.8, 0.28, 1) : e.type === "archer" ? new Color3(1, 0.78, 0.18) : new Color3(0.9, 1, 0.42);
+  for (const side of [-1, 1]) {
+    const eye = MeshBuilder.CreateBox(`${e.id}-eye-${side}`, { width: size * 0.1, height: size * 0.065, depth: size * 0.035 }, scene);
+    eye.parent = root;
+    eye.position.set(side * size * 0.17, size * 1.18, -size * 0.33);
+    const eyeMat = mat(`${e.id}-eye-${side}-mat`, eyeColor);
+    eyeMat.emissiveColor = eyeColor.scale(e.boss ? 0.9 : 0.65);
+    eye.material = eyeMat;
+  }
+  const footColor = color.scale(0.7);
+  for (const side of [-1, 1]) {
+    const foot = box(`${e.id}-foot-${side}`, { width: size * 0.28, height: size * 0.14, depth: size * 0.42 }, footColor);
+    foot.parent = root;
+    foot.position.set(side * size * 0.24, size * 0.08, -size * 0.2);
+    foot.rotation.y = side * 0.12;
+  }
+  if (e.type === "goblin") {
+    const teeth = box(`${e.id}-teeth`, { width: size * 0.28, height: size * 0.06, depth: size * 0.045 }, new Color3(0.96, 0.9, 0.72));
+    teeth.parent = root; teeth.position.set(0, size * 1.03, -size * 0.36);
+    const satchel = box(`${e.id}-satchel`, { width: size * 0.32, height: size * 0.28, depth: size * 0.16 }, new Color3(0.28, 0.14, 0.06));
+    satchel.parent = root; satchel.position.set(-size * 0.45, size * 0.56, size * 0.18); satchel.rotation.z = -0.18;
+  } else if (e.type === "runner") {
+    root.scaling.z = 1.18;
+    root.scaling.x = 0.86;
+    const snout = box(`${e.id}-snout`, { width: size * 0.28, height: size * 0.18, depth: size * 0.34 }, color.scale(0.88));
+    snout.parent = root; snout.position.set(0, size * 1.1, -size * 0.48);
+    for (const side of [-1, 1]) {
+      const claw = MeshBuilder.CreateCylinder(`${e.id}-claw-${side}`, { diameterTop: 0, diameterBottom: size * 0.08, height: size * 0.24, tessellation: 4 }, scene);
+      claw.parent = root; claw.position.set(side * size * 0.25, size * 0.11, -size * 0.48); claw.rotation.x = Math.PI / 2; claw.material = mat(`${e.id}-claw-${side}-mat`, new Color3(0.92, 0.86, 0.65));
+    }
+  } else if (e.type === "archer") {
+    const quiver = box(`${e.id}-enemy-quiver`, { width: size * 0.22, height: size * 0.72, depth: size * 0.18 }, new Color3(0.24, 0.12, 0.05));
+    quiver.parent = root; quiver.position.set(-size * 0.32, size * 0.78, size * 0.48); quiver.rotation.z = 0.18;
+    for (let i = 0; i < 3; i++) {
+      const arrow = box(`${e.id}-enemy-quiver-arrow-${i}`, { width: size * 0.035, height: size * 0.48, depth: size * 0.035 }, new Color3(0.88, 0.78, 0.52));
+      arrow.parent = root; arrow.position.set(-size * (0.38 - i * 0.06), size * 1.12, size * 0.54); arrow.rotation.z = 0.2;
+    }
+  } else if (e.type === "shaman") {
+    const pendant = MeshBuilder.CreateSphere(`${e.id}-pendant`, { diameter: size * 0.18, segments: 7 }, scene);
+    pendant.parent = root; pendant.position.set(0, size * 0.74, -size * 0.53);
+    const pendantMat = mat(`${e.id}-pendant-mat`, eyeColor); pendantMat.emissiveColor = eyeColor.scale(0.55); pendant.material = pendantMat;
+    for (const side of [-1, 1]) {
+      const bone = box(`${e.id}-bone-${side}`, { width: size * 0.08, height: size * 0.34, depth: size * 0.06 }, new Color3(0.86, 0.8, 0.62));
+      bone.parent = root; bone.position.set(side * size * 0.34, size * 0.82, -size * 0.48); bone.rotation.z = side * 0.38;
+    }
+  } else if (e.type === "brute") {
+    const leftPlate = box(`${e.id}-left-plate`, { width: size * 0.38, height: size * 0.22, depth: size * 0.48 }, new Color3(0.18, 0.17, 0.16));
+    leftPlate.parent = root; leftPlate.position.set(-size * 0.52, size * 0.98, 0); leftPlate.rotation.z = -0.18;
+    const rightPlate = box(`${e.id}-right-plate`, { width: size * 0.38, height: size * 0.22, depth: size * 0.48 }, new Color3(0.18, 0.17, 0.16));
+    rightPlate.parent = root; rightPlate.position.set(size * 0.52, size * 0.98, 0); rightPlate.rotation.z = 0.18;
+  }
+  if (e.boss) {
+    const jaw = box(`${e.id}-boss-jaw`, { width: size * 0.62, height: size * 0.16, depth: size * 0.18 }, color.scale(0.72));
+    jaw.parent = root; jaw.position.set(0, size * 1.0, -size * 0.42);
+    const gem = MeshBuilder.CreateSphere(`${e.id}-boss-gem`, { diameter: size * 0.18, segments: 8 }, scene);
+    gem.parent = root; gem.position.set(0, size * 1.55, -size * 0.36);
+    const gemMat = mat(`${e.id}-boss-gem-mat`, eyeColor); gemMat.emissiveColor = eyeColor; gem.material = gemMat;
+  }
 }
 
 function addEnemyDetails(root: TransformNode, e: EnemyState, size: number, color: Color3) {
