@@ -47,6 +47,17 @@ Stop the stack:
 docker compose down
 ```
 
+## Pull Published Containers
+
+Every push builds and publishes the game containers to GitHub Container Registry:
+
+```bash
+docker pull ghcr.io/<owner>/cooprpgarena/backend:latest
+docker pull ghcr.io/<owner>/cooprpgarena/client:latest
+```
+
+Replace `<owner>` with the lowercase GitHub user or organization that owns this repository.
+
 ## Verify
 
 ```bash
