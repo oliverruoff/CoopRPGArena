@@ -136,6 +136,48 @@ test("priest can heal ally and create threat", async ({ browser, request }) => {
   await warrior.close();
 });
 
+test("rogue can backstep and vanish from enemies", async ({ page, request }) => {
+  await page.goto("/");
+  await expect(page.getByTestId("lobby")).toBeVisible();
+  await page.getByTestId("class-rogue").click();
+  await expect(page.getByTestId("class-preview-info")).toContainText("Rogue");
+  await expect(page.getByTestId("class-preview-info")).toContainText("Backstep");
+  await expect(page.getByTestId("class-preview-info")).toContainText("Vanish");
+  for (let i = 0; i < 3; i++) {
+    await page.getByTestId("lobby-upgrade-max_health").click();
+  }
+  await page.getByTestId("ready-button").click();
+  await expect(page.getByTestId("wave-counter")).toContainText("Wave 1", { timeout: 14000 });
+
+  const started = await (await request.get("http://127.0.0.1:8000/debug/state")).json();
+  const playerId = Object.values<any>(started.players).find((p) => p.classId === "rogue").id;
+  const spawn = await (await request.post("http://127.0.0.1:8000/debug/action", { data: { action: "spawn_enemy", payload: { type: "brute", position: { x: 6, z: 0 } } } })).json();
+  await request.post("http://127.0.0.1:8000/debug/action", { data: { action: "set_enemy_target", payload: { playerId, targetId: spawn.enemyId } } });
+  await page.waitForTimeout(200);
+
+  await page.getByTestId("ability-slot-1").hover();
+  await expect(page.getByTestId("ability-tooltip")).toContainText("Backstep");
+  await page.getByTestId("ability-slot-1").click();
+  await page.waitForTimeout(250);
+  const afterBackstep = await (await request.get("http://127.0.0.1:8000/debug/state")).json();
+  const rogue = afterBackstep.players[playerId];
+  const enemy = afterBackstep.enemies[spawn.enemyId];
+  const forward = { x: Math.sin(enemy.facing), z: Math.cos(enemy.facing) };
+  const enemyToRogue = { x: rogue.position.x - enemy.position.x, z: rogue.position.z - enemy.position.z };
+  expect(enemy.hp).toBeLessThan(enemy.maxHealth);
+  expect(forward.x * enemyToRogue.x + forward.z * enemyToRogue.z).toBeLessThan(0);
+
+  await request.post("http://127.0.0.1:8000/debug/action", { data: { action: "give_xp", payload: { playerId, amount: 120 } } });
+  await request.post("http://127.0.0.1:8000/debug/action", { data: { action: "choose_upgrade", payload: { playerId, upgradeId: "learn:rogue_vanish" } } });
+  await page.waitForTimeout(1100);
+  await page.getByTestId("ability-slot-2").click();
+  await page.waitForTimeout(250);
+  const vanished = await (await request.get("http://127.0.0.1:8000/debug/state")).json();
+  expect(vanished.players[playerId].stealthed).toBe(true);
+  expect(vanished.enemies[spawn.enemyId].targetId).not.toBe(playerId);
+  expect(vanished.enemies[spawn.enemyId].threat[playerId] || 0).toBe(0);
+});
+
 test("players can set a name and see it in lobby and world", async ({ page }) => {
   await page.goto("/");
   await expect(page.getByTestId("lobby")).toBeVisible();

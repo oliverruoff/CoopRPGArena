@@ -55,6 +55,7 @@ class Player:
     auras: list[dict[str, Any]] = field(default_factory=list)
     auto_attack_haste_until: float = 0
     auto_attack_haste_multiplier: float = 1
+    stealth_until: float = 0
 
 
 @dataclass
@@ -239,6 +240,7 @@ class Game:
             player.auras = []
             player.auto_attack_haste_until = 0
             player.auto_attack_haste_multiplier = 1
+            player.stealth_until = 0
             player.lobby_upgrades = []
             player.lobby_upgrade_points = 0
 
@@ -388,6 +390,7 @@ class Game:
             player.auras = []
             player.auto_attack_haste_until = 0
             player.auto_attack_haste_multiplier = 1
+            player.stealth_until = 0
             player.auto_attack_at = time.monotonic() + player.stats["autoAttackInterval"]
         self._start_wave_locked(1)
 
@@ -489,8 +492,9 @@ class Game:
                 player.z *= arena / dist
             if now >= player.auto_attack_at and player.target_id in self.enemies:
                 enemy = self.enemies[player.target_id]
-                auto_range = player.stats["autoAttackRange"] if player.class_id in {"warrior", "hunter"} else 2.0
+                auto_range = player.stats.get("autoAttackRange", 2.0)
                 if self._distance(player, enemy) <= auto_range and not self._line_of_sight_blocked_locked(player.x, player.z, enemy.x, enemy.z):
+                    self._break_stealth_locked(player)
                     dx = enemy.x - player.x
                     dz = enemy.z - player.z
                     player.facing = math.atan2(dx, dz)
@@ -547,7 +551,7 @@ class Game:
     def _enemy_target_locked(self, enemy: Enemy, now: float) -> Player | None:
         if now < enemy.stun_until:
             return None
-        living = [p for p in self.players.values() if not p.dead]
+        living = [p for p in self.players.values() if not p.dead and not self._is_stealthed_locked(p, now)]
         if not living:
             return None
         if not enemy.alerted:
@@ -570,6 +574,8 @@ class Game:
         dx = player.x - enemy.x
         dz = player.z - enemy.z
         distance = math.hypot(dx, dz)
+        if self._is_stealthed_locked(player, time.monotonic()):
+            return False
         if distance > 11:
             return False
         if self._line_of_sight_blocked_locked(enemy.x, enemy.z, player.x, player.z):
@@ -735,6 +741,8 @@ class Game:
         if target is not player and self._line_of_sight_blocked_locked(player.x, player.z, target.x, target.z):
             return
         player.resource -= cost
+        if self._ability_breaks_stealth_locked(ability):
+            self._break_stealth_locked(player)
         cdr = player.stats.get("cooldownReduction", 0.0)
         player.cooldowns[ability_id] = now + ability["cooldown"] * (1 - cdr)
         if ability.get("globalCooldown") and not started_cast:
@@ -746,6 +754,10 @@ class Game:
             ally_targets = self._effect_ally_targets_locked(player, target, effect)
             if effect["type"] == "damage":
                 for enemy in enemy_targets:
+                    self._damage_enemy_locked(player, enemy, amount, effect.get("school", "physical"), ability.get("threatMultiplier", 1))
+            elif effect["type"] == "backstep":
+                for enemy in enemy_targets:
+                    self._backstep_locked(player, enemy, effect)
                     self._damage_enemy_locked(player, enemy, amount, effect.get("school", "physical"), ability.get("threatMultiplier", 1))
             elif effect["type"] == "dot":
                 for target in enemy_targets:
@@ -812,6 +824,14 @@ class Game:
                     "expiresAt": now + effect.get("duration", 12),
                 })
                 self._emit_locked({"type": "status", "sourceId": player.id, "targetId": player.id, "abilityId": ability_id, "status": "trap_armed", "duration": effect.get("duration", 12)})
+            elif effect["type"] == "stealth":
+                duration = effect.get("duration", 5)
+                player.stealth_until = max(player.stealth_until, now + duration)
+                for enemy in self.enemies.values():
+                    enemy.threat[player.id] = 0
+                    if enemy.target_id == player.id:
+                        enemy.target_id = None
+                self._emit_locked({"type": "status", "sourceId": player.id, "targetId": player.id, "abilityId": ability_id, "status": "vanished", "duration": duration})
             elif effect["type"] == "aura_damage":
                 player.auras.append({
                     "abilityId": ability_id,
@@ -824,6 +844,35 @@ class Game:
                     "tickInterval": effect.get("tickInterval", 0.5),
                 })
                 self._emit_locked({"type": "status", "sourceId": player.id, "targetId": player.id, "abilityId": ability_id, "status": "spinning", "duration": effect.get("duration", 3)})
+
+    def _backstep_locked(self, player: Player, enemy: Enemy, effect: dict[str, Any]) -> None:
+        forward_x = math.sin(enemy.facing)
+        forward_z = math.cos(enemy.facing)
+        distance = effect.get("behindDistance", 1.35)
+        player.x = enemy.x - forward_x * distance
+        player.z = enemy.z - forward_z * distance
+        self._push_out_of_map_objects_locked(player)
+        arena = self.constants["arenaRadius"] - 1
+        dist = math.hypot(player.x, player.z)
+        if dist > arena:
+            player.x *= arena / dist
+            player.z *= arena / dist
+        dx = enemy.x - player.x
+        dz = enemy.z - player.z
+        player.facing = math.atan2(dx, dz)
+
+    @staticmethod
+    def _is_stealthed_locked(player: Player, now: float) -> bool:
+        return now < player.stealth_until
+
+    @staticmethod
+    def _ability_breaks_stealth_locked(ability: dict[str, Any]) -> bool:
+        return any(effect.get("type") != "stealth" for effect in ability.get("effects", []))
+
+    def _break_stealth_locked(self, player: Player) -> None:
+        if player.stealth_until > time.monotonic():
+            player.stealth_until = 0
+            self._emit_locked({"type": "status", "sourceId": player.id, "targetId": player.id, "status": "revealed", "duration": 0})
 
     def _tick_ground_effects_locked(self, now: float) -> None:
         for effect in list(self.ground_effects):
@@ -899,12 +948,14 @@ class Game:
         return remaining
 
     def _damage_enemy_locked(self, player: Player, enemy: Enemy, raw: float, school: str, threat_multiplier: float) -> None:
+        now = time.monotonic()
         mitigation = enemy.armor if school == "physical" else enemy.resistance
         damage = self._mitigate(raw, mitigation)
         enemy.hp = max(0, enemy.hp - damage)
-        enemy.alerted = True
-        enemy.target_id = player.id
-        enemy.threat[player.id] = enemy.threat.get(player.id, 0) + damage * threat_multiplier
+        if not self._is_stealthed_locked(player, now):
+            enemy.alerted = True
+            enemy.target_id = player.id
+            enemy.threat[player.id] = enemy.threat.get(player.id, 0) + damage * threat_multiplier
         if player.class_id == "warrior":
             player.resource = min(player.stats["maxResource"], player.resource + damage * 0.25 + 4)
         self._emit_locked({"type": "damage", "sourceId": player.id, "targetId": enemy.id, "amount": round(damage, 1), "school": school})
@@ -1105,6 +1156,8 @@ class Game:
             "pendingUpgrades": p.pending_upgrades, "stats": p.stats, "baseStats": p.base_stats, "shield": round(p.shield, 1),
             "shieldRemaining": max(0, round(p.shield_until - now, 1)),
             "casting": self._casting_dict(p.casting, now),
+            "stealthed": self._is_stealthed_locked(p, now),
+            "stealthRemaining": max(0, round(p.stealth_until - now, 1)),
             "lobbyUpgradePoints": p.lobby_upgrade_points,
             "lobbyUpgrades": p.lobby_upgrades,
         }

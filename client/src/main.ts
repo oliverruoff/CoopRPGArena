@@ -4,14 +4,14 @@ import "./style.css";
 type Vec = { x: number; z: number };
 type CastState = { abilityId: string; targetId: string | null; duration: number; remaining: number; progress: number };
 type AutoAttackState = { remaining: number; interval: number; progress: number };
-type PlayerState = { id: string; name: string; classId: string | null; ready: boolean; hp: number; maxHealth: number; resource: number; maxResource: number; resourceType: string | null; level: number; xp: number; dead: boolean; targetId: string | null; allyTargetId: string | null; position: Vec; facing: number; jumping: boolean; jumpProgress: number; abilities: string[]; abilitySlots?: Record<string, number>; cooldowns: Record<string, number>; globalCooldown: number; autoAttack: AutoAttackState; pendingUpgrades: Upgrade[]; stats: Record<string, number>; baseStats?: Record<string, number>; shield?: number; shieldRemaining?: number; casting: CastState | null; lobbyUpgradePoints?: number; lobbyUpgrades?: Upgrade[] };
+type PlayerState = { id: string; name: string; classId: string | null; ready: boolean; hp: number; maxHealth: number; resource: number; maxResource: number; resourceType: string | null; level: number; xp: number; dead: boolean; targetId: string | null; allyTargetId: string | null; position: Vec; facing: number; jumping: boolean; jumpProgress: number; abilities: string[]; abilitySlots?: Record<string, number>; cooldowns: Record<string, number>; globalCooldown: number; autoAttack: AutoAttackState; pendingUpgrades: Upgrade[]; stats: Record<string, number>; baseStats?: Record<string, number>; shield?: number; shieldRemaining?: number; casting: CastState | null; stealthed?: boolean; stealthRemaining?: number; lobbyUpgradePoints?: number; lobbyUpgrades?: Upgrade[] };
 type EnemyState = { id: string; type: string; name: string; hp: number; maxHealth: number; position: Vec; boss: boolean; alerted?: boolean; facing?: number };
 type MapObject = { id: string; type: string; x: number; z: number; radius?: number; width?: number; depth?: number; blocksSight?: boolean; variant?: number; rotation?: number };
 type GroundEffect = { id: string; type: string; abilityId?: string; x: number; z: number; radius: number; remaining?: number };
 type Upgrade = { id: string; name: string; choiceType?: string; abilityId?: string; description?: string; stat?: string; mode?: string; value?: number };
 type ClassData = { id: string; name: string; description: string; resourceType: string; startingResource: number; baseStats: Record<string, number>; statGrowth: Record<string, number>; startingAbilities: string[] };
-type Ability = { id: string; name: string; classId: string; slot: number; targetType: string; cooldown: number; resourceCost?: { type: string; amount: number }; castTime?: number; range?: number; description?: string; effects?: Array<{ type: string; amount?: number; school?: string; scaling?: { stat: string; coefficient: number }; duration?: number; tickInterval?: number; slowPercent?: number; radius?: number; multiplier?: number; center?: string }> };
-type CombatEvent = { id: number; type: string; sourceId?: string; targetId?: string; abilityId?: string; castTime?: number; duration?: number; amount?: number; school?: string };
+type Ability = { id: string; name: string; classId: string; slot: number; targetType: string; cooldown: number; resourceCost?: { type: string; amount: number }; castTime?: number; range?: number; description?: string; effects?: Array<{ type: string; amount?: number; school?: string; scaling?: { stat: string; coefficient: number }; duration?: number; tickInterval?: number; slowPercent?: number; radius?: number; multiplier?: number; center?: string; behindDistance?: number }> };
+type CombatEvent = { id: number; type: string; sourceId?: string; targetId?: string; abilityId?: string; castTime?: number; duration?: number; amount?: number; school?: string; status?: string };
 type Snapshot = { type: string; you: string; matchState: string; countdown: number | null; players: Record<string, PlayerState>; enemies: Record<string, EnemyState>; mapObjects: MapObject[]; mapRevision?: number; groundEffects?: GroundEffect[]; wave: { number: number; state: string; aliveEnemies: number; nextWaveIn?: number }; abilities: Record<string, Ability>; classes: Record<string, ClassData>; upgrades: Upgrade[]; events: CombatEvent[] };
 type IncomingSnapshot = Omit<Snapshot, "mapObjects" | "abilities" | "classes" | "upgrades"> & { mapObjects?: MapObject[]; abilities?: Record<string, Ability>; classes?: Record<string, ClassData>; upgrades?: Upgrade[] };
 
@@ -19,7 +19,8 @@ const classInfo: Record<string, { name: string; description: string; stats: stri
   warrior: { name: "Warrior", description: "A durable frontliner. Great at surviving, holding enemy attention, and smashing threats up close.", stats: ["HP 162", "Rage", "Armor 32", "Melee bruiser / tank"] },
   hunter: { name: "Hunter", description: "A mobile ranged damage dealer. Keeps pressure from afar with fast shots and strong uptime.", stats: ["HP 112", "Focus", "Attack Power 20", "Ranged sustained DPS"] },
   priest: { name: "Priest", description: "A holy support caster. Heals allies, deals holy damage, and can keep a group alive through pressure.", stats: ["HP 103", "Mana 120", "Spell Power 18", "Healer / holy caster"] },
-  mage: { name: "Mage", description: "A fragile elemental nuker. Firebolt burns enemies over time; Frostbolt can be learned later to help the team kite.", stats: ["HP 94", "Mana 130", "Spell Power 23", "Burst / control caster"] }
+  mage: { name: "Mage", description: "A fragile elemental nuker. Firebolt burns enemies over time; Frostbolt can be learned later to help the team kite.", stats: ["HP 94", "Mana 130", "Spell Power 23", "Burst / control caster"] },
+  rogue: { name: "Rogue", description: "A fast dual-dagger assassin. Backstep blinks behind a target for a brutal strike, while Vanish drops enemy attention for a short window.", stats: ["HP 106", "Energy", "Attack Power 22", "Dual-dagger assassin"] }
 };
 const SNAPSHOT_INTERVAL_MS = 1000 / 15;
 const JUMP_DURATION_SECONDS = 0.36;
@@ -40,6 +41,7 @@ root.innerHTML = `
       <button data-testid="class-hunter" data-class="hunter">Hunter</button>
       <button data-testid="class-priest" data-class="priest">Priest</button>
       <button data-testid="class-mage" data-class="mage">Mage</button>
+      <button data-testid="class-rogue" data-class="rogue">Rogue</button>
     </div>
     <div id="lobbyUpgrades" data-testid="lobby-upgrades">
       <h3>Stat Upgrades <span id="lobbyUpgradePoints" data-testid="lobby-upgrade-points">3</span></h3>
@@ -152,6 +154,7 @@ const enemyBars = new Map<string, HTMLElement>();
 const playerNameLabels = new Map<string, HTMLElement>();
 const input = { up: false, down: false, left: false, right: false };
 const autoSwings = new Map<string, number>();
+const autoSwingHands = new Map<string, "left" | "right">();
 const spinVisuals = new Map<string, number>();
 let lastEventId = 0;
 let lastUpgradeSignature = "";
@@ -712,6 +715,8 @@ function showAbilityTooltip(button: HTMLButtonElement) {
     if (effect.type === "resource") return `Restore: ${total} resource`;
     if (effect.type === "auto_haste") return `Auto-shot speed x${(effect as any).multiplier || 1} for ${effect.duration || 0}s`;
     if (effect.type === "trap") return `Trap: ${total} damage, triggers in ${effect.radius || 0}m`;
+    if (effect.type === "backstep") return `Backstep: ${total} ${effect.school || "physical"} damage behind the target`;
+    if (effect.type === "stealth") return `Vanish: undetectable for ${effect.duration || 0}s`;
     if (effect.type === "slow") return `Slow: ${Math.round((effect.slowPercent || 0) * 100)}% for ${effect.duration || 0}s`;
     return effect.type;
   }).join(" • ");
@@ -790,7 +795,12 @@ function abilityDescription(abilityId: string) {
     hunter_adrenaline: "Triple auto-shot speed for 3 seconds.",
     priest_renew: "Heal an ally over time.",
     priest_sanctify: "Heal allies and burn enemies around you.",
-    priest_barrier: "Shield an ally from damage."
+    priest_barrier: "Shield an ally from damage.",
+    rogue_backstep: "Blink behind your target and strike from its back for heavy physical damage.",
+    rogue_poisoned_blades: "Cut the target and poison it over time.",
+    rogue_kidney_shot: "A precise dagger strike that briefly stuns one enemy.",
+    rogue_blade_flurry: "Whirl with both daggers, cutting nearby enemies.",
+    rogue_vanish: "Disappear for 5 seconds so enemies cannot discover or target you."
   };
   return descriptions[abilityId] || "A class ability.";
 }
@@ -867,6 +877,8 @@ function formatAbilityEffectSummary(effect: NonNullable<Ability["effects"]>[numb
   if (effect.type === "aura_damage") return `aura ${effect.amount || 0} damage for ${effect.duration || 0}s`;
   if (effect.type === "auto_haste") return `auto attack haste x${effect.multiplier || 1} for ${effect.duration || 0}s`;
   if (effect.type === "trap") return `trap ${effect.radius || 0}m for ${effect.duration || 0}s`;
+  if (effect.type === "backstep") return `${effect.amount || 0} backstep damage`;
+  if (effect.type === "stealth") return `vanish ${effect.duration || 0}s`;
   return "";
 }
 
@@ -971,6 +983,7 @@ function renderWorld() {
     node.metadata = { ...(node.metadata || {}), x: position.x, z: position.z, moving, visualFacing, entityId: p.id, classId: p.classId };
     updateSelectionRing(node, p.id === state.you ? "self" : meTargetKind(p.id));
     updateActiveShield(node, p);
+    updateStealthVisual(node, p);
   }
   for (const e of Object.values(state.enemies)) {
     const node = meshes.get(e.id) || createEnemy(e);
@@ -998,6 +1011,20 @@ function updateActiveShield(node: TransformNode, player: PlayerState) {
   material.emissiveColor = new Color3(0.75, 0.48, 0.05);
   bubble.material = material;
   bubble.isPickable = false;
+}
+
+function updateStealthVisual(node: TransformNode, player: PlayerState) {
+  const multiplier = player.stealthed ? 0.32 : 1;
+  for (const mesh of node.getChildMeshes()) {
+    const material = mesh.material as StandardMaterial | null;
+    if (!material) continue;
+    const metadata = (material.metadata || {}) as { baseAlpha?: number };
+    if (metadata.baseAlpha === undefined) {
+      metadata.baseAlpha = material.alpha ?? 1;
+      material.metadata = metadata;
+    }
+    material.alpha = metadata.baseAlpha * multiplier;
+  }
 }
 
 function renderGroundEffects() {
@@ -1509,10 +1536,18 @@ function animateWorld() {
         rightY = 1.1 + Math.abs(pulse) * 0.25;
       } else if (autoSwing > 0) {
         const swing = Math.sin((1 - autoSwing) * Math.PI);
-        rightX = -1.6 * swing - 0.18;
-        rightZ = 0.35 + swing * 0.35;
-        leftX = gait * 0.35 * moveBlend - 0.05 * (1 - moveBlend);
-        rightY = 0.95 + swing * 0.18 + bob * 0.45;
+        const hand = player.classId === "rogue" ? autoSwingHands.get(id) || "right" : "right";
+        if (hand === "left") {
+          leftX = -1.6 * swing - 0.18;
+          leftZ = -0.35 - swing * 0.35;
+          rightX = -gait * 0.35 * moveBlend - 0.05 * (1 - moveBlend);
+          leftY = 0.95 + swing * 0.18 + bob * 0.45;
+        } else {
+          rightX = -1.6 * swing - 0.18;
+          rightZ = 0.35 + swing * 0.35;
+          leftX = gait * 0.35 * moveBlend - 0.05 * (1 - moveBlend);
+          rightY = 0.95 + swing * 0.18 + bob * 0.45;
+        }
       }
       leftArm.rotation.x = lerpValue(leftArm.rotation.x, leftX, poseBlend);
       rightArm.rotation.x = lerpValue(rightArm.rotation.x, rightX, poseBlend);
@@ -1588,7 +1623,7 @@ function animateWorld() {
 function createPlayer(p: PlayerState) {
   const root = new TransformNode(p.id, scene);
   root.metadata = { entityId: p.id, classId: p.classId };
-  const color = p.classId === "warrior" ? new Color3(0.7, 0.15, 0.1) : p.classId === "hunter" ? new Color3(0.1, 0.45, 0.18) : p.classId === "priest" ? new Color3(0.95, 0.9, 0.72) : new Color3(0.15, 0.2, 0.85);
+  const color = p.classId === "warrior" ? new Color3(0.7, 0.15, 0.1) : p.classId === "hunter" ? new Color3(0.1, 0.45, 0.18) : p.classId === "priest" ? new Color3(0.95, 0.9, 0.72) : p.classId === "rogue" ? new Color3(0.16, 0.12, 0.2) : new Color3(0.15, 0.2, 0.85);
   const build = playerBuild(p.classId);
   addContactShadow(root, `${p.id}-contact-shadow`, 1.25, 0.2, 0.78);
   const body = box(`${p.id}-body`, { width: build.bodyWidth, height: build.bodyHeight, depth: build.bodyDepth }, color); body.parent = root; body.position.y = 0.7;
@@ -1607,6 +1642,7 @@ function playerBuild(classId: string | null) {
   if (classId === "warrior") return { bodyWidth: 0.92, bodyHeight: 1.02, bodyDepth: 0.52, headWidth: 0.56, headDepth: 0.54, armWidth: 0.26, armHeight: 0.78, armDepth: 0.26, armX: 0.68, skin: new Color3(0.78, 0.55, 0.38) };
   if (classId === "hunter") return { bodyWidth: 0.72, bodyHeight: 0.96, bodyDepth: 0.42, headWidth: 0.48, headDepth: 0.5, armWidth: 0.18, armHeight: 0.76, armDepth: 0.2, armX: 0.52, skin: new Color3(0.84, 0.62, 0.43) };
   if (classId === "priest") return { bodyWidth: 0.82, bodyHeight: 1.06, bodyDepth: 0.48, headWidth: 0.5, headDepth: 0.5, armWidth: 0.2, armHeight: 0.72, armDepth: 0.22, armX: 0.58, skin: new Color3(0.88, 0.68, 0.5) };
+  if (classId === "rogue") return { bodyWidth: 0.66, bodyHeight: 0.92, bodyDepth: 0.38, headWidth: 0.46, headDepth: 0.46, armWidth: 0.16, armHeight: 0.72, armDepth: 0.18, armX: 0.5, skin: new Color3(0.78, 0.56, 0.42) };
   return { bodyWidth: 0.74, bodyHeight: 0.98, bodyDepth: 0.44, headWidth: 0.5, headDepth: 0.5, armWidth: 0.18, armHeight: 0.74, armDepth: 0.2, armX: 0.54, skin: new Color3(0.84, 0.64, 0.48) };
 }
 
@@ -1618,32 +1654,34 @@ function markEntityMeshes(root: TransformNode, entityId: string) {
 }
 
 function addClassDetails(root: TransformNode, id: string, classId: string | null, baseColor: Color3) {
+  const leftArm = root.getChildMeshes().find((mesh) => mesh.name.endsWith("-left-arm"));
+  const rightArm = root.getChildMeshes().find((mesh) => mesh.name.endsWith("-right-arm"));
   if (classId === "warrior") {
     const leftShoulder = box(`${id}-left-shoulder`, { width: 0.46, height: 0.24, depth: 0.46 }, new Color3(0.42, 0.42, 0.46)); leftShoulder.parent = root; leftShoulder.position.set(-0.63, 1.24, 0); leftShoulder.rotation.z = -0.12;
     const rightShoulder = box(`${id}-right-shoulder`, { width: 0.32, height: 0.18, depth: 0.38 }, new Color3(0.32, 0.31, 0.33)); rightShoulder.parent = root; rightShoulder.position.set(0.62, 1.22, 0); rightShoulder.rotation.z = 0.18;
     const chestStrap = box(`${id}-chest-strap`, { width: 0.18, height: 1.1, depth: 0.54 }, new Color3(0.22, 0.11, 0.04)); chestStrap.parent = root; chestStrap.position.set(-0.08, 0.77, -0.03); chestStrap.rotation.z = -0.48;
     const belt = box(`${id}-belt`, { width: 0.96, height: 0.14, depth: 0.56 }, new Color3(0.18, 0.1, 0.04)); belt.parent = root; belt.position.y = 0.43;
-    const sword = box(`${id}-sword`, { width: 0.12, height: 1.18, depth: 0.08 }, new Color3(0.8, 0.82, 0.86)); sword.parent = root; sword.position.set(0.84, 0.84, -0.16); sword.rotation.z = -0.35;
-    const swordGrip = box(`${id}-sword-grip`, { width: 0.34, height: 0.08, depth: 0.1 }, new Color3(0.18, 0.1, 0.04)); swordGrip.parent = root; swordGrip.position.set(0.65, 0.38, -0.16); swordGrip.rotation.z = -0.35;
-    const shield = box(`${id}-shield`, { width: 0.5, height: 0.64, depth: 0.12 }, new Color3(0.24, 0.26, 0.32)); shield.parent = root; shield.position.set(-0.75, 0.86, -0.02); shield.rotation.z = 0.22;
-    const crest = box(`${id}-shield-crest`, { width: 0.18, height: 0.42, depth: 0.13 }, new Color3(0.95, 0.78, 0.16)); crest.parent = root; crest.position.set(-0.76, 0.86, -0.09); crest.rotation.z = 0.22;
+    const sword = box(`${id}-sword`, { width: 0.12, height: 1.18, depth: 0.08 }, new Color3(0.8, 0.82, 0.86)); sword.parent = rightArm || root; sword.position.set(0.06, -0.52, -0.18); sword.rotation.z = -0.18;
+    const swordGrip = box(`${id}-sword-grip`, { width: 0.34, height: 0.08, depth: 0.1 }, new Color3(0.18, 0.1, 0.04)); swordGrip.parent = sword; swordGrip.position.set(0, -0.48, 0); swordGrip.rotation.z = Math.PI / 2;
+    const shield = box(`${id}-shield`, { width: 0.5, height: 0.64, depth: 0.12 }, new Color3(0.24, 0.26, 0.32)); shield.parent = leftArm || root; shield.position.set(-0.12, -0.12, -0.16); shield.rotation.z = 0.18;
+    const crest = box(`${id}-shield-crest`, { width: 0.18, height: 0.42, depth: 0.13 }, new Color3(0.95, 0.78, 0.16)); crest.parent = shield; crest.position.set(0, 0, -0.08);
     const boots = box(`${id}-heavy-boots`, { width: 0.9, height: 0.18, depth: 0.52 }, new Color3(0.12, 0.08, 0.05)); boots.parent = root; boots.position.y = 0.1;
   } else if (classId === "hunter") {
     const cloak = box(`${id}-cloak`, { width: 0.66, height: 0.9, depth: 0.08 }, new Color3(0.04, 0.18, 0.08)); cloak.parent = root; cloak.position.set(0, 0.76, 0.31); cloak.rotation.x = -0.14;
     const quiver = box(`${id}-quiver`, { width: 0.28, height: 0.86, depth: 0.24 }, new Color3(0.32, 0.18, 0.08)); quiver.parent = root; quiver.position.set(-0.28, 0.95, -0.34); quiver.rotation.z = 0.25;
-    const bow = MeshBuilder.CreateTorus(`${id}-bow`, { diameter: 0.78, thickness: 0.035, tessellation: 24 }, scene); bow.parent = root; bow.position.set(0.72, 0.93, 0.08); bow.rotation.z = Math.PI / 2; bow.scaling.y = 1.95; bow.material = mat(`${id}-bow-mat`, new Color3(0.42, 0.24, 0.1));
-    const bowString = box(`${id}-bow-string`, { width: 0.025, height: 1.42, depth: 0.025 }, new Color3(0.86, 0.82, 0.68)); bowString.parent = root; bowString.position.set(0.72, 0.93, 0.08);
+    const bow = MeshBuilder.CreateTorus(`${id}-bow`, { diameter: 0.78, thickness: 0.035, tessellation: 24 }, scene); bow.parent = rightArm || root; bow.position.set(0.22, -0.05, 0.08); bow.rotation.z = Math.PI / 2; bow.scaling.y = 1.95; bow.material = mat(`${id}-bow-mat`, new Color3(0.42, 0.24, 0.1));
+    const bowString = box(`${id}-bow-string`, { width: 0.025, height: 1.42, depth: 0.025 }, new Color3(0.86, 0.82, 0.68)); bowString.parent = bow; bowString.position.set(0, 0, 0);
     for (let i = 0; i < 3; i++) { const arrow = box(`${id}-quiver-arrow-${i}`, { width: 0.035, height: 0.58, depth: 0.035 }, new Color3(0.92, 0.82, 0.58)); arrow.parent = root; arrow.position.set(-0.35 + i * 0.07, 1.36, -0.42); arrow.rotation.z = 0.22; }
     const hood = MeshBuilder.CreateCylinder(`${id}-hood`, { diameterTop: 0.34, diameterBottom: 0.62, height: 0.32, tessellation: 6 }, scene); hood.parent = root; hood.position.y = 1.65; hood.material = mat(`${id}-hood-mat`, baseColor.scale(0.75));
     const chestBand = box(`${id}-chest-band`, { width: 0.12, height: 0.92, depth: 0.46 }, new Color3(0.45, 0.29, 0.08)); chestBand.parent = root; chestBand.position.set(0.05, 0.78, -0.04); chestBand.rotation.z = 0.42;
-    const knife = box(`${id}-knife`, { width: 0.07, height: 0.48, depth: 0.06 }, new Color3(0.78, 0.82, 0.76)); knife.parent = root; knife.position.set(-0.5, 0.45, -0.2); knife.rotation.z = 0.5;
+    const knife = box(`${id}-knife`, { width: 0.07, height: 0.48, depth: 0.06 }, new Color3(0.78, 0.82, 0.76)); knife.parent = leftArm || root; knife.position.set(-0.04, -0.52, -0.16); knife.rotation.z = 0.28;
   } else if (classId === "priest") {
     const robeSkirt = MeshBuilder.CreateCylinder(`${id}-robe-skirt`, { diameterTop: 0.76, diameterBottom: 0.98, height: 0.62, tessellation: 6 }, scene); robeSkirt.parent = root; robeSkirt.position.y = 0.34; robeSkirt.material = mat(`${id}-robe-skirt-mat`, new Color3(0.93, 0.9, 0.78));
     const halo = MeshBuilder.CreateTorus(`${id}-halo`, { diameter: 0.68, thickness: 0.035, tessellation: 36 }, scene); halo.parent = root; halo.position.y = 1.85; halo.rotation.x = Math.PI / 2; halo.material = mat(`${id}-halo-mat`, new Color3(1, 0.86, 0.28));
     (halo.material as StandardMaterial).emissiveColor = new Color3(0.55, 0.42, 0.08);
     const sash = box(`${id}-sash`, { width: 0.14, height: 1.08, depth: 0.48 }, new Color3(0.95, 0.78, 0.22)); sash.parent = root; sash.position.y = 0.72; sash.rotation.z = -0.28;
-    const book = box(`${id}-book`, { width: 0.34, height: 0.24, depth: 0.1 }, new Color3(0.42, 0.18, 0.09)); book.parent = root; book.position.set(-0.72, 0.88, -0.08); book.rotation.z = -0.15;
-    const bookClasp = box(`${id}-book-clasp`, { width: 0.08, height: 0.26, depth: 0.12 }, new Color3(0.98, 0.78, 0.22)); bookClasp.parent = root; bookClasp.position.set(-0.72, 0.88, -0.15); bookClasp.rotation.z = -0.15;
+    const book = box(`${id}-book`, { width: 0.34, height: 0.24, depth: 0.1 }, new Color3(0.42, 0.18, 0.09)); book.parent = leftArm || root; book.position.set(-0.18, -0.12, -0.14); book.rotation.z = -0.1;
+    const bookClasp = box(`${id}-book-clasp`, { width: 0.08, height: 0.26, depth: 0.12 }, new Color3(0.98, 0.78, 0.22)); bookClasp.parent = book; bookClasp.position.set(0, 0, -0.06);
     const stole = box(`${id}-stole`, { width: 0.46, height: 0.08, depth: 0.5 }, new Color3(1, 0.95, 0.72)); stole.parent = root; stole.position.y = 1.18;
     const prayerBeads = MeshBuilder.CreateTorus(`${id}-prayer-beads`, { diameter: 0.46, thickness: 0.025, tessellation: 18 }, scene); prayerBeads.parent = root; prayerBeads.position.set(0, 1.03, -0.25); prayerBeads.scaling.y = 0.65; prayerBeads.material = mat(`${id}-prayer-beads-mat`, new Color3(0.88, 0.72, 0.24));
     const glow = MeshBuilder.CreateCylinder(`${id}-holy-glow`, { diameter: 1.18, height: 0.02, tessellation: 48 }, scene); glow.parent = root; glow.position.y = 0.04; glow.material = transparentMat(`${id}-holy-glow-mat`, new Color3(1, 0.88, 0.38), 0.16);
@@ -1651,8 +1689,8 @@ function addClassDetails(root: TransformNode, id: string, classId: string | null
     const collar = MeshBuilder.CreateCylinder(`${id}-collar`, { diameterTop: 0.92, diameterBottom: 0.6, height: 0.28, tessellation: 5 }, scene); collar.parent = root; collar.position.y = 1.22; collar.rotation.y = Math.PI / 5; collar.material = mat(`${id}-collar-mat`, new Color3(0.1, 0.07, 0.28));
     const hat = MeshBuilder.CreateCylinder(`${id}-hat`, { diameterTop: 0.08, diameterBottom: 0.72, height: 0.72, tessellation: 4 }, scene); hat.parent = root; hat.position.y = 1.95; hat.rotation.y = Math.PI / 4; hat.material = mat(`${id}-hat-mat`, baseColor.scale(0.7));
     const hatBand = box(`${id}-hat-band`, { width: 0.62, height: 0.08, depth: 0.62 }, new Color3(0.86, 0.26, 0.08)); hatBand.parent = root; hatBand.position.y = 1.65; hatBand.rotation.y = Math.PI / 4;
-    const staff = box(`${id}-staff`, { width: 0.08, height: 1.45, depth: 0.08 }, new Color3(0.38, 0.2, 0.08)); staff.parent = root; staff.position.set(0.74, 0.86, 0.05); staff.rotation.z = 0.18;
-    const gem = MeshBuilder.CreateSphere(`${id}-staff-gem`, { diameter: 0.22, segments: 8 }, scene); gem.parent = root; gem.position.set(0.88, 1.58, 0.05); gem.material = mat(`${id}-staff-gem-mat`, new Color3(0.45, 0.95, 1));
+    const staff = box(`${id}-staff`, { width: 0.08, height: 1.45, depth: 0.08 }, new Color3(0.38, 0.2, 0.08)); staff.parent = rightArm || root; staff.position.set(0.2, -0.12, 0.06); staff.rotation.z = 0.16;
+    const gem = MeshBuilder.CreateSphere(`${id}-staff-gem`, { diameter: 0.22, segments: 8 }, scene); gem.parent = staff; gem.position.set(0.12, 0.72, 0); gem.material = mat(`${id}-staff-gem-mat`, new Color3(0.45, 0.95, 1));
     (gem.material as StandardMaterial).emissiveColor = new Color3(0.16, 0.48, 0.7);
     const cape = box(`${id}-cape`, { width: 0.72, height: 0.92, depth: 0.08 }, baseColor.scale(0.48)); cape.parent = root; cape.position.set(0, 0.78, 0.33); cape.rotation.x = -0.12;
     const beltGem = MeshBuilder.CreateSphere(`${id}-belt-gem`, { diameter: 0.16, segments: 8 }, scene); beltGem.parent = root; beltGem.position.set(0, 0.72, -0.26); beltGem.material = mat(`${id}-belt-gem-mat`, new Color3(0.9, 0.35, 1));
@@ -1660,6 +1698,17 @@ function addClassDetails(root: TransformNode, id: string, classId: string | null
       const orb = MeshBuilder.CreateSphere(`${id}-arcane-orb-${side}`, { diameter: 0.12, segments: 8 }, scene);
       orb.parent = root; orb.position.set(side * 0.46, 1.18, -0.28); const orbMat = mat(`${id}-arcane-orb-${side}-mat`, new Color3(0.6, 0.3, 1)); orbMat.emissiveColor = new Color3(0.28, 0.12, 0.62); orb.material = orbMat;
     }
+  } else if (classId === "rogue") {
+    const hood = MeshBuilder.CreateCylinder(`${id}-shadow-hood`, { diameterTop: 0.32, diameterBottom: 0.58, height: 0.34, tessellation: 6 }, scene); hood.parent = root; hood.position.y = 1.62; hood.material = mat(`${id}-shadow-hood-mat`, baseColor.scale(0.62));
+    const mask = box(`${id}-mask`, { width: 0.42, height: 0.12, depth: 0.05 }, new Color3(0.04, 0.035, 0.055)); mask.parent = root; mask.position.set(0, 1.43, -0.24);
+    const cloak = box(`${id}-shadow-cloak`, { width: 0.58, height: 0.84, depth: 0.07 }, new Color3(0.06, 0.04, 0.08)); cloak.parent = root; cloak.position.set(0, 0.72, 0.28); cloak.rotation.x = -0.18;
+    const sash = box(`${id}-rogue-sash`, { width: 0.11, height: 0.86, depth: 0.4 }, new Color3(0.34, 0.08, 0.42)); sash.parent = root; sash.position.set(-0.02, 0.75, -0.02); sash.rotation.z = 0.36;
+    for (const side of [-1, 1]) {
+      const arm = side < 0 ? leftArm : rightArm;
+      const dagger = box(`${id}-dagger-${side}`, { width: 0.055, height: 0.72, depth: 0.045 }, new Color3(0.78, 0.82, 0.86)); dagger.parent = arm || root; dagger.position.set(side * 0.08, -0.5, -0.16); dagger.rotation.z = side * -0.22;
+      const grip = box(`${id}-dagger-grip-${side}`, { width: 0.16, height: 0.055, depth: 0.06 }, new Color3(0.12, 0.07, 0.04)); grip.parent = dagger; grip.position.set(0, -0.3, 0); grip.rotation.z = Math.PI / 2;
+    }
+    const shadow = MeshBuilder.CreateCylinder(`${id}-rogue-shadow`, { diameter: 1.0, height: 0.018, tessellation: 40 }, scene); shadow.parent = root; shadow.position.y = 0.035; shadow.material = transparentMat(`${id}-rogue-shadow-mat`, new Color3(0.38, 0.12, 0.6), 0.14);
   }
 }
 
@@ -1888,6 +1937,8 @@ function playCastEffect(event: CombatEvent) {
     holyRing(source.position, 5.0, 1000);
   } else if (event.abilityId?.includes("arcane_blast")) {
     expandingDisc("arcane-blast", source.position, 4.0, new Color3(0.78, 0.22, 1), 900, 0.34);
+  } else if (event.abilityId?.includes("blade_flurry")) {
+    bladeFlurryBurst(source.position, 2.7, 900);
   } else if (event.abilityId?.includes("shield_wall") || event.abilityId?.includes("barrier")) {
     shieldBubble(target.position, color, 900);
   } else if (event.abilityId?.includes("adrenaline")) {
@@ -1919,6 +1970,7 @@ function playStatusEffect(event: CombatEvent) {
   if (event.abilityId?.includes("fireball")) fireBurst(target.position, 900);
   if (event.abilityId?.includes("frost")) frostSpikes(target.position, 900);
   if (event.abilityId?.includes("renew") || event.abilityId?.includes("barrier")) holyRing(target.position, 1.2, 700);
+  if (event.abilityId?.includes("vanish")) shadowRing(target.position, 1.7, 650);
 }
 
 function playAutoAttackEffect(event: CombatEvent) {
@@ -1928,6 +1980,9 @@ function playAutoAttackEffect(event: CombatEvent) {
   autoSwings.set(event.sourceId || "", performance.now() + 320);
   const sourcePlayer = event.sourceId ? state?.players[event.sourceId] : null;
   const sourceEnemy = event.sourceId ? state?.enemies[event.sourceId] : null;
+  if (sourcePlayer?.classId === "rogue" && event.sourceId) {
+    autoSwingHands.set(event.sourceId, autoSwingHands.get(event.sourceId) === "left" ? "right" : "left");
+  }
   const isArrow = sourcePlayer?.classId === "hunter" || sourceEnemy?.type === "archer";
   if (isArrow) {
     arrow(source.position, target.position, new Color3(0.95, 0.75, 0.22), 180);
@@ -1935,6 +1990,7 @@ function playAutoAttackEffect(event: CombatEvent) {
   } else {
     slashArc(target.position, 260);
     if (sourcePlayer?.classId === "warrior") warriorClang(0.04);
+    else if (sourcePlayer?.classId === "rogue") rogueSlice(0.04);
     else if (sourcePlayer?.classId === "priest") priestChoir(0.025);
     else if (sourcePlayer?.classId === "mage") mageSparkle();
   }
@@ -2300,6 +2356,37 @@ function slashRing(center: Vector3, duration: number) {
   }
 }
 
+function bladeFlurryBurst(center: Vector3, radius: number, duration: number) {
+  expandingDisc("blade-flurry-disc", center, radius, new Color3(0.5, 0.12, 0.72), duration, 0.18);
+  const count = 18;
+  for (let i = 0; i < count; i++) {
+    const angle = (Math.PI * 2 * i) / count;
+    const blade = box(`blade-flurry-${i}`, { width: 0.08, height: 0.58, depth: 0.035 }, new Color3(0.82, 0.86, 0.9));
+    const material = blade.material as StandardMaterial;
+    material.emissiveColor = new Color3(0.45, 0.18, 0.72);
+    material.alpha = 0;
+    blade.position = center.add(new Vector3(Math.cos(angle) * 0.35, 0.7, Math.sin(angle) * 0.35));
+    blade.rotation.y = -angle;
+    blade.rotation.z = Math.PI / 2;
+    const start = blade.position.clone();
+    const end = center.add(new Vector3(Math.cos(angle) * radius, 0.9 + Math.sin(i) * 0.28, Math.sin(angle) * radius));
+    const delay = (i % 6) * 35;
+    const started = performance.now() + delay;
+    const observer = scene.onBeforeRenderObservable.add(() => {
+      const progress = Math.max(0, Math.min(1, (performance.now() - started) / duration));
+      const eased = 1 - Math.pow(1 - progress, 3);
+      blade.position = Vector3.Lerp(start, end, eased);
+      blade.rotation.y += 0.34;
+      blade.rotation.x += 0.22;
+      material.alpha = progress <= 0 ? 0 : Math.max(0, 1 - progress);
+      if (progress >= 1) {
+        scene.onBeforeRenderObservable.remove(observer);
+        blade.dispose();
+      }
+    });
+  }
+}
+
 function trapBurst(center: Vector3, radius: number, duration: number) {
   expandingDisc("trap-burst", center, radius, new Color3(0.34, 0.95, 0.24), duration, 0.3);
   for (let i = 0; i < 10; i++) {
@@ -2313,6 +2400,10 @@ function trapBurst(center: Vector3, radius: number, duration: number) {
 
 function holyRing(center: Vector3, radius: number, duration: number) {
   expandingDisc("holy-ring", center, radius, new Color3(1, 0.86, 0.24), duration, 0.32);
+}
+
+function shadowRing(center: Vector3, radius: number, duration: number) {
+  expandingDisc("shadow-ring", center, radius, new Color3(0.36, 0.08, 0.58), duration, 0.36);
 }
 
 function shieldBubble(center: Vector3, color: Color3, duration: number) {
@@ -2378,6 +2469,7 @@ function effectColor(abilityId: string, school: string) {
   if (abilityId.includes("frost") || school === "frost") return new Color3(0.2, 0.85, 1);
   if (abilityId.includes("heal") || abilityId.includes("priest") || school === "holy") return new Color3(1, 0.84, 0.22);
   if (abilityId.includes("arcane") || school === "arcane") return new Color3(0.8, 0.28, 1);
+  if (abilityId.includes("rogue") || abilityId.includes("vanish") || school === "poison") return new Color3(0.5, 0.12, 0.72);
   if (abilityId.includes("hunter") || abilityId.includes("trap")) return new Color3(0.36, 0.9, 0.22);
   if (school === "magical") return new Color3(0.55, 0.22, 1);
   return new Color3(1, 0.2, 0.08);
@@ -2531,6 +2623,8 @@ function playCastStartSound(event: CombatEvent) {
     hunterTwang(0, 0.035);
   } else if (sourceClass === "warrior") {
     warriorGrunt(0.03);
+  } else if (sourceClass === "rogue") {
+    rogueSlice(0.025);
   } else {
     tone(250, 0.08, "triangle", 0.035);
   }
@@ -2559,6 +2653,8 @@ function playCastReleaseSound(event: CombatEvent) {
     priestChoir(0.045);
   } else if (sourceClass === "mage") {
     mageSparkle();
+  } else if (sourceClass === "rogue") {
+    rogueSlice(0.04);
   } else {
     tone(180, 0.08, "square", 0.045);
   }
@@ -2600,10 +2696,16 @@ function mageSparkle() {
   [880, 1100, 1320, 1760].forEach((frequency, index) => tone(frequency, 0.06, "sine", 0.025, index * 0.02));
 }
 
+function rogueSlice(volume = 0.035) {
+  noise(0.05, volume, 1800, 0, "highpass");
+  tone(260, 0.045, "triangle", volume * 0.75, 0.015);
+}
+
 function playStatusSound(event: CombatEvent) {
   if (event.abilityId?.includes("fire") || event.abilityId?.includes("meteor")) fireWhoosh(0);
   if (event.abilityId?.includes("frost")) frostCrackle(0);
   if (event.abilityId?.includes("renew") || event.abilityId?.includes("barrier")) priestChoir(0.03);
+  if (event.abilityId?.includes("vanish")) rogueSlice(0.028);
 }
 
 function playHitSound(event: CombatEvent) {
@@ -2628,6 +2730,8 @@ function playHitSound(event: CombatEvent) {
     warriorClang(0.04);
   } else if (sourceClass === "hunter") {
     hunterTwang(0, 0.03);
+  } else if (sourceClass === "rogue") {
+    rogueSlice(0.035);
   } else {
     noise(0.08, 0.04, 850);
     tone(150, 0.05, "square", 0.03);
