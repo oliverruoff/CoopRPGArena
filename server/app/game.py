@@ -1102,7 +1102,8 @@ class Game:
     def _damage_enemy_locked(self, player: Player, enemy: Enemy, raw: float, school: str, threat_multiplier: float, ability_id: str | None = None) -> None:
         now = time.monotonic()
         mitigation = enemy.armor if school == "physical" else enemy.resistance
-        damage = self._mitigate(raw, mitigation)
+        critical = random.random() < player.stats.get("critChance", 0)
+        damage = self._mitigate(raw * (player.stats.get("critMultiplier", 1.5) if critical else 1), mitigation)
         enemy.hp = max(0, enemy.hp - damage)
         if not self._is_stealthed_locked(player, now):
             enemy.alerted = True
@@ -1110,7 +1111,7 @@ class Game:
             enemy.threat[player.id] = enemy.threat.get(player.id, 0) + damage * threat_multiplier
         if player.class_id == "warrior":
             player.resource = min(player.stats["maxResource"], player.resource + damage * 0.25 + 4)
-        self._emit_locked({"type": "damage", "sourceId": player.id, "targetId": enemy.id, "amount": round(damage, 1), "school": school, "abilityId": ability_id})
+        self._emit_locked({"type": "damage", "sourceId": player.id, "targetId": enemy.id, "amount": round(damage, 1), "school": school, "abilityId": ability_id, "critical": critical})
         if enemy.hp <= 0:
             self._kill_enemy_locked(enemy.id)
 

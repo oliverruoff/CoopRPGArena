@@ -11,7 +11,7 @@ type GroundEffect = { id: string; type: string; abilityId?: string; x: number; z
 type Upgrade = { id: string; name: string; choiceType?: string; abilityId?: string; description?: string; stat?: string; mode?: string; value?: number };
 type ClassData = { id: string; name: string; description: string; resourceType: string; startingResource: number; baseStats: Record<string, number>; statGrowth: Record<string, number>; startingAbilities: string[] };
 type Ability = { id: string; name: string; classId: string; slot: number; targetType: string; cooldown: number; resourceCost?: { type: string; amount: number }; castTime?: number; range?: number; requiredForm?: string; description?: string; effects?: Array<{ type: string; amount?: number; school?: string; scaling?: { stat: string; coefficient: number }; duration?: number; tickInterval?: number; slowPercent?: number; radius?: number; multiplier?: number; add?: number; stat?: string; center?: string; behindDistance?: number; stopDistance?: number; stunDuration?: number; form?: string; statMultipliers?: Record<string, number>; statAdds?: Record<string, number> }> };
-type CombatEvent = { id: number; type: string; sourceId?: string; targetId?: string; abilityId?: string; castTime?: number; duration?: number; amount?: number; school?: string; status?: string };
+type CombatEvent = { id: number; type: string; sourceId?: string; targetId?: string; abilityId?: string; castTime?: number; duration?: number; amount?: number; school?: string; status?: string; critical?: boolean };
 type Snapshot = { type: string; you: string; matchState: string; countdown: number | null; players: Record<string, PlayerState>; enemies: Record<string, EnemyState>; mapObjects: MapObject[]; mapRevision?: number; groundEffects?: GroundEffect[]; wave: { number: number; state: string; aliveEnemies: number; nextWaveIn?: number }; abilities: Record<string, Ability>; classes: Record<string, ClassData>; upgrades: Upgrade[]; events: CombatEvent[] };
 type IncomingSnapshot = Omit<Snapshot, "mapObjects" | "abilities" | "classes" | "upgrades"> & { mapObjects?: MapObject[]; abilities?: Record<string, Ability>; classes?: Record<string, ClassData>; upgrades?: Upgrade[] };
 
@@ -2185,14 +2185,16 @@ function playImpactEffect(event: CombatEvent, healing: boolean) {
   const target = event.targetId ? meshes.get(event.targetId) : null;
   if (!target) return;
   const color = healing ? new Color3(1, 0.85, 0.25) : effectColor(event.abilityId || "", event.school || "");
+  const critical = !healing && Boolean(event.critical);
   if (event.amount) spawnFloatingNumber(target, event, healing);
-  const pieces = Array.from({ length: healing ? 8 : 14 }, (_, index) => {
-    const piece = MeshBuilder.CreateBox(`pixel-shard-${event.id}-${index}`, { size: healing ? 0.18 : 0.14 }, scene);
-    piece.position = target.position.add(new Vector3((Math.random() - 0.5) * 0.7, 1 + Math.random() * 0.5, (Math.random() - 0.5) * 0.7));
+  if (critical) spawnCriticalBurst(target, event, color);
+  const pieces = Array.from({ length: critical ? 26 : healing ? 8 : 14 }, (_, index) => {
+    const piece = MeshBuilder.CreateBox(`pixel-shard-${event.id}-${index}`, { size: critical ? 0.2 : healing ? 0.18 : 0.14 }, scene);
+    piece.position = target.position.add(new Vector3((Math.random() - 0.5) * (critical ? 1.05 : 0.7), 1 + Math.random() * (critical ? 0.85 : 0.5), (Math.random() - 0.5) * (critical ? 1.05 : 0.7)));
     const material = mat(`pixel-shard-${event.id}-${index}-mat`, color);
-    material.emissiveColor = color.scale(0.65);
+    material.emissiveColor = color.scale(critical ? 1.25 : 0.65);
     piece.material = material;
-    return { piece, material, velocity: new Vector3((Math.random() - 0.5) * 4, 1.5 + Math.random() * 2, (Math.random() - 0.5) * 4), spin: Math.random() * 0.25 };
+    return { piece, material, velocity: new Vector3((Math.random() - 0.5) * (critical ? 7 : 4), (critical ? 2.6 : 1.5) + Math.random() * (critical ? 3.2 : 2), (Math.random() - 0.5) * (critical ? 7 : 4)), spin: Math.random() * (critical ? 0.45 : 0.25) };
   });
   const started = performance.now();
   const observer = scene.onBeforeRenderObservable.add(() => {
@@ -2211,6 +2213,27 @@ function playImpactEffect(event: CombatEvent, healing: boolean) {
   });
 }
 
+function spawnCriticalBurst(target: TransformNode, event: CombatEvent, color: Color3) {
+  const ring = MeshBuilder.CreateTorus(`crit-ring-${event.id}`, { diameter: 1.15, thickness: 0.055, tessellation: 48 }, scene);
+  ring.position = target.position.add(new Vector3(0, 1.05, 0));
+  ring.rotation.x = Math.PI / 2;
+  const material = mat(`crit-ring-${event.id}-mat`, color);
+  material.emissiveColor = new Color3(1, 0.82, 0.22);
+  ring.material = material;
+  const started = performance.now();
+  const observer = scene.onBeforeRenderObservable.add(() => {
+    const progress = (performance.now() - started) / 360;
+    const scale = 1 + progress * 2.4;
+    ring.scaling.set(scale, scale, scale);
+    ring.position.y = target.position.y + 1.05 + progress * 0.18;
+    material.alpha = Math.max(0, 1 - progress);
+    if (progress >= 1) {
+      scene.onBeforeRenderObservable.remove(observer);
+      ring.dispose();
+    }
+  });
+}
+
 function playArcaneMissileTick(event: CombatEvent) {
   const source = event.sourceId ? meshes.get(event.sourceId) : null;
   const target = event.targetId ? meshes.get(event.targetId) : null;
@@ -2220,20 +2243,22 @@ function playArcaneMissileTick(event: CombatEvent) {
 
 function spawnFloatingNumber(target: TransformNode, event: CombatEvent, healing: boolean) {
   const element = document.createElement("div");
-  element.className = healing ? "floatingNumber healNumber" : "floatingNumber damageNumber";
+  element.className = healing ? "floatingNumber healNumber" : `floatingNumber damageNumber${event.critical ? " critNumber" : ""}`;
   element.dataset.testid = healing ? "floating-heal" : "floating-damage";
-  element.textContent = `${healing ? "+" : ""}${Math.round(event.amount || 0)}`;
+  element.textContent = `${event.critical ? "CRIT " : healing ? "+" : ""}${Math.round(event.amount || 0)}`;
   const color = playerCombatColor(event.sourceId || "");
   if (color) {
-    element.style.color = color;
-    element.style.textShadow = `-1px -1px 0 rgba(0,0,0,0.85), 1px -1px 0 rgba(0,0,0,0.85), -1px 1px 0 rgba(0,0,0,0.85), 1px 1px 0 rgba(0,0,0,0.85), 0 0 8px ${color}`;
+    element.style.color = event.critical ? "#fff3a3" : color;
+    element.style.textShadow = event.critical ? `-2px -2px 0 #4b0a0a, 2px -2px 0 #4b0a0a, -2px 2px 0 #4b0a0a, 2px 2px 0 #4b0a0a, 0 0 10px ${color}, 0 0 22px #facc15` : `-1px -1px 0 rgba(0,0,0,0.85), 1px -1px 0 rgba(0,0,0,0.85), -1px 1px 0 rgba(0,0,0,0.85), 1px 1px 0 rgba(0,0,0,0.85), 0 0 8px ${color}`;
   }
   document.querySelector("#overhead")!.appendChild(element);
   const started = performance.now();
   const observer = scene.onBeforeRenderObservable.add(() => {
-    const progress = (performance.now() - started) / 950;
-    const screen = projectToScreen(target.position.add(new Vector3(0, 1.65 + progress * 1.15, 0)));
-    element.style.transform = `translate(${screen.x}px, ${screen.y}px) translate(-50%, -50%)`;
+    const progress = (performance.now() - started) / (event.critical ? 1180 : 950);
+    const punch = event.critical ? 1 + Math.sin(Math.min(1, progress) * Math.PI) * 0.42 : 1;
+    const sway = event.critical ? Math.sin(progress * Math.PI * 2.2) * 10 : 0;
+    const screen = projectToScreen(target.position.add(new Vector3(0, (event.critical ? 1.95 : 1.65) + progress * (event.critical ? 1.35 : 1.15), 0)));
+    element.style.transform = `translate(${screen.x + sway}px, ${screen.y}px) translate(-50%, -50%) scale(${punch})`;
     element.style.opacity = `${Math.max(0, 1 - progress)}`;
     element.style.display = screen.visible ? "block" : "none";
     if (progress >= 1) {

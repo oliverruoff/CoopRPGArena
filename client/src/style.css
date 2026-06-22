@@ -96,7 +96,9 @@ button:disabled:hover { filter: grayscale(0.35); }
 .enemyHpFill { background: linear-gradient(90deg, #e11d48, #f97316); box-shadow: inset 0 1px rgba(255,255,255,0.35); }
 .floatingNumber { position: absolute; left: 0; top: 0; font-size: 24px; font-weight: 1000; font-variant-numeric: tabular-nums; will-change: transform, opacity; }
 .damageNumber { color: #ffdf70; text-shadow: -1px -1px 0 #4b0a0a, 1px -1px 0 #4b0a0a, -1px 1px 0 #4b0a0a, 1px 1px 0 #4b0a0a, 0 2px 4px rgba(0,0,0,0.55); }
+.critNumber { font-size: 42px; letter-spacing: 0.03em; color: #fff3a3; text-shadow: -2px -2px 0 #5f120c, 2px -2px 0 #5f120c, -2px 2px 0 #5f120c, 2px 2px 0 #5f120c, 0 0 12px rgba(250,204,21,0.95), 0 0 28px rgba(249,115,22,0.85); animation: critPop 260ms cubic-bezier(.15,1.35,.28,1) both; }
 .healNumber { color: #65f28a; text-shadow: -1px -1px 0 #083817, 1px -1px 0 #083817, -1px 1px 0 #083817, 1px 1px 0 #083817, 0 2px 4px rgba(0,0,0,0.45); }
+@keyframes critPop { 0% { filter: brightness(1.8); } 55% { filter: brightness(1.25); } 100% { filter: brightness(1); } }
 #statsPanel { position: absolute; top: 88px; right: 22px; width: 260px; padding: 16px; border-radius: 20px; background: rgba(17,24,39,0.46); color: #fff; box-shadow: 0 18px 50px rgba(0,0,0,0.14); backdrop-filter: blur(8px); }
 #statsPanel h2 { margin: 0 0 10px; font-size: 17px; }
 .statRow { display: flex; justify-content: space-between; gap: 12px; padding: 4px 0; border-bottom: 1px solid rgba(255,255,255,0.06); font-size: 13px; }
