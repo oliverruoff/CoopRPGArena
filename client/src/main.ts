@@ -89,9 +89,9 @@ root.innerHTML = `
 `;
 
 const canvas = document.querySelector<HTMLCanvasElement>("#renderCanvas")!;
-const qualityOverride = new URLSearchParams(window.location.search).get("quality");
-const remoteHost = !["localhost", "127.0.0.1", ""].includes(window.location.hostname);
-const lowSpecMode = qualityOverride === "low" || (qualityOverride !== "high" && remoteHost);
+const urlParams = new URLSearchParams(window.location.search);
+const qualityOverride = (urlParams.get("quality") || urlParams.get("q") || "").toLowerCase();
+const lowSpecMode = qualityOverride === "low";
 const engine = new Engine(canvas, !lowSpecMode);
 engine.setHardwareScalingLevel(lowSpecMode ? 1.75 : 1);
 const scene = new Scene(engine);
@@ -1979,9 +1979,8 @@ function updateOverheadUi() {
     const node = meshes.get(player.id);
     if (!node) continue;
     const element = playerNameLabels.get(player.id) || createPlayerNameLabel(player);
-    const head = node.getChildMeshes().find((mesh) => mesh.name.endsWith("-head"));
-    const headWorldPos = head ? head.getAbsolutePosition() : node.position.add(new Vector3(0, 2.05, 0));
-    const screen = projectToScreen(headWorldPos.add(new Vector3(0, 0.35, 0)));
+    element.textContent = player.name;
+    const screen = projectToScreen(node.position.add(new Vector3(0, playerNameHeight(player), 0)));
     element.style.transform = `translate3d(${screen.x}px, ${screen.y}px, 0) translate(-50%, -50%)`;
     element.style.display = screen.visible ? "block" : "none";
   }
@@ -2051,9 +2050,24 @@ function removePlayerNameLabel(id: string) {
   playerNameLabels.delete(id);
 }
 
+function playerNameHeight(player: PlayerState) {
+  if (player.classId === "druid" && player.form === "bear") return 1.75;
+  if (player.classId === "druid" && player.form === "cat") return 1.35;
+  return 2.05;
+}
+
 function projectToScreen(position: Vector3) {
-  const projected = Vector3.Project(position, Matrix.Identity(), scene.getTransformMatrix(), camera.viewport.toGlobal(engine.getRenderWidth(), engine.getRenderHeight()));
-  return { x: projected.x, y: projected.y, visible: projected.z >= 0 && projected.z <= 1 };
+  camera.getViewMatrix(true);
+  const renderWidth = engine.getRenderWidth();
+  const renderHeight = engine.getRenderHeight();
+  const projected = Vector3.Project(position, Matrix.Identity(), scene.getTransformMatrix(), camera.viewport.toGlobal(renderWidth, renderHeight));
+  const x = projected.x * (canvas.clientWidth / renderWidth);
+  const y = projected.y * (canvas.clientHeight / renderHeight);
+  return {
+    x,
+    y,
+    visible: projected.z >= 0 && projected.z <= 1 && x >= 0 && x <= canvas.clientWidth && y >= 0 && y <= canvas.clientHeight
+  };
 }
 
 function playCastEffect(event: CombatEvent) {
