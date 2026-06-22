@@ -4,13 +4,13 @@ import "./style.css";
 type Vec = { x: number; z: number };
 type CastState = { abilityId: string; targetId: string | null; duration: number; remaining: number; progress: number };
 type AutoAttackState = { remaining: number; interval: number; progress: number };
-type PlayerState = { id: string; name: string; classId: string | null; ready: boolean; hp: number; maxHealth: number; resource: number; maxResource: number; resourceType: string | null; level: number; xp: number; dead: boolean; targetId: string | null; allyTargetId: string | null; position: Vec; facing: number; jumping: boolean; jumpProgress: number; abilities: string[]; abilitySlots?: Record<string, number>; cooldowns: Record<string, number>; globalCooldown: number; autoAttack: AutoAttackState; pendingUpgrades: Upgrade[]; stats: Record<string, number>; baseStats?: Record<string, number>; shield?: number; shieldRemaining?: number; casting: CastState | null; stealthed?: boolean; stealthRemaining?: number; form?: string | null; lobbyUpgradePoints?: number; lobbyUpgrades?: Upgrade[] };
+type PlayerState = { id: string; name: string; classId: string | null; ready: boolean; hp: number; maxHealth: number; resource: number; maxResource: number; resourceType: string | null; level: number; xp: number; dead: boolean; targetId: string | null; allyTargetId: string | null; position: Vec; facing: number; jumping: boolean; jumpProgress: number; abilities: string[]; abilitySlots?: Record<string, number>; cooldowns: Record<string, number>; globalCooldown: number; autoAttack: AutoAttackState; pendingUpgrades: Upgrade[]; stats: Record<string, number>; baseStats?: Record<string, number>; shield?: number; shieldRemaining?: number; casting: CastState | null; stealthed?: boolean; stealthRemaining?: number; iceBlocked?: boolean; sprinting?: boolean; form?: string | null; lobbyUpgradePoints?: number; lobbyUpgrades?: Upgrade[] };
 type EnemyState = { id: string; type: string; name: string; hp: number; maxHealth: number; position: Vec; boss: boolean; alerted?: boolean; facing?: number };
 type MapObject = { id: string; type: string; x: number; z: number; radius?: number; width?: number; depth?: number; blocksSight?: boolean; variant?: number; rotation?: number };
 type GroundEffect = { id: string; type: string; abilityId?: string; x: number; z: number; radius: number; remaining?: number };
 type Upgrade = { id: string; name: string; choiceType?: string; abilityId?: string; description?: string; stat?: string; mode?: string; value?: number };
 type ClassData = { id: string; name: string; description: string; resourceType: string; startingResource: number; baseStats: Record<string, number>; statGrowth: Record<string, number>; startingAbilities: string[] };
-type Ability = { id: string; name: string; classId: string; slot: number; targetType: string; cooldown: number; resourceCost?: { type: string; amount: number }; castTime?: number; range?: number; requiredForm?: string; description?: string; effects?: Array<{ type: string; amount?: number; school?: string; scaling?: { stat: string; coefficient: number }; duration?: number; tickInterval?: number; slowPercent?: number; radius?: number; multiplier?: number; center?: string; behindDistance?: number; form?: string; statMultipliers?: Record<string, number>; statAdds?: Record<string, number> }> };
+type Ability = { id: string; name: string; classId: string; slot: number; targetType: string; cooldown: number; resourceCost?: { type: string; amount: number }; castTime?: number; range?: number; requiredForm?: string; description?: string; effects?: Array<{ type: string; amount?: number; school?: string; scaling?: { stat: string; coefficient: number }; duration?: number; tickInterval?: number; slowPercent?: number; radius?: number; multiplier?: number; add?: number; stat?: string; center?: string; behindDistance?: number; stopDistance?: number; stunDuration?: number; form?: string; statMultipliers?: Record<string, number>; statAdds?: Record<string, number> }> };
 type CombatEvent = { id: number; type: string; sourceId?: string; targetId?: string; abilityId?: string; castTime?: number; duration?: number; amount?: number; school?: string; status?: string };
 type Snapshot = { type: string; you: string; matchState: string; countdown: number | null; players: Record<string, PlayerState>; enemies: Record<string, EnemyState>; mapObjects: MapObject[]; mapRevision?: number; groundEffects?: GroundEffect[]; wave: { number: number; state: string; aliveEnemies: number; nextWaveIn?: number }; abilities: Record<string, Ability>; classes: Record<string, ClassData>; upgrades: Upgrade[]; events: CombatEvent[] };
 type IncomingSnapshot = Omit<Snapshot, "mapObjects" | "abilities" | "classes" | "upgrades"> & { mapObjects?: MapObject[]; abilities?: Record<string, Ability>; classes?: Record<string, ClassData>; upgrades?: Upgrade[] };
@@ -390,6 +390,7 @@ engine.runRenderLoop(() => {
     const position = interpolatedPosition(currentState.you, me.position, "player");
     camera.setTarget(new Vector3(position.x, 0, position.z));
   }
+  canvas.style.filter = me?.dead ? "grayscale(1) contrast(0.9) brightness(0.72)" : "";
   renderPendingUi();
   renderWorld();
   updateLobbyPreviewPlacement();
@@ -685,10 +686,10 @@ function processEvents(events: CombatEvent[]) {
     if (event.type === "auto_attack") playAutoAttackEffect(event);
     if (event.type === "cast_complete") { playCastEffect(event); playCastReleaseSound(event); }
     if (event.type === "status") {
-      if (event.abilityId?.includes("whirlwind") && event.sourceId) spinVisuals.set(event.sourceId, performance.now() + (event.duration || 3) * 1000);
+      if ((event.abilityId?.includes("whirlwind") || event.abilityId?.includes("blade_flurry")) && event.sourceId) spinVisuals.set(event.sourceId, performance.now() + (event.duration || 3) * 1000);
       playStatusEffect(event); playStatusSound(event);
     }
-    if (event.type === "damage") { playImpactEffect(event, false); playHitSound(event); }
+    if (event.type === "damage") { if (event.abilityId?.includes("arcane_missiles")) playArcaneMissileTick(event); playImpactEffect(event, false); playHitSound(event); }
     if (event.type === "heal") { playImpactEffect(event, true); playHealSound(); }
   }
 }
@@ -711,14 +712,19 @@ function showAbilityTooltip(button: HTMLButtonElement) {
     if (effect.type === "damage") return `Damage: ${total} ${effect.school || ""}${effect.radius ? ` in ${effect.radius}m` : ""}`;
     if (effect.type === "aura_damage") return `Aura damage: ${total} every ${effect.tickInterval || 0}s for ${effect.duration || 0}s`;
     if (effect.type === "dot") return `DoT: ${total} ${effect.school || ""} over ${effect.duration || 0}s${effect.radius ? ` in ${effect.radius}m` : ""}`;
+    if (effect.type === "channel_damage") return `Channel: ${total} ${effect.school || ""} every ${effect.tickInterval || 0}s while casting`;
     if (effect.type === "heal") return `Heal: ${total}${effect.radius ? ` in ${effect.radius}m` : ""}`;
     if (effect.type === "hot") return `Heal over time: ${total}/tick for ${effect.duration || 0}s`;
     if (effect.type === "shield") return `Shield: ${total}`;
     if (effect.type === "stun") return `Freeze/Stun: ${effect.duration || 0}s${effect.radius ? ` in ${effect.radius}m` : ""}`;
     if (effect.type === "resource") return `Restore: ${total} resource`;
     if (effect.type === "auto_haste") return `Auto-shot speed x${(effect as any).multiplier || 1} for ${effect.duration || 0}s`;
+    if (effect.type === "stat_buff") return `${statLabel(effect.stat || "stat")} x${effect.multiplier || 1} for ${effect.duration || 0}s`;
+    if (effect.type === "immobilize") return `Immobilized for ${effect.duration || 0}s`;
     if (effect.type === "trap") return `Trap: ${total} damage, triggers in ${effect.radius || 0}m`;
     if (effect.type === "backstep") return `Backstep: ${total} ${effect.school || "physical"} damage behind the target`;
+    if (effect.type === "charge") return `Charge: ${total} ${effect.school || "physical"} damage${effect.stunDuration ? `, stun ${effect.stunDuration}s` : ""}`;
+    if (effect.type === "revive") return `Revive: ${total} health`;
     if (effect.type === "stealth") return `Vanish: undetectable for ${effect.duration || 0}s`;
     if (effect.type === "shapeshift") return effect.form ? `Shapeshift: ${effect.form}` : "Return to humanoid form";
     if (effect.type === "slow") return `Slow: ${Math.round((effect.slowPercent || 0) * 100)}% for ${effect.duration || 0}s`;
@@ -810,7 +816,18 @@ function abilityDescription(abilityId: string) {
     druid_humanoid_form: "Return to humanoid form, removing Bear or Cat Form stat changes.",
     druid_moonfire: "Call lunar nature magic onto an enemy, dealing instant damage and a short damage over time.",
     druid_maul: "A heavy bear swipe that hits hard and creates extra threat.",
-    druid_rake: "A cat-form claw rake that cuts the enemy and leaves a bleed."
+    druid_rake: "A cat-form claw rake that cuts the enemy and leaves a bleed.",
+    druid_rejuvenation: "A light nature HoT that steadily mends an ally.",
+    warrior_charge: "Rush into melee, slam the enemy, and briefly stun them.",
+    warrior_thunder_clap: "Stomp the ground with a thunderous shockwave, damaging and slowing nearby enemies.",
+    hunter_arrow_barrage: "Rain a hail of arrows over the target area.",
+    hunter_explosive_shot: "Fire an explosive arrow that bursts and burns enemies.",
+    priest_resurrection: "Call a fallen ally back to life with holy light.",
+    priest_shadow_word_pain: "Brand an enemy with shadow pain over time.",
+    mage_ice_block: "Encase yourself in solid ice and absorb huge damage.",
+    mage_arcane_missiles: "Channel a volley of arcane bolts into one enemy.",
+    rogue_sprint: "Massively increase movement speed for a short time.",
+    rogue_eviscerate: "A brutal finishing strike for heavy physical damage."
   };
   return descriptions[abilityId] || "A class ability.";
 }
@@ -879,6 +896,7 @@ function renderClassAbility(ability: Ability) {
 function formatAbilityEffectSummary(effect: NonNullable<Ability["effects"]>[number]) {
   if (effect.type === "damage") return `${effect.amount || 0} ${effect.school || ""} damage${effect.radius ? ` in ${effect.radius}m` : ""}`;
   if (effect.type === "dot") return `${effect.amount || 0} ${effect.school || ""} DoT over ${effect.duration || 0}s`;
+  if (effect.type === "channel_damage") return `${effect.amount || 0} ${effect.school || ""} every ${effect.tickInterval || 0}s while casting`;
   if (effect.type === "heal") return `${effect.amount || 0} heal${effect.radius ? ` in ${effect.radius}m` : ""}`;
   if (effect.type === "hot") return `${effect.amount || 0} HoT over ${effect.duration || 0}s`;
   if (effect.type === "shield") return `${effect.amount || 0} shield for ${effect.duration || 0}s`;
@@ -886,8 +904,12 @@ function formatAbilityEffectSummary(effect: NonNullable<Ability["effects"]>[numb
   if (effect.type === "slow") return `slow ${Math.round((effect.slowPercent || 0) * 100)}% for ${effect.duration || 0}s`;
   if (effect.type === "aura_damage") return `aura ${effect.amount || 0} damage for ${effect.duration || 0}s`;
   if (effect.type === "auto_haste") return `auto attack haste x${effect.multiplier || 1} for ${effect.duration || 0}s`;
+  if (effect.type === "stat_buff") return `${effect.stat || "stat"} x${effect.multiplier || 1} for ${effect.duration || 0}s`;
+  if (effect.type === "immobilize") return `immobile for ${effect.duration || 0}s`;
   if (effect.type === "trap") return `trap ${effect.radius || 0}m for ${effect.duration || 0}s`;
   if (effect.type === "backstep") return `${effect.amount || 0} backstep damage`;
+  if (effect.type === "charge") return `${effect.amount || 0} charge damage${effect.stunDuration ? ` + ${effect.stunDuration}s stun` : ""}`;
+  if (effect.type === "revive") return `revive for ${effect.amount || 0} health`;
   if (effect.type === "stealth") return `vanish ${effect.duration || 0}s`;
   if (effect.type === "shapeshift") return effect.form ? `shift into ${effect.form}` : "return to humanoid form";
   return "";
@@ -976,7 +998,7 @@ function renderWorld() {
     const jumpElapsed = Math.max(0, (performance.now() - snapshotReceivedAt) / 1000);
     const jumpProgress = p.jumping ? Math.min(1, Math.max(0, p.jumpProgress) + jumpElapsed / JUMP_DURATION_SECONDS) : 1;
     const jumpY = p.jumping ? 4 * jumpProgress * (1 - jumpProgress) * 0.9 : 0;
-    const targetY = p.dead ? -0.2 : jumpY;
+    const targetY = p.dead ? 0.45 : jumpY;
     node.position.y = lerpValue(node.position.y, targetY, p.jumping ? 0.42 : 0.3);
     node.setEnabled(state.matchState !== "lobby");
     const previous = previousState?.players[p.id]?.position;
@@ -984,9 +1006,9 @@ function renderWorld() {
     const serverDz = previous ? p.position.z - previous.z : 0;
     const inputDx = (input.right ? 1 : 0) - (input.left ? 1 : 0);
     const inputDz = (input.up ? 1 : 0) - (input.down ? 1 : 0);
-    const inputMoving = p.id === state.you && Math.hypot(inputDx, inputDz) > 0;
+    const inputMoving = !p.dead && p.id === state.you && Math.hypot(inputDx, inputDz) > 0;
     const serverMoving = Math.hypot(serverDx, serverDz) > 0.025;
-    const moving = inputMoving || serverMoving;
+    const moving = !p.dead && (inputMoving || serverMoving);
     let targetFacing = Number(node.metadata?.visualFacing ?? node.rotation.y);
     if (inputMoving) {
       targetFacing = Math.atan2(inputDx, inputDz);
@@ -997,9 +1019,12 @@ function renderWorld() {
     }
     const visualFacing = lerpAngle(Number(node.metadata?.visualFacing ?? node.rotation.y), targetFacing, moving ? 0.28 : 0.16);
     node.rotation.y = visualFacing;
+    node.rotation.x = lerpValue(node.rotation.x, p.dead ? Math.PI / 2 : 0, 0.22);
     node.metadata = { ...(node.metadata || {}), x: position.x, z: position.z, moving, visualFacing, entityId: p.id, classId: p.classId, form: p.form || null };
     updateSelectionRing(node, p.id === state.you ? "self" : meTargetKind(p.id));
     updateActiveShield(node, p);
+    updateIceBlockVisual(node, p);
+    updateSprintTrail(node, p, moving);
     updateStealthVisual(node, p);
   }
   for (const e of Object.values(state.enemies)) {
@@ -1015,7 +1040,7 @@ function renderWorld() {
 
 function updateActiveShield(node: TransformNode, player: PlayerState) {
   const existing = node.getChildMeshes().find((mesh) => mesh.name.endsWith("-active-shield"));
-  const shieldActive = (player.shield || 0) > 0 && (player.shieldRemaining || 0) > 0;
+  const shieldActive = !player.iceBlocked && (player.shield || 0) > 0 && (player.shieldRemaining || 0) > 0;
   if (!shieldActive) {
     existing?.dispose();
     return;
@@ -1028,6 +1053,48 @@ function updateActiveShield(node: TransformNode, player: PlayerState) {
   material.emissiveColor = new Color3(0.75, 0.48, 0.05);
   bubble.material = material;
   bubble.isPickable = false;
+}
+
+function updateIceBlockVisual(node: TransformNode, player: PlayerState) {
+  const existing = node.getChildMeshes().find((mesh) => mesh.name.endsWith("-ice-block"));
+  if (!player.iceBlocked) {
+    existing?.dispose();
+    return;
+  }
+  if (existing) return;
+  const block = MeshBuilder.CreateBox(`${player.id}-ice-block`, { width: 1.45, height: 2.15, depth: 1.45 }, scene);
+  block.parent = node;
+  block.position.y = 1.02;
+  block.rotation.y = Math.PI / 4;
+  const material = transparentMat(`${player.id}-ice-block-mat`, new Color3(0.28, 0.9, 1), 0.48);
+  material.emissiveColor = new Color3(0.08, 0.45, 0.72);
+  block.material = material;
+  block.isPickable = false;
+}
+
+function updateSprintTrail(node: TransformNode, player: PlayerState, moving: boolean) {
+  if (!player.sprinting || !moving) return;
+  const now = performance.now();
+  if (now - Number(node.metadata?.lastSprintTrailAt || 0) < 70) return;
+  node.metadata = { ...(node.metadata || {}), lastSprintTrailAt: now };
+  const facing = Number(node.metadata?.visualFacing ?? node.rotation.y);
+  const trail = MeshBuilder.CreateBox("rogue-sprint-trail", { width: 0.72, height: 0.035, depth: 1.55 }, scene);
+  trail.position.set(node.position.x - Math.sin(facing) * 0.62, 0.12, node.position.z - Math.cos(facing) * 0.62);
+  trail.rotation.y = facing;
+  const material = transparentMat("rogue-sprint-trail-mat", new Color3(1, 0.05, 0.02), 0.34);
+  material.emissiveColor = new Color3(0.72, 0.02, 0.01);
+  trail.material = material;
+  trail.isPickable = false;
+  const started = performance.now();
+  const observer = scene.onBeforeRenderObservable.add(() => {
+    const progress = (performance.now() - started) / 420;
+    trail.scaling.z = 1 + progress * 0.45;
+    material.alpha = Math.max(0, 0.34 * (1 - progress));
+    if (progress >= 1) {
+      scene.onBeforeRenderObservable.remove(observer);
+      trail.dispose();
+    }
+  });
 }
 
 function updateStealthVisual(node: TransformNode, player: PlayerState) {
@@ -1582,6 +1649,12 @@ function animateWorld() {
       const pulse = 1 + Math.sin(t * 8) * 0.045;
       shield.scaling.setAll(pulse);
     }
+    const iceBlockMesh = node.getChildMeshes().find((mesh) => mesh.name.endsWith("-ice-block"));
+    if (iceBlockMesh) {
+      const pulse = 1 + Math.sin(t * 6) * 0.025;
+      iceBlockMesh.scaling.setAll(pulse);
+      iceBlockMesh.rotation.y += dt * 0.25;
+    }
     const halo = node.getChildMeshes().find((mesh) => mesh.name.endsWith("-halo"));
     if (halo) {
       halo.rotation.z += dt * 0.7;
@@ -1991,6 +2064,32 @@ function playCastEffect(event: CombatEvent) {
   const color = effectColor(event.abilityId || "", event.school || "");
   if (event.abilityId?.includes("frost_nova")) {
     frostRing(source.position, 4.2, 900);
+  } else if (event.abilityId?.includes("warrior_charge")) {
+    slashRing(target.position, 520);
+    expandingDisc("charge-impact", target.position, 2.0, new Color3(1, 0.22, 0.05), 520, 0.3);
+  } else if (event.abilityId?.includes("thunder_clap")) {
+    expandingDisc("thunder-clap", source.position, 4.0, new Color3(1, 0.48, 0.12), 760, 0.36);
+  } else if (event.abilityId?.includes("arrow_barrage")) {
+    arrowBarrage(target.position, 5.2, 900);
+  } else if (event.abilityId?.includes("explosive_shot")) {
+    bigArrow(source.position, target.position, new Color3(1, 0.36, 0.04), 320);
+    fireBurst(target.position, 760);
+  } else if (event.abilityId?.includes("resurrection")) {
+    holyRing(target.position, 2.1, 1200);
+    beam(source.position, target.position, new Color3(1, 0.9, 0.34), 700);
+  } else if (event.abilityId?.includes("shadow_word_pain")) {
+    shadowRing(target.position, 1.4, 800);
+  } else if (event.abilityId?.includes("ice_block")) {
+    frostSpikes(target.position, 700);
+  } else if (event.abilityId?.includes("arcane_missiles")) {
+    expandingDisc("arcane-channel", source.position, 1.1, new Color3(0.8, 0.28, 1), 420, 0.22);
+  } else if (event.abilityId?.includes("sprint")) {
+    shadowRing(source.position, 2.1, 650);
+  } else if (event.abilityId?.includes("eviscerate")) {
+    slashArc(target.position, 420);
+    shadowRing(target.position, 1.2, 480);
+  } else if (event.abilityId?.includes("rejuvenation")) {
+    natureRing(target.position, 1.4, 850);
   } else if (event.abilityId?.includes("druid_bear_form")) {
     expandingDisc("bear-form", source.position, 1.9, new Color3(0.62, 0.36, 0.12), 650, 0.34);
   } else if (event.abilityId?.includes("druid_cat_form")) {
@@ -2039,7 +2138,9 @@ function playStatusEffect(event: CombatEvent) {
   if (!target) return;
   if (event.abilityId?.includes("fireball")) fireBurst(target.position, 900);
   if (event.abilityId?.includes("frost")) frostSpikes(target.position, 900);
-  if (event.abilityId?.includes("renew") || event.abilityId?.includes("barrier")) holyRing(target.position, 1.2, 700);
+  if (event.abilityId?.includes("renew") || event.abilityId?.includes("barrier") || event.abilityId?.includes("resurrection")) holyRing(target.position, 1.2, 700);
+  if (event.abilityId?.includes("rejuvenation")) natureRing(target.position, 1.25, 700);
+  if (event.abilityId?.includes("sprint")) shadowRing(target.position, 1.7, 650);
   if (event.abilityId?.includes("vanish")) shadowRing(target.position, 1.7, 650);
 }
 
@@ -2094,6 +2195,13 @@ function playImpactEffect(event: CombatEvent, healing: boolean) {
       pieces.forEach((shard) => shard.piece.dispose());
     }
   });
+}
+
+function playArcaneMissileTick(event: CombatEvent) {
+  const source = event.sourceId ? meshes.get(event.sourceId) : null;
+  const target = event.targetId ? meshes.get(event.targetId) : null;
+  if (!source || !target) return;
+  projectile(source.position.add(new Vector3((Math.random() - 0.5) * 0.35, 0.15, (Math.random() - 0.5) * 0.35)), target.position, new Color3(0.8, 0.28, 1), 260);
 }
 
 function spawnFloatingNumber(target: TransformNode, event: CombatEvent, healing: boolean) {
@@ -2510,6 +2618,20 @@ function holyRing(center: Vector3, radius: number, duration: number) {
   expandingDisc("holy-ring", center, radius, new Color3(1, 0.86, 0.24), duration, 0.32);
 }
 
+function natureRing(center: Vector3, radius: number, duration: number) {
+  expandingDisc("nature-ring", center, radius, new Color3(0.38, 0.95, 0.28), duration, 0.28);
+  for (let i = 0; i < 7; i++) {
+    const leaf = MeshBuilder.CreateBox("nature-leaf", { width: 0.12, height: 0.04, depth: 0.28 }, scene);
+    const angle = (Math.PI * 2 * i) / 7;
+    leaf.position = center.add(new Vector3(Math.cos(angle) * radius * 0.45, 0.45 + Math.random() * 0.35, Math.sin(angle) * radius * 0.45));
+    leaf.rotation.y = angle;
+    const material = mat("nature-leaf-mat", new Color3(0.26, 0.78, 0.16));
+    material.emissiveColor = new Color3(0.08, 0.32, 0.06);
+    leaf.material = material;
+    animateParticle(leaf, material, new Vector3(Math.cos(angle) * 0.55, 0.55, Math.sin(angle) * 0.55), duration);
+  }
+}
+
 function shadowRing(center: Vector3, radius: number, duration: number) {
   expandingDisc("shadow-ring", center, radius, new Color3(0.36, 0.08, 0.58), duration, 0.36);
 }
@@ -2556,6 +2678,45 @@ function multiArrow(from: Vector3, to: Vector3) {
   for (let i = -1; i <= 1; i++) {
     arrow(from.add(new Vector3(i * 0.22, 0, 0)), to.add(new Vector3(i * 0.9, 0, 0)), new Color3(0.95, 0.75, 0.22), 210);
   }
+}
+
+function arrowBarrage(center: Vector3, radius: number, duration: number) {
+  expandingDisc("arrow-barrage", center, radius, new Color3(0.95, 0.75, 0.22), duration, 0.18);
+  for (let i = 0; i < 18; i++) {
+    const angle = Math.random() * Math.PI * 2;
+    const distance = Math.sqrt(Math.random()) * radius;
+    const end = center.add(new Vector3(Math.cos(angle) * distance, 0, Math.sin(angle) * distance));
+    const start = end.add(new Vector3((Math.random() - 0.5) * 2.4, 7 + Math.random() * 2.5, (Math.random() - 0.5) * 2.4));
+    window.setTimeout(() => arrow(start, end, new Color3(0.95, 0.75, 0.22), 180), i * 35);
+  }
+}
+
+function arcaneMissiles(from: Vector3, to: Vector3) {
+  for (let i = 0; i < 5; i++) {
+    const offset = new Vector3((i - 2) * 0.18, Math.sin(i) * 0.15, 0);
+    window.setTimeout(() => projectile(from.add(offset), to.add(new Vector3((Math.random() - 0.5) * 0.4, 0.1, (Math.random() - 0.5) * 0.4)), new Color3(0.8, 0.28, 1), 280), i * 80);
+  }
+}
+
+function iceBlock(center: Vector3, duration: number) {
+  const block = MeshBuilder.CreateBox("ice-block", { width: 1.35, height: 2.05, depth: 1.35 }, scene);
+  block.position = center.add(new Vector3(0, 1.02, 0));
+  block.rotation.y = Math.PI / 4;
+  const material = transparentMat("ice-block-mat", new Color3(0.28, 0.9, 1), 0.48);
+  material.emissiveColor = new Color3(0.08, 0.45, 0.72);
+  block.material = material;
+  frostSpikes(center, duration);
+  const started = performance.now();
+  const observer = scene.onBeforeRenderObservable.add(() => {
+    const progress = (performance.now() - started) / duration;
+    block.rotation.y += 0.015;
+    block.scaling.setAll(1 + Math.sin(progress * Math.PI) * 0.08);
+    material.alpha = Math.max(0, 0.48 * (1 - progress));
+    if (progress >= 1) {
+      scene.onBeforeRenderObservable.remove(observer);
+      block.dispose();
+    }
+  });
 }
 
 function animateParticle(mesh: Mesh, material: StandardMaterial, velocity: Vector3, duration: number) {

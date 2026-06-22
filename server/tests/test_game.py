@@ -675,3 +675,55 @@ async def _wave_clear_starts_twenty_second_prep_timer():
     state = await game.snapshot(p.id)
     assert state["wave"]["state"] == "break"
     assert 19 <= state["wave"]["nextWaveIn"] <= 20
+
+
+def test_arcane_missiles_deals_damage_during_channel():
+    asyncio.run(_arcane_missiles_deals_damage_during_channel())
+
+
+async def _arcane_missiles_deals_damage_during_channel():
+    game = Game()
+    mage = await game.add_player()
+    await game.handle_message(mage.id, {"type": "select_class", "classId": "mage"})
+    async with game._lock:
+        game._start_match_locked()
+        game.enemies.clear()
+        game.map_objects.clear()
+        player = game.players[mage.id]
+        player.pending_upgrades = game._level_choices_locked(player)
+        game._choose_upgrade_locked(player, "learn:mage_arcane_missiles")
+        enemy = game.spawn_enemy_locked("brute", {"x": 3, "z": 0})
+        player.x = 0
+        player.z = 0
+        player.target_id = enemy.id
+        player.resource = 100
+        game._cast_ability_locked(player, player.ability_slots["mage_arcane_missiles"])
+        assert player.casting
+        before = enemy.hp
+        player.casting["channelNextTick"] = 0
+        game._tick_channel_cast_locked(player, 1)
+        assert enemy.hp < before
+
+
+def test_ice_block_blocks_damage_and_movement():
+    asyncio.run(_ice_block_blocks_damage_and_movement())
+
+
+async def _ice_block_blocks_damage_and_movement():
+    game = Game()
+    mage = await game.add_player()
+    await game.handle_message(mage.id, {"type": "select_class", "classId": "mage"})
+    async with game._lock:
+        game._start_match_locked()
+        player = game.players[mage.id]
+        player.pending_upgrades = game._level_choices_locked(player)
+        game._choose_upgrade_locked(player, "learn:mage_ice_block")
+        player.resource = 100
+        game._finish_cast_locked(player, "mage_ice_block", player.id)
+        before_hp = player.hp
+        assert Game._damage_player_locked(player, 999) == 0
+        assert player.hp == before_hp
+        player.input = {"right": True}
+        before_x = player.x
+        game._tick_players_locked(1, 1)
+        assert player.x == before_x

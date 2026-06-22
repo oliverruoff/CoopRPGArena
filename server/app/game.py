@@ -59,6 +59,7 @@ class Player:
     shapeshift_form: str | None = None
     shapeshift_multipliers: dict[str, float] = field(default_factory=dict)
     shapeshift_adds: dict[str, float] = field(default_factory=dict)
+    stat_buffs: list[dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass
@@ -170,6 +171,7 @@ class Game:
                     data = self.classes[class_id]
                     player.base_stats = dict(data["baseStats"])
                     player.stats = dict(data["baseStats"])
+                    player.stat_buffs = []
                     player.lobby_upgrades = []
                     player.lobby_upgrade_points = 3
                     self._update_countdown_locked()
@@ -178,12 +180,17 @@ class Game:
                 self._update_countdown_locked()
             elif typ == "input":
                 movement = msg.get("movement", {})
+                if self._is_ice_blocked_locked(player, time.monotonic()):
+                    player.input = {}
+                    return
                 if player.casting and any(movement.values()):
                     self._cancel_cast_gcd_locked(player)
                     self._emit_locked({"type": "cast_cancelled", "sourceId": player.id, "abilityId": player.casting.get("abilityId")})
                     player.casting = None
                 player.input = msg.get("movement", {}) if not player.dead else {}
             elif typ == "jump" and self.match_state == "running" and not player.dead:
+                if self._is_ice_blocked_locked(player, time.monotonic()):
+                    return
                 player.jump_until = time.monotonic() + 0.36
             elif typ == "select_target":
                 target_id = msg.get("targetId")
@@ -247,6 +254,7 @@ class Game:
             player.shapeshift_form = None
             player.shapeshift_multipliers = {}
             player.shapeshift_adds = {}
+            player.stat_buffs = []
             player.lobby_upgrades = []
             player.lobby_upgrade_points = 0
 
@@ -400,6 +408,7 @@ class Game:
             player.shapeshift_form = None
             player.shapeshift_multipliers = {}
             player.shapeshift_adds = {}
+            player.stat_buffs = []
             player.auto_attack_at = time.monotonic() + player.stats["autoAttackInterval"]
         self._start_wave_locked(1)
 
@@ -481,6 +490,7 @@ class Game:
         for player in self.players.values():
             if player.dead:
                 continue
+            self._tick_stat_buffs_locked(player, now)
             self._tick_hots_locked(player, now)
             self._tick_player_auras_locked(player, now)
             if player.shield_until and now >= player.shield_until:
@@ -490,6 +500,10 @@ class Game:
             player.resource = min(player.stats.get("maxResource", 100), player.resource + regen)
             dx = (1 if player.input.get("right") else 0) - (1 if player.input.get("left") else 0)
             dz = (1 if player.input.get("up") else 0) - (1 if player.input.get("down") else 0)
+            if self._is_ice_blocked_locked(player, now):
+                dx = 0
+                dz = 0
+                player.input = {}
             length = math.hypot(dx, dz) or 1
             player.x += dx / length * player.stats.get("moveSpeed", 5) * dt
             player.z += dz / length * player.stats.get("moveSpeed", 5) * dt
@@ -512,6 +526,8 @@ class Game:
                     self._damage_enemy_locked(player, enemy, raw, "physical", 1)
                     interval = player.stats["autoAttackInterval"] / (player.auto_attack_haste_multiplier if now < player.auto_attack_haste_until else 1)
                     player.auto_attack_at = now + interval
+            if player.casting:
+                self._tick_channel_cast_locked(player, now)
             if player.casting and now >= player.casting["endAt"]:
                 casting = player.casting
                 player.casting = None
@@ -727,6 +743,11 @@ class Game:
             if gcd_duration:
                 player.global_cooldown_until = gcd_until
             player.casting = {"abilityId": ability_id, "targetId": getattr(target, "id", None), "startAt": now, "endAt": now + effective_cast_time, "duration": effective_cast_time, "gcdUntil": gcd_until}
+            for effect in ability.get("effects", []):
+                if effect.get("type") == "channel_damage":
+                    player.casting["channelNextTick"] = now
+                    player.casting["channelTickInterval"] = effect.get("tickInterval", 0.5)
+                    break
             self._emit_locked({"type": "cast", "sourceId": player.id, "targetId": getattr(target, "id", None), "abilityId": ability_id, "castTime": effective_cast_time})
             return
         self._finish_cast_locked(player, ability_id, getattr(target, "id", None))
@@ -763,13 +784,19 @@ class Game:
             amount = effect.get("amount", 0) + player.stats.get(effect.get("scaling", {}).get("stat", ""), 0) * effect.get("scaling", {}).get("coefficient", 0)
             enemy_targets = self._effect_enemy_targets_locked(player, target, effect)
             ally_targets = self._effect_ally_targets_locked(player, target, effect)
+            if effect["type"] == "channel_damage":
+                continue
             if effect["type"] == "damage":
                 for enemy in enemy_targets:
-                    self._damage_enemy_locked(player, enemy, amount, effect.get("school", "physical"), ability.get("threatMultiplier", 1))
+                    self._damage_enemy_locked(player, enemy, amount, effect.get("school", "physical"), ability.get("threatMultiplier", 1), ability_id)
             elif effect["type"] == "backstep":
                 for enemy in enemy_targets:
                     self._backstep_locked(player, enemy, effect)
-                    self._damage_enemy_locked(player, enemy, amount, effect.get("school", "physical"), ability.get("threatMultiplier", 1))
+                    self._damage_enemy_locked(player, enemy, amount, effect.get("school", "physical"), ability.get("threatMultiplier", 1), ability_id)
+            elif effect["type"] == "charge":
+                for enemy in enemy_targets[:1]:
+                    self._charge_locked(player, enemy, effect)
+                    self._damage_enemy_locked(player, enemy, amount, effect.get("school", "physical"), ability.get("threatMultiplier", 1), ability_id)
             elif effect["type"] == "dot":
                 for target in enemy_targets:
                     target.dots.append({
@@ -806,11 +833,32 @@ class Game:
                 for target in ally_targets:
                     target.hots.append({"sourceId": player.id, "amount": amount, "nextTick": now + effect.get("tickInterval", 1), "endAt": now + effect.get("duration", 4), "tickInterval": effect.get("tickInterval", 1)})
                     self._emit_locked({"type": "status", "sourceId": player.id, "targetId": target.id, "abilityId": ability_id, "status": "renewing", "duration": effect.get("duration", 4)})
+            elif effect["type"] == "revive":
+                for target in ally_targets:
+                    if not target.dead:
+                        continue
+                    target.dead = False
+                    target.hp = max(1, min(target.stats.get("maxHealth", 1), amount))
+                    self._emit_locked({"type": "heal", "sourceId": player.id, "targetId": target.id, "amount": round(target.hp, 1), "school": "holy"})
+                    self._emit_locked({"type": "status", "sourceId": player.id, "targetId": target.id, "abilityId": ability_id, "status": "revived", "duration": 1.5})
             elif effect["type"] == "shield":
                 for target in ally_targets:
                     target.shield = max(target.shield, amount)
                     target.shield_until = max(target.shield_until, now + effect.get("duration", 6))
                     self._emit_locked({"type": "status", "sourceId": player.id, "targetId": target.id, "abilityId": ability_id, "status": "shielded", "duration": effect.get("duration", 6)})
+            elif effect["type"] == "stat_buff":
+                stat = effect.get("stat")
+                if stat:
+                    multiplier = effect.get("multiplier", 1)
+                    add = effect.get("add", 0)
+                    previous = player.stats.get(stat, 0)
+                    player.stats[stat] = player.stats.get(stat, 0) * multiplier + add
+                    player.stat_buffs.append({"stat": stat, "previous": previous, "endAt": now + effect.get("duration", 4), "abilityId": ability_id})
+                    self._emit_locked({"type": "status", "sourceId": player.id, "targetId": player.id, "abilityId": ability_id, "status": "buffed", "duration": effect.get("duration", 4)})
+            elif effect["type"] == "immobilize":
+                player.input = {}
+                player.stat_buffs.append({"endAt": now + effect.get("duration", 4), "abilityId": ability_id})
+                self._emit_locked({"type": "status", "sourceId": player.id, "targetId": player.id, "abilityId": ability_id, "status": "immobilized", "duration": effect.get("duration", 4)})
             elif effect["type"] == "resource":
                 player.resource = min(player.stats.get("maxResource", 100), player.resource + amount)
             elif effect["type"] == "auto_haste":
@@ -875,6 +923,27 @@ class Game:
         dx = enemy.x - player.x
         dz = enemy.z - player.z
         player.facing = math.atan2(dx, dz)
+
+    def _charge_locked(self, player: Player, enemy: Enemy, effect: dict[str, Any]) -> None:
+        dx = enemy.x - player.x
+        dz = enemy.z - player.z
+        dist = math.hypot(dx, dz) or 1
+        stop = effect.get("stopDistance", 1.45)
+        player.x = enemy.x - dx / dist * stop
+        player.z = enemy.z - dz / dist * stop
+        self._push_out_of_map_objects_locked(player)
+        arena = self.constants["arenaRadius"] - 1
+        current = math.hypot(player.x, player.z)
+        if current > arena:
+            player.x *= arena / current
+            player.z *= arena / current
+        player.facing = math.atan2(enemy.x - player.x, enemy.z - player.z)
+        stun = effect.get("stunDuration", 0)
+        if stun:
+            now = time.monotonic()
+            enemy.stun_until = max(enemy.stun_until, now + stun)
+            enemy.slow_percent = max(enemy.slow_percent, 1.0)
+            enemy.slow_until = max(enemy.slow_until, now + stun)
 
     @staticmethod
     def _is_stealthed_locked(player: Player, now: float) -> bool:
@@ -973,6 +1042,36 @@ class Game:
                     self._emit_locked({"type": "heal", "sourceId": source.id, "targetId": player.id, "amount": round(healed, 1), "school": "holy"})
                 hot["nextTick"] = now + hot["tickInterval"]
 
+    def _tick_stat_buffs_locked(self, player: Player, now: float) -> None:
+        for buff in list(player.stat_buffs):
+            if now < buff["endAt"]:
+                continue
+            if "stat" not in buff:
+                player.stat_buffs.remove(buff)
+                continue
+            stat = buff["stat"]
+            player.stats[stat] = buff.get("previous", player.stats.get(stat, 0))
+            player.stat_buffs.remove(buff)
+
+    def _tick_channel_cast_locked(self, player: Player, now: float) -> None:
+        casting = player.casting
+        if not casting or now < casting.get("channelNextTick", now + 1):
+            return
+        ability_id = casting.get("abilityId")
+        ability = self.abilities.get(ability_id)
+        if not ability:
+            return
+        target = self.enemies.get(casting.get("targetId") or "")
+        if not target or self._distance(player, target) > ability.get("range", 0) or self._line_of_sight_blocked_locked(player.x, player.z, target.x, target.z):
+            return
+        for effect in ability.get("effects", []):
+            if effect.get("type") != "channel_damage":
+                continue
+            amount = effect.get("amount", 0) + player.stats.get(effect.get("scaling", {}).get("stat", ""), 0) * effect.get("scaling", {}).get("coefficient", 0)
+            self._damage_enemy_locked(player, target, amount, effect.get("school", "arcane"), ability.get("threatMultiplier", 1), ability_id)
+            break
+        casting["channelNextTick"] = now + casting.get("channelTickInterval", 0.5)
+
     def _tick_player_auras_locked(self, player: Player, now: float) -> None:
         for aura in list(player.auras):
             if now >= aura["endAt"]:
@@ -986,6 +1085,8 @@ class Game:
 
     @staticmethod
     def _damage_player_locked(player: Player, damage: float) -> float:
+        if Game._is_ice_blocked_locked(player, time.monotonic()):
+            return 0
         absorbed = min(player.shield, damage)
         player.shield -= absorbed
         if player.shield <= 0:
@@ -994,7 +1095,11 @@ class Game:
         player.hp = max(0, player.hp - remaining)
         return remaining
 
-    def _damage_enemy_locked(self, player: Player, enemy: Enemy, raw: float, school: str, threat_multiplier: float) -> None:
+    @staticmethod
+    def _is_ice_blocked_locked(player: Player, now: float) -> bool:
+        return any(buff.get("abilityId") == "mage_ice_block" and now < buff.get("endAt", 0) for buff in player.stat_buffs)
+
+    def _damage_enemy_locked(self, player: Player, enemy: Enemy, raw: float, school: str, threat_multiplier: float, ability_id: str | None = None) -> None:
         now = time.monotonic()
         mitigation = enemy.armor if school == "physical" else enemy.resistance
         damage = self._mitigate(raw, mitigation)
@@ -1005,7 +1110,7 @@ class Game:
             enemy.threat[player.id] = enemy.threat.get(player.id, 0) + damage * threat_multiplier
         if player.class_id == "warrior":
             player.resource = min(player.stats["maxResource"], player.resource + damage * 0.25 + 4)
-        self._emit_locked({"type": "damage", "sourceId": player.id, "targetId": enemy.id, "amount": round(damage, 1), "school": school})
+        self._emit_locked({"type": "damage", "sourceId": player.id, "targetId": enemy.id, "amount": round(damage, 1), "school": school, "abilityId": ability_id})
         if enemy.hp <= 0:
             self._kill_enemy_locked(enemy.id)
 
@@ -1071,6 +1176,7 @@ class Game:
         player.lobby_upgrade_points += len(player.lobby_upgrades)
         player.lobby_upgrades = []
         player.stats = dict(player.base_stats)
+        player.stat_buffs = []
         player.ready = False
         self._update_countdown_locked()
 
@@ -1214,6 +1320,8 @@ class Game:
             "casting": self._casting_dict(p.casting, now),
             "stealthed": self._is_stealthed_locked(p, now),
             "stealthRemaining": max(0, round(p.stealth_until - now, 1)),
+            "iceBlocked": self._is_ice_blocked_locked(p, now),
+            "sprinting": any(buff.get("abilityId") == "rogue_sprint" and now < buff.get("endAt", 0) for buff in p.stat_buffs),
             "form": p.shapeshift_form,
             "lobbyUpgradePoints": p.lobby_upgrade_points,
             "lobbyUpgrades": p.lobby_upgrades,
