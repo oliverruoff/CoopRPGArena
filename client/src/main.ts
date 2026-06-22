@@ -1518,8 +1518,8 @@ function animateWorld() {
       rightArm.rotation.x = lerpValue(rightArm.rotation.x, rightX, poseBlend);
       leftArm.rotation.z = lerpValue(leftArm.rotation.z, leftZ, poseBlend);
       rightArm.rotation.z = lerpValue(rightArm.rotation.z, rightZ, poseBlend);
-      leftArm.position.x = lerpValue(leftArm.position.x, -0.58, poseBlend);
-      rightArm.position.x = lerpValue(rightArm.position.x, 0.58, poseBlend);
+      leftArm.position.x = lerpValue(leftArm.position.x, Number(leftArm.metadata?.restX ?? -0.58), poseBlend);
+      rightArm.position.x = lerpValue(rightArm.position.x, Number(rightArm.metadata?.restX ?? 0.58), poseBlend);
       leftArm.position.y = lerpValue(leftArm.position.y, leftY, poseBlend);
       rightArm.position.y = lerpValue(rightArm.position.y, rightY, poseBlend);
       leftArm.position.z = lerpValue(leftArm.position.z, 0, poseBlend);
@@ -1529,6 +1529,21 @@ function animateWorld() {
     if (shield) {
       const pulse = 1 + Math.sin(t * 8) * 0.045;
       shield.scaling.setAll(pulse);
+    }
+    const halo = node.getChildMeshes().find((mesh) => mesh.name.endsWith("-halo"));
+    if (halo) {
+      halo.rotation.z += dt * 0.7;
+      const material = halo.material as StandardMaterial;
+      material.emissiveColor = new Color3(0.58, 0.44, 0.08).scale(0.8 + Math.sin(t * 3.2) * 0.18);
+    }
+    const staffGem = node.getChildMeshes().find((mesh) => mesh.name.endsWith("-staff-gem"));
+    if (staffGem) {
+      const material = staffGem.material as StandardMaterial;
+      material.emissiveColor = new Color3(0.16, 0.48, 0.7).scale(0.85 + Math.sin(t * 4.4) * 0.22);
+    }
+    for (const orb of node.getChildMeshes().filter((mesh) => mesh.name.includes("-arcane-orb-"))) {
+      orb.position.y = 1.18 + Math.sin(t * 2.8 + orb.name.length) * 0.08;
+      orb.rotation.y += dt * 1.4;
     }
   }
   for (const [id, node] of meshes) {
@@ -1574,17 +1589,25 @@ function createPlayer(p: PlayerState) {
   const root = new TransformNode(p.id, scene);
   root.metadata = { entityId: p.id, classId: p.classId };
   const color = p.classId === "warrior" ? new Color3(0.7, 0.15, 0.1) : p.classId === "hunter" ? new Color3(0.1, 0.45, 0.18) : p.classId === "priest" ? new Color3(0.95, 0.9, 0.72) : new Color3(0.15, 0.2, 0.85);
+  const build = playerBuild(p.classId);
   addContactShadow(root, `${p.id}-contact-shadow`, 1.25, 0.2, 0.78);
-  const body = box(`${p.id}-body`, { width: 0.8, height: 1.0, depth: 0.45 }, color); body.parent = root; body.position.y = 0.7;
-  const head = box(`${p.id}-head`, { width: 0.52, height: 0.45, depth: 0.52 }, new Color3(0.85, 0.64, 0.45)); head.parent = root; head.position.y = 1.45;
-  const leftArm = box(`${p.id}-left-arm`, { width: 0.2, height: 0.74, depth: 0.22 }, color.scale(0.85)); leftArm.parent = root; leftArm.position.set(-0.58, 0.92, 0); leftArm.rotation.z = -0.16;
-  const rightArm = box(`${p.id}-right-arm`, { width: 0.2, height: 0.74, depth: 0.22 }, color.scale(0.85)); rightArm.parent = root; rightArm.position.set(0.58, 0.92, 0); rightArm.rotation.z = 0.16;
+  const body = box(`${p.id}-body`, { width: build.bodyWidth, height: build.bodyHeight, depth: build.bodyDepth }, color); body.parent = root; body.position.y = 0.7;
+  const head = box(`${p.id}-head`, { width: build.headWidth, height: 0.45, depth: build.headDepth }, build.skin); head.parent = root; head.position.y = 1.45;
+  const leftArm = box(`${p.id}-left-arm`, { width: build.armWidth, height: build.armHeight, depth: build.armDepth }, color.scale(0.85)); leftArm.parent = root; leftArm.position.set(-build.armX, 0.92, 0); leftArm.rotation.z = -0.16; leftArm.metadata = { restX: -build.armX };
+  const rightArm = box(`${p.id}-right-arm`, { width: build.armWidth, height: build.armHeight, depth: build.armDepth }, color.scale(0.85)); rightArm.parent = root; rightArm.position.set(build.armX, 0.92, 0); rightArm.rotation.z = 0.16; rightArm.metadata = { restX: build.armX };
   addClassDetails(root, p.id, p.classId, color);
   const ring = MeshBuilder.CreateCylinder(`${p.id}-ring`, { diameter: 1.45, height: 0.025, tessellation: 48 }, scene); ring.parent = root; ring.material = transparentMat(`${p.id}-ringmat`, new Color3(0.1, 0.55, 1), 0.22); ring.metadata = { entityId: p.id };
   ring.position.y = 0.015;
   meshes.set(p.id, root);
   markEntityMeshes(root, p.id);
   return root;
+}
+
+function playerBuild(classId: string | null) {
+  if (classId === "warrior") return { bodyWidth: 0.92, bodyHeight: 1.02, bodyDepth: 0.52, headWidth: 0.56, headDepth: 0.54, armWidth: 0.26, armHeight: 0.78, armDepth: 0.26, armX: 0.68, skin: new Color3(0.78, 0.55, 0.38) };
+  if (classId === "hunter") return { bodyWidth: 0.72, bodyHeight: 0.96, bodyDepth: 0.42, headWidth: 0.48, headDepth: 0.5, armWidth: 0.18, armHeight: 0.76, armDepth: 0.2, armX: 0.52, skin: new Color3(0.84, 0.62, 0.43) };
+  if (classId === "priest") return { bodyWidth: 0.82, bodyHeight: 1.06, bodyDepth: 0.48, headWidth: 0.5, headDepth: 0.5, armWidth: 0.2, armHeight: 0.72, armDepth: 0.22, armX: 0.58, skin: new Color3(0.88, 0.68, 0.5) };
+  return { bodyWidth: 0.74, bodyHeight: 0.98, bodyDepth: 0.44, headWidth: 0.5, headDepth: 0.5, armWidth: 0.18, armHeight: 0.74, armDepth: 0.2, armX: 0.54, skin: new Color3(0.84, 0.64, 0.48) };
 }
 
 function markEntityMeshes(root: TransformNode, entityId: string) {
@@ -1596,27 +1619,47 @@ function markEntityMeshes(root: TransformNode, entityId: string) {
 
 function addClassDetails(root: TransformNode, id: string, classId: string | null, baseColor: Color3) {
   if (classId === "warrior") {
-    const leftShoulder = box(`${id}-left-shoulder`, { width: 0.34, height: 0.2, depth: 0.38 }, new Color3(0.42, 0.42, 0.46)); leftShoulder.parent = root; leftShoulder.position.set(-0.52, 1.23, 0);
-    const rightShoulder = box(`${id}-right-shoulder`, { width: 0.34, height: 0.2, depth: 0.38 }, new Color3(0.42, 0.42, 0.46)); rightShoulder.parent = root; rightShoulder.position.set(0.52, 1.23, 0);
-    const sword = box(`${id}-sword`, { width: 0.1, height: 1.1, depth: 0.08 }, new Color3(0.8, 0.82, 0.86)); sword.parent = root; sword.position.set(0.72, 0.8, -0.16); sword.rotation.z = -0.35;
+    const leftShoulder = box(`${id}-left-shoulder`, { width: 0.46, height: 0.24, depth: 0.46 }, new Color3(0.42, 0.42, 0.46)); leftShoulder.parent = root; leftShoulder.position.set(-0.63, 1.24, 0); leftShoulder.rotation.z = -0.12;
+    const rightShoulder = box(`${id}-right-shoulder`, { width: 0.32, height: 0.18, depth: 0.38 }, new Color3(0.32, 0.31, 0.33)); rightShoulder.parent = root; rightShoulder.position.set(0.62, 1.22, 0); rightShoulder.rotation.z = 0.18;
+    const chestStrap = box(`${id}-chest-strap`, { width: 0.18, height: 1.1, depth: 0.54 }, new Color3(0.22, 0.11, 0.04)); chestStrap.parent = root; chestStrap.position.set(-0.08, 0.77, -0.03); chestStrap.rotation.z = -0.48;
+    const belt = box(`${id}-belt`, { width: 0.96, height: 0.14, depth: 0.56 }, new Color3(0.18, 0.1, 0.04)); belt.parent = root; belt.position.y = 0.43;
+    const sword = box(`${id}-sword`, { width: 0.12, height: 1.18, depth: 0.08 }, new Color3(0.8, 0.82, 0.86)); sword.parent = root; sword.position.set(0.84, 0.84, -0.16); sword.rotation.z = -0.35;
+    const swordGrip = box(`${id}-sword-grip`, { width: 0.34, height: 0.08, depth: 0.1 }, new Color3(0.18, 0.1, 0.04)); swordGrip.parent = root; swordGrip.position.set(0.65, 0.38, -0.16); swordGrip.rotation.z = -0.35;
     const shield = box(`${id}-shield`, { width: 0.5, height: 0.64, depth: 0.12 }, new Color3(0.24, 0.26, 0.32)); shield.parent = root; shield.position.set(-0.75, 0.86, -0.02); shield.rotation.z = 0.22;
     const crest = box(`${id}-shield-crest`, { width: 0.18, height: 0.42, depth: 0.13 }, new Color3(0.95, 0.78, 0.16)); crest.parent = root; crest.position.set(-0.76, 0.86, -0.09); crest.rotation.z = 0.22;
+    const boots = box(`${id}-heavy-boots`, { width: 0.9, height: 0.18, depth: 0.52 }, new Color3(0.12, 0.08, 0.05)); boots.parent = root; boots.position.y = 0.1;
   } else if (classId === "hunter") {
-    const quiver = box(`${id}-quiver`, { width: 0.28, height: 0.82, depth: 0.24 }, new Color3(0.32, 0.18, 0.08)); quiver.parent = root; quiver.position.set(-0.28, 0.95, -0.34); quiver.rotation.z = 0.25;
-    const bow = MeshBuilder.CreateTorus(`${id}-bow`, { diameter: 0.72, thickness: 0.035, tessellation: 24 }, scene); bow.parent = root; bow.position.set(0.74, 0.93, 0.08); bow.rotation.z = Math.PI / 2; bow.scaling.y = 1.8; bow.material = mat(`${id}-bow-mat`, new Color3(0.42, 0.24, 0.1));
+    const cloak = box(`${id}-cloak`, { width: 0.66, height: 0.9, depth: 0.08 }, new Color3(0.04, 0.18, 0.08)); cloak.parent = root; cloak.position.set(0, 0.76, 0.31); cloak.rotation.x = -0.14;
+    const quiver = box(`${id}-quiver`, { width: 0.28, height: 0.86, depth: 0.24 }, new Color3(0.32, 0.18, 0.08)); quiver.parent = root; quiver.position.set(-0.28, 0.95, -0.34); quiver.rotation.z = 0.25;
+    const bow = MeshBuilder.CreateTorus(`${id}-bow`, { diameter: 0.78, thickness: 0.035, tessellation: 24 }, scene); bow.parent = root; bow.position.set(0.72, 0.93, 0.08); bow.rotation.z = Math.PI / 2; bow.scaling.y = 1.95; bow.material = mat(`${id}-bow-mat`, new Color3(0.42, 0.24, 0.1));
+    const bowString = box(`${id}-bow-string`, { width: 0.025, height: 1.42, depth: 0.025 }, new Color3(0.86, 0.82, 0.68)); bowString.parent = root; bowString.position.set(0.72, 0.93, 0.08);
     for (let i = 0; i < 3; i++) { const arrow = box(`${id}-quiver-arrow-${i}`, { width: 0.035, height: 0.58, depth: 0.035 }, new Color3(0.92, 0.82, 0.58)); arrow.parent = root; arrow.position.set(-0.35 + i * 0.07, 1.36, -0.42); arrow.rotation.z = 0.22; }
     const hood = MeshBuilder.CreateCylinder(`${id}-hood`, { diameterTop: 0.34, diameterBottom: 0.62, height: 0.32, tessellation: 6 }, scene); hood.parent = root; hood.position.y = 1.65; hood.material = mat(`${id}-hood-mat`, baseColor.scale(0.75));
+    const chestBand = box(`${id}-chest-band`, { width: 0.12, height: 0.92, depth: 0.46 }, new Color3(0.45, 0.29, 0.08)); chestBand.parent = root; chestBand.position.set(0.05, 0.78, -0.04); chestBand.rotation.z = 0.42;
+    const knife = box(`${id}-knife`, { width: 0.07, height: 0.48, depth: 0.06 }, new Color3(0.78, 0.82, 0.76)); knife.parent = root; knife.position.set(-0.5, 0.45, -0.2); knife.rotation.z = 0.5;
   } else if (classId === "priest") {
+    const robeSkirt = MeshBuilder.CreateCylinder(`${id}-robe-skirt`, { diameterTop: 0.76, diameterBottom: 0.98, height: 0.62, tessellation: 6 }, scene); robeSkirt.parent = root; robeSkirt.position.y = 0.34; robeSkirt.material = mat(`${id}-robe-skirt-mat`, new Color3(0.93, 0.9, 0.78));
     const halo = MeshBuilder.CreateTorus(`${id}-halo`, { diameter: 0.68, thickness: 0.035, tessellation: 36 }, scene); halo.parent = root; halo.position.y = 1.85; halo.rotation.x = Math.PI / 2; halo.material = mat(`${id}-halo-mat`, new Color3(1, 0.86, 0.28));
+    (halo.material as StandardMaterial).emissiveColor = new Color3(0.55, 0.42, 0.08);
     const sash = box(`${id}-sash`, { width: 0.14, height: 1.08, depth: 0.48 }, new Color3(0.95, 0.78, 0.22)); sash.parent = root; sash.position.y = 0.72; sash.rotation.z = -0.28;
     const book = box(`${id}-book`, { width: 0.34, height: 0.24, depth: 0.1 }, new Color3(0.42, 0.18, 0.09)); book.parent = root; book.position.set(-0.72, 0.88, -0.08); book.rotation.z = -0.15;
+    const bookClasp = box(`${id}-book-clasp`, { width: 0.08, height: 0.26, depth: 0.12 }, new Color3(0.98, 0.78, 0.22)); bookClasp.parent = root; bookClasp.position.set(-0.72, 0.88, -0.15); bookClasp.rotation.z = -0.15;
     const stole = box(`${id}-stole`, { width: 0.46, height: 0.08, depth: 0.5 }, new Color3(1, 0.95, 0.72)); stole.parent = root; stole.position.y = 1.18;
-  } else {
+    const prayerBeads = MeshBuilder.CreateTorus(`${id}-prayer-beads`, { diameter: 0.46, thickness: 0.025, tessellation: 18 }, scene); prayerBeads.parent = root; prayerBeads.position.set(0, 1.03, -0.25); prayerBeads.scaling.y = 0.65; prayerBeads.material = mat(`${id}-prayer-beads-mat`, new Color3(0.88, 0.72, 0.24));
+    const glow = MeshBuilder.CreateCylinder(`${id}-holy-glow`, { diameter: 1.18, height: 0.02, tessellation: 48 }, scene); glow.parent = root; glow.position.y = 0.04; glow.material = transparentMat(`${id}-holy-glow-mat`, new Color3(1, 0.88, 0.38), 0.16);
+  } else if (classId === "mage") {
+    const collar = MeshBuilder.CreateCylinder(`${id}-collar`, { diameterTop: 0.92, diameterBottom: 0.6, height: 0.28, tessellation: 5 }, scene); collar.parent = root; collar.position.y = 1.22; collar.rotation.y = Math.PI / 5; collar.material = mat(`${id}-collar-mat`, new Color3(0.1, 0.07, 0.28));
     const hat = MeshBuilder.CreateCylinder(`${id}-hat`, { diameterTop: 0.08, diameterBottom: 0.72, height: 0.72, tessellation: 4 }, scene); hat.parent = root; hat.position.y = 1.95; hat.rotation.y = Math.PI / 4; hat.material = mat(`${id}-hat-mat`, baseColor.scale(0.7));
+    const hatBand = box(`${id}-hat-band`, { width: 0.62, height: 0.08, depth: 0.62 }, new Color3(0.86, 0.26, 0.08)); hatBand.parent = root; hatBand.position.y = 1.65; hatBand.rotation.y = Math.PI / 4;
     const staff = box(`${id}-staff`, { width: 0.08, height: 1.45, depth: 0.08 }, new Color3(0.38, 0.2, 0.08)); staff.parent = root; staff.position.set(0.74, 0.86, 0.05); staff.rotation.z = 0.18;
     const gem = MeshBuilder.CreateSphere(`${id}-staff-gem`, { diameter: 0.22, segments: 8 }, scene); gem.parent = root; gem.position.set(0.88, 1.58, 0.05); gem.material = mat(`${id}-staff-gem-mat`, new Color3(0.45, 0.95, 1));
+    (gem.material as StandardMaterial).emissiveColor = new Color3(0.16, 0.48, 0.7);
     const cape = box(`${id}-cape`, { width: 0.72, height: 0.92, depth: 0.08 }, baseColor.scale(0.48)); cape.parent = root; cape.position.set(0, 0.78, 0.33); cape.rotation.x = -0.12;
     const beltGem = MeshBuilder.CreateSphere(`${id}-belt-gem`, { diameter: 0.16, segments: 8 }, scene); beltGem.parent = root; beltGem.position.set(0, 0.72, -0.26); beltGem.material = mat(`${id}-belt-gem-mat`, new Color3(0.9, 0.35, 1));
+    for (const side of [-1, 1]) {
+      const orb = MeshBuilder.CreateSphere(`${id}-arcane-orb-${side}`, { diameter: 0.12, segments: 8 }, scene);
+      orb.parent = root; orb.position.set(side * 0.46, 1.18, -0.28); const orbMat = mat(`${id}-arcane-orb-${side}-mat`, new Color3(0.6, 0.3, 1)); orbMat.emissiveColor = new Color3(0.28, 0.12, 0.62); orb.material = orbMat;
+    }
   }
 }
 
