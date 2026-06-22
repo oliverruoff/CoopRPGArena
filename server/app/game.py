@@ -56,6 +56,9 @@ class Player:
     auto_attack_haste_until: float = 0
     auto_attack_haste_multiplier: float = 1
     stealth_until: float = 0
+    shapeshift_form: str | None = None
+    shapeshift_multipliers: dict[str, float] = field(default_factory=dict)
+    shapeshift_adds: dict[str, float] = field(default_factory=dict)
 
 
 @dataclass
@@ -241,6 +244,9 @@ class Game:
             player.auto_attack_haste_until = 0
             player.auto_attack_haste_multiplier = 1
             player.stealth_until = 0
+            player.shapeshift_form = None
+            player.shapeshift_multipliers = {}
+            player.shapeshift_adds = {}
             player.lobby_upgrades = []
             player.lobby_upgrade_points = 0
 
@@ -391,6 +397,9 @@ class Game:
             player.auto_attack_haste_until = 0
             player.auto_attack_haste_multiplier = 1
             player.stealth_until = 0
+            player.shapeshift_form = None
+            player.shapeshift_multipliers = {}
+            player.shapeshift_adds = {}
             player.auto_attack_at = time.monotonic() + player.stats["autoAttackInterval"]
         self._start_wave_locked(1)
 
@@ -693,6 +702,8 @@ class Game:
         ability = self.abilities[ability_id]
         if now < player.global_cooldown_until or now < player.cooldowns.get(ability_id, 0):
             return
+        if not self._ability_form_allowed_locked(player, ability):
+            return
         cost = self._ability_cost_locked(player, ability)
         if player.resource < cost:
             return
@@ -731,7 +742,7 @@ class Game:
         now = time.monotonic()
         ability = self.abilities[ability_id]
         cost = self._ability_cost_locked(player, ability)
-        if player.dead or player.resource < cost or (not started_cast and now < player.global_cooldown_until) or now < player.cooldowns.get(ability_id, 0):
+        if player.dead or player.resource < cost or (not started_cast and now < player.global_cooldown_until) or now < player.cooldowns.get(ability_id, 0) or not self._ability_form_allowed_locked(player, ability):
             return
         target = player if ability["targetType"] == "self" else self.enemies.get(target_id or "") if ability["targetType"] == "enemy" else self.players.get(target_id or player.id)
         if ability["targetType"] == "ally" and (not target or getattr(target, "id", None) not in self.players):
@@ -832,6 +843,10 @@ class Game:
                     if enemy.target_id == player.id:
                         enemy.target_id = None
                 self._emit_locked({"type": "status", "sourceId": player.id, "targetId": player.id, "abilityId": ability_id, "status": "vanished", "duration": duration})
+            elif effect["type"] == "shapeshift":
+                self._apply_shapeshift_locked(player, effect)
+                status = f"{player.shapeshift_form}_form" if player.shapeshift_form else "humanoid_form"
+                self._emit_locked({"type": "status", "sourceId": player.id, "targetId": player.id, "abilityId": ability_id, "status": status, "duration": 0})
             elif effect["type"] == "aura_damage":
                 player.auras.append({
                     "abilityId": ability_id,
@@ -873,6 +888,38 @@ class Game:
         if player.stealth_until > time.monotonic():
             player.stealth_until = 0
             self._emit_locked({"type": "status", "sourceId": player.id, "targetId": player.id, "status": "revealed", "duration": 0})
+
+    def _apply_shapeshift_locked(self, player: Player, effect: dict[str, Any]) -> None:
+        old_max = max(1, player.stats.get("maxHealth", 1))
+        hp_ratio = min(1, player.hp / old_max)
+        self._clear_shapeshift_locked(player)
+        form = effect.get("form")
+        if not form:
+            player.hp = min(player.stats.get("maxHealth", old_max), max(1, player.stats.get("maxHealth", old_max) * hp_ratio))
+            player.auto_attack_at = min(player.auto_attack_at, time.monotonic() + player.stats.get("autoAttackInterval", 1.4))
+            return
+        player.shapeshift_form = form
+        player.shapeshift_multipliers = dict(effect.get("statMultipliers", {}))
+        player.shapeshift_adds = dict(effect.get("statAdds", {}))
+        for stat, multiplier in player.shapeshift_multipliers.items():
+            player.stats[stat] = player.stats.get(stat, 0) * multiplier
+        for stat, add in player.shapeshift_adds.items():
+            player.stats[stat] = player.stats.get(stat, 0) + add
+        player.stats["critChance"] = max(0, player.stats.get("critChance", 0))
+        player.hp = min(player.stats.get("maxHealth", old_max), max(1, player.stats.get("maxHealth", old_max) * hp_ratio))
+        player.auto_attack_at = min(player.auto_attack_at, time.monotonic() + player.stats.get("autoAttackInterval", 1.4))
+
+    def _clear_shapeshift_locked(self, player: Player) -> None:
+        if not player.shapeshift_form:
+            return
+        for stat, add in player.shapeshift_adds.items():
+            player.stats[stat] = player.stats.get(stat, 0) - add
+        for stat, multiplier in player.shapeshift_multipliers.items():
+            if multiplier:
+                player.stats[stat] = player.stats.get(stat, 0) / multiplier
+        player.shapeshift_form = None
+        player.shapeshift_multipliers = {}
+        player.shapeshift_adds = {}
 
     def _tick_ground_effects_locked(self, now: float) -> None:
         for effect in list(self.ground_effects):
@@ -1075,6 +1122,15 @@ class Game:
             return max(0, amount * player.stats.get("resourceCostMultiplier", 1))
         return amount
 
+    @staticmethod
+    def _ability_form_allowed_locked(player: Player, ability: dict[str, Any]) -> bool:
+        required = ability.get("requiredForm")
+        if required is None:
+            return True
+        if required == "none":
+            return player.shapeshift_form is None
+        return player.shapeshift_form == required
+
     def _cycle_target_locked(self, player: Player, ally: bool) -> None:
         if ally:
             ids = [p.id for p in self.players.values() if p.id != player.id]
@@ -1158,6 +1214,7 @@ class Game:
             "casting": self._casting_dict(p.casting, now),
             "stealthed": self._is_stealthed_locked(p, now),
             "stealthRemaining": max(0, round(p.stealth_until - now, 1)),
+            "form": p.shapeshift_form,
             "lobbyUpgradePoints": p.lobby_upgrade_points,
             "lobbyUpgrades": p.lobby_upgrades,
         }

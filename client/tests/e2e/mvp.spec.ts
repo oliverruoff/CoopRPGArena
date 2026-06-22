@@ -178,6 +178,46 @@ test("rogue can backstep and vanish from enemies", async ({ page, request }) => 
   expect(vanished.enemies[spawn.enemyId].threat[playerId] || 0).toBe(0);
 });
 
+test("druid can shift into bear and cat forms", async ({ page, request }) => {
+  await page.goto("/");
+  await expect(page.getByTestId("lobby")).toBeVisible();
+  await page.getByTestId("class-druid").click();
+  await expect(page.getByTestId("class-preview-info")).toContainText("Druid");
+  await expect(page.getByTestId("class-preview-info")).toContainText("Bear Form");
+  await expect(page.getByTestId("class-preview-info")).toContainText("Cat Form");
+  await expect(page.getByTestId("class-preview-info")).toContainText("Humanoid Form");
+  for (let i = 0; i < 3; i++) {
+    await page.getByTestId("lobby-upgrade-max_health").click();
+  }
+  await page.getByTestId("ready-button").click();
+  await expect(page.getByTestId("wave-counter")).toContainText("Wave 1", { timeout: 14000 });
+
+  const started = await (await request.get("http://127.0.0.1:8000/debug/state")).json();
+  const playerId = Object.values<any>(started.players).find((p) => p.classId === "druid").id;
+  const base = started.players[playerId];
+  await page.getByTestId("ability-slot-1").click();
+  await page.waitForTimeout(250);
+  const bear = await (await request.get("http://127.0.0.1:8000/debug/state")).json();
+  expect(bear.players[playerId].form).toBe("bear");
+  expect(bear.players[playerId].stats.armor).toBeGreaterThan(base.stats.armor);
+  expect(bear.players[playerId].maxHealth).toBeGreaterThan(base.maxHealth);
+
+  await page.waitForTimeout(1000);
+  await page.getByTestId("ability-slot-2").click();
+  await page.waitForTimeout(250);
+  const cat = await (await request.get("http://127.0.0.1:8000/debug/state")).json();
+  expect(cat.players[playerId].form).toBe("cat");
+  expect(cat.players[playerId].stats.moveSpeed).toBeGreaterThan(base.stats.moveSpeed);
+  expect(cat.players[playerId].stats.autoAttackInterval).toBeLessThan(base.stats.autoAttackInterval);
+
+  await page.waitForTimeout(1000);
+  await page.getByTestId("ability-slot-4").click();
+  await page.waitForTimeout(250);
+  const humanoid = await (await request.get("http://127.0.0.1:8000/debug/state")).json();
+  expect(humanoid.players[playerId].form).toBeNull();
+  expect(humanoid.players[playerId].stats.moveSpeed).toBeCloseTo(base.stats.moveSpeed, 4);
+});
+
 test("players can set a name and see it in lobby and world", async ({ page }) => {
   await page.goto("/");
   await expect(page.getByTestId("lobby")).toBeVisible();

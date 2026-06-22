@@ -4,13 +4,13 @@ import "./style.css";
 type Vec = { x: number; z: number };
 type CastState = { abilityId: string; targetId: string | null; duration: number; remaining: number; progress: number };
 type AutoAttackState = { remaining: number; interval: number; progress: number };
-type PlayerState = { id: string; name: string; classId: string | null; ready: boolean; hp: number; maxHealth: number; resource: number; maxResource: number; resourceType: string | null; level: number; xp: number; dead: boolean; targetId: string | null; allyTargetId: string | null; position: Vec; facing: number; jumping: boolean; jumpProgress: number; abilities: string[]; abilitySlots?: Record<string, number>; cooldowns: Record<string, number>; globalCooldown: number; autoAttack: AutoAttackState; pendingUpgrades: Upgrade[]; stats: Record<string, number>; baseStats?: Record<string, number>; shield?: number; shieldRemaining?: number; casting: CastState | null; stealthed?: boolean; stealthRemaining?: number; lobbyUpgradePoints?: number; lobbyUpgrades?: Upgrade[] };
+type PlayerState = { id: string; name: string; classId: string | null; ready: boolean; hp: number; maxHealth: number; resource: number; maxResource: number; resourceType: string | null; level: number; xp: number; dead: boolean; targetId: string | null; allyTargetId: string | null; position: Vec; facing: number; jumping: boolean; jumpProgress: number; abilities: string[]; abilitySlots?: Record<string, number>; cooldowns: Record<string, number>; globalCooldown: number; autoAttack: AutoAttackState; pendingUpgrades: Upgrade[]; stats: Record<string, number>; baseStats?: Record<string, number>; shield?: number; shieldRemaining?: number; casting: CastState | null; stealthed?: boolean; stealthRemaining?: number; form?: string | null; lobbyUpgradePoints?: number; lobbyUpgrades?: Upgrade[] };
 type EnemyState = { id: string; type: string; name: string; hp: number; maxHealth: number; position: Vec; boss: boolean; alerted?: boolean; facing?: number };
 type MapObject = { id: string; type: string; x: number; z: number; radius?: number; width?: number; depth?: number; blocksSight?: boolean; variant?: number; rotation?: number };
 type GroundEffect = { id: string; type: string; abilityId?: string; x: number; z: number; radius: number; remaining?: number };
 type Upgrade = { id: string; name: string; choiceType?: string; abilityId?: string; description?: string; stat?: string; mode?: string; value?: number };
 type ClassData = { id: string; name: string; description: string; resourceType: string; startingResource: number; baseStats: Record<string, number>; statGrowth: Record<string, number>; startingAbilities: string[] };
-type Ability = { id: string; name: string; classId: string; slot: number; targetType: string; cooldown: number; resourceCost?: { type: string; amount: number }; castTime?: number; range?: number; description?: string; effects?: Array<{ type: string; amount?: number; school?: string; scaling?: { stat: string; coefficient: number }; duration?: number; tickInterval?: number; slowPercent?: number; radius?: number; multiplier?: number; center?: string; behindDistance?: number }> };
+type Ability = { id: string; name: string; classId: string; slot: number; targetType: string; cooldown: number; resourceCost?: { type: string; amount: number }; castTime?: number; range?: number; requiredForm?: string; description?: string; effects?: Array<{ type: string; amount?: number; school?: string; scaling?: { stat: string; coefficient: number }; duration?: number; tickInterval?: number; slowPercent?: number; radius?: number; multiplier?: number; center?: string; behindDistance?: number; form?: string; statMultipliers?: Record<string, number>; statAdds?: Record<string, number> }> };
 type CombatEvent = { id: number; type: string; sourceId?: string; targetId?: string; abilityId?: string; castTime?: number; duration?: number; amount?: number; school?: string; status?: string };
 type Snapshot = { type: string; you: string; matchState: string; countdown: number | null; players: Record<string, PlayerState>; enemies: Record<string, EnemyState>; mapObjects: MapObject[]; mapRevision?: number; groundEffects?: GroundEffect[]; wave: { number: number; state: string; aliveEnemies: number; nextWaveIn?: number }; abilities: Record<string, Ability>; classes: Record<string, ClassData>; upgrades: Upgrade[]; events: CombatEvent[] };
 type IncomingSnapshot = Omit<Snapshot, "mapObjects" | "abilities" | "classes" | "upgrades"> & { mapObjects?: MapObject[]; abilities?: Record<string, Ability>; classes?: Record<string, ClassData>; upgrades?: Upgrade[] };
@@ -20,7 +20,8 @@ const classInfo: Record<string, { name: string; description: string; stats: stri
   hunter: { name: "Hunter", description: "A mobile ranged damage dealer. Keeps pressure from afar with fast shots and strong uptime.", stats: ["HP 112", "Focus", "Attack Power 20", "Ranged sustained DPS"] },
   priest: { name: "Priest", description: "A holy support caster. Heals allies, deals holy damage, and can keep a group alive through pressure.", stats: ["HP 103", "Mana 120", "Spell Power 18", "Healer / holy caster"] },
   mage: { name: "Mage", description: "A fragile elemental nuker. Firebolt burns enemies over time; Frostbolt can be learned later to help the team kite.", stats: ["HP 94", "Mana 130", "Spell Power 23", "Burst / control caster"] },
-  rogue: { name: "Rogue", description: "A fast dual-dagger assassin. Backstep blinks behind a target for a brutal strike, while Vanish drops enemy attention for a short window.", stats: ["HP 106", "Energy", "Attack Power 22", "Dual-dagger assassin"] }
+  rogue: { name: "Rogue", description: "A fast dual-dagger assassin. Backstep blinks behind a target for a brutal strike, while Vanish drops enemy attention for a short window.", stats: ["HP 106", "Energy", "Attack Power 22", "Dual-dagger assassin"] },
+  druid: { name: "Druid", description: "A shapeshifting hybrid. Bear Form turns the druid into a durable bruiser, while Cat Form becomes a fast melee predator.", stats: ["HP 118", "Mana 115", "Hybrid scaling", "Bear / Cat shapeshifter"] }
 };
 const SNAPSHOT_INTERVAL_MS = 1000 / 15;
 const JUMP_DURATION_SECONDS = 0.36;
@@ -42,6 +43,7 @@ root.innerHTML = `
       <button data-testid="class-priest" data-class="priest">Priest</button>
       <button data-testid="class-mage" data-class="mage">Mage</button>
       <button data-testid="class-rogue" data-class="rogue">Rogue</button>
+      <button data-testid="class-druid" data-class="druid">Druid</button>
     </div>
     <div id="lobbyUpgrades" data-testid="lobby-upgrades">
       <h3>Stat Upgrades <span id="lobbyUpgradePoints" data-testid="lobby-upgrade-points">3</span></h3>
@@ -176,6 +178,7 @@ let localPlayerName: string | null = null;
 let optimisticAllyTargetId: string | null = null;
 let lastClassPreviewInfoSignature = "";
 let castBarVisualProgress = 0;
+let autoAttackVisualProgress = 0;
 
 function isLocalhostOnlyUrl(url: string): boolean {
   try {
@@ -717,6 +720,7 @@ function showAbilityTooltip(button: HTMLButtonElement) {
     if (effect.type === "trap") return `Trap: ${total} damage, triggers in ${effect.radius || 0}m`;
     if (effect.type === "backstep") return `Backstep: ${total} ${effect.school || "physical"} damage behind the target`;
     if (effect.type === "stealth") return `Vanish: undetectable for ${effect.duration || 0}s`;
+    if (effect.type === "shapeshift") return effect.form ? `Shapeshift: ${effect.form}` : "Return to humanoid form";
     if (effect.type === "slow") return `Slow: ${Math.round((effect.slowPercent || 0) * 100)}% for ${effect.duration || 0}s`;
     return effect.type;
   }).join(" • ");
@@ -800,7 +804,13 @@ function abilityDescription(abilityId: string) {
     rogue_poisoned_blades: "Cut the target and poison it over time.",
     rogue_kidney_shot: "A precise dagger strike that briefly stuns one enemy.",
     rogue_blade_flurry: "Whirl with both daggers, cutting nearby enemies.",
-    rogue_vanish: "Disappear for 5 seconds so enemies cannot discover or target you."
+    rogue_vanish: "Disappear for 5 seconds so enemies cannot discover or target you.",
+    druid_bear_form: "Shift into a bear: much tougher, slower, and better at brawling in melee.",
+    druid_cat_form: "Shift into a cat: faster movement, faster claws, and much higher crit pressure.",
+    druid_humanoid_form: "Return to humanoid form, removing Bear or Cat Form stat changes.",
+    druid_moonfire: "Call lunar nature magic onto an enemy, dealing instant damage and a short damage over time.",
+    druid_maul: "A heavy bear swipe that hits hard and creates extra threat.",
+    druid_rake: "A cat-form claw rake that cuts the enemy and leaves a bleed."
   };
   return descriptions[abilityId] || "A class ability.";
 }
@@ -879,6 +889,7 @@ function formatAbilityEffectSummary(effect: NonNullable<Ability["effects"]>[numb
   if (effect.type === "trap") return `trap ${effect.radius || 0}m for ${effect.duration || 0}s`;
   if (effect.type === "backstep") return `${effect.amount || 0} backstep damage`;
   if (effect.type === "stealth") return `vanish ${effect.duration || 0}s`;
+  if (effect.type === "shapeshift") return effect.form ? `shift into ${effect.form}` : "return to humanoid form";
   return "";
 }
 
@@ -930,10 +941,16 @@ function updateAutoAttackBar() {
   if (!me || !canAuto) {
     fill.style.width = "0%";
     label.textContent = "No auto attack";
+    autoAttackVisualProgress = 0;
     return;
   }
-  fill.style.width = `${Math.max(0, Math.min(1, me.autoAttack?.progress || 0)) * 100}%`;
-  label.textContent = me.autoAttack?.remaining ? `Auto ${me.autoAttack.remaining.toFixed(1)}s` : "Auto ready";
+  const elapsed = Math.max(0, (performance.now() - snapshotReceivedAt) / 1000);
+  const interval = Math.max(0.01, me.autoAttack?.interval || 0.01);
+  const remaining = Math.max(0, (me.autoAttack?.remaining || 0) - elapsed);
+  const progress = Math.max(0, Math.min(1, 1 - remaining / interval));
+  autoAttackVisualProgress = progress < autoAttackVisualProgress - 0.2 ? progress : Math.max(autoAttackVisualProgress, progress);
+  fill.style.width = `${autoAttackVisualProgress * 100}%`;
+  label.textContent = remaining > 0 ? `Auto ${remaining.toFixed(1)}s` : "Auto ready";
 }
 
 function renderWorld() {
@@ -947,7 +964,7 @@ function renderWorld() {
   for (const [id, node] of meshes) if (!live.has(id)) { node.dispose(); meshes.delete(id); removeEnemyBar(id); }
   for (const p of Object.values(state.players)) {
     let node = meshes.get(p.id);
-    if (node && node.metadata?.classId !== p.classId) {
+    if (node && (node.metadata?.classId !== p.classId || node.metadata?.form !== (p.form || null))) {
       node.dispose();
       meshes.delete(p.id);
       node = undefined;
@@ -980,7 +997,7 @@ function renderWorld() {
     }
     const visualFacing = lerpAngle(Number(node.metadata?.visualFacing ?? node.rotation.y), targetFacing, moving ? 0.28 : 0.16);
     node.rotation.y = visualFacing;
-    node.metadata = { ...(node.metadata || {}), x: position.x, z: position.z, moving, visualFacing, entityId: p.id, classId: p.classId };
+    node.metadata = { ...(node.metadata || {}), x: position.x, z: position.z, moving, visualFacing, entityId: p.id, classId: p.classId, form: p.form || null };
     updateSelectionRing(node, p.id === state.you ? "self" : meTargetKind(p.id));
     updateActiveShield(node, p);
     updateStealthVisual(node, p);
@@ -1622,8 +1639,16 @@ function animateWorld() {
 
 function createPlayer(p: PlayerState) {
   const root = new TransformNode(p.id, scene);
-  root.metadata = { entityId: p.id, classId: p.classId };
-  const color = p.classId === "warrior" ? new Color3(0.7, 0.15, 0.1) : p.classId === "hunter" ? new Color3(0.1, 0.45, 0.18) : p.classId === "priest" ? new Color3(0.95, 0.9, 0.72) : p.classId === "rogue" ? new Color3(0.16, 0.12, 0.2) : new Color3(0.15, 0.2, 0.85);
+  root.metadata = { entityId: p.id, classId: p.classId, form: p.form || null };
+  if (p.classId === "druid" && p.form) {
+    createDruidFormModel(root, p.id, p.form);
+    const ring = MeshBuilder.CreateCylinder(`${p.id}-ring`, { diameter: p.form === "bear" ? 1.9 : 1.45, height: 0.025, tessellation: 48 }, scene); ring.parent = root; ring.material = transparentMat(`${p.id}-ringmat`, new Color3(0.1, 0.55, 1), 0.22); ring.metadata = { entityId: p.id };
+    ring.position.y = 0.015;
+    meshes.set(p.id, root);
+    markEntityMeshes(root, p.id);
+    return root;
+  }
+  const color = p.classId === "warrior" ? new Color3(0.7, 0.15, 0.1) : p.classId === "hunter" ? new Color3(0.1, 0.45, 0.18) : p.classId === "priest" ? new Color3(0.95, 0.9, 0.72) : p.classId === "rogue" ? new Color3(0.16, 0.12, 0.2) : p.classId === "druid" ? new Color3(0.22, 0.43, 0.18) : new Color3(0.15, 0.2, 0.85);
   const build = playerBuild(p.classId);
   addContactShadow(root, `${p.id}-contact-shadow`, 1.25, 0.2, 0.78);
   const body = box(`${p.id}-body`, { width: build.bodyWidth, height: build.bodyHeight, depth: build.bodyDepth }, color); body.parent = root; body.position.y = 0.7;
@@ -1638,11 +1663,39 @@ function createPlayer(p: PlayerState) {
   return root;
 }
 
+function createDruidFormModel(root: TransformNode, id: string, form: string) {
+  if (form === "bear") {
+    addContactShadow(root, `${id}-bear-contact-shadow`, 1.85, 0.24, 0.82);
+    const fur = new Color3(0.28, 0.16, 0.08);
+    const body = box(`${id}-bear-body`, { width: 1.35, height: 0.86, depth: 1.05 }, fur); body.parent = root; body.position.y = 0.62;
+    const hump = box(`${id}-bear-hump`, { width: 0.9, height: 0.42, depth: 0.78 }, fur.scale(0.82)); hump.parent = root; hump.position.set(0, 1.02, -0.1);
+    const head = box(`${id}-bear-head`, { width: 0.72, height: 0.52, depth: 0.6 }, fur.scale(1.08)); head.parent = root; head.position.set(0, 0.94, 0.66);
+    const snout = box(`${id}-bear-snout`, { width: 0.42, height: 0.22, depth: 0.26 }, new Color3(0.16, 0.09, 0.05)); snout.parent = root; snout.position.set(0, 0.86, 1.02);
+    for (const side of [-1, 1]) {
+      const ear = MeshBuilder.CreateCylinder(`${id}-bear-ear-${side}`, { diameterTop: 0.06, diameterBottom: 0.22, height: 0.22, tessellation: 8 }, scene); ear.parent = root; ear.position.set(side * 0.26, 1.25, 0.62); ear.material = mat(`${id}-bear-ear-${side}-mat`, fur.scale(0.9));
+      const legFront = box(`${id}-bear-front-leg-${side}`, { width: 0.26, height: 0.6, depth: 0.28 }, fur.scale(0.75)); legFront.parent = root; legFront.position.set(side * 0.42, 0.28, 0.36);
+      const legBack = box(`${id}-bear-back-leg-${side}`, { width: 0.3, height: 0.58, depth: 0.32 }, fur.scale(0.72)); legBack.parent = root; legBack.position.set(side * 0.46, 0.28, -0.42);
+    }
+  } else {
+    addContactShadow(root, `${id}-cat-contact-shadow`, 1.35, 0.2, 0.78);
+    const fur = new Color3(0.09, 0.08, 0.07);
+    const body = box(`${id}-cat-body`, { width: 0.96, height: 0.48, depth: 1.12 }, fur); body.parent = root; body.position.y = 0.52;
+    const head = box(`${id}-cat-head`, { width: 0.46, height: 0.36, depth: 0.44 }, fur.scale(1.16)); head.parent = root; head.position.set(0, 0.72, 0.7);
+    const tail = MeshBuilder.CreateCylinder(`${id}-cat-tail`, { diameterTop: 0.08, diameterBottom: 0.12, height: 0.8, tessellation: 8 }, scene); tail.parent = root; tail.position.set(0, 0.66, -0.78); tail.rotation.x = -1.0; tail.material = mat(`${id}-cat-tail-mat`, fur);
+    for (const side of [-1, 1]) {
+      const ear = MeshBuilder.CreateCylinder(`${id}-cat-ear-${side}`, { diameterTop: 0, diameterBottom: 0.18, height: 0.28, tessellation: 4 }, scene); ear.parent = root; ear.position.set(side * 0.18, 0.98, 0.7); ear.rotation.z = side * -0.32; ear.material = mat(`${id}-cat-ear-${side}-mat`, fur.scale(1.08));
+      const frontLeg = box(`${id}-cat-front-leg-${side}`, { width: 0.16, height: 0.44, depth: 0.18 }, fur.scale(0.82)); frontLeg.parent = root; frontLeg.position.set(side * 0.32, 0.24, 0.34);
+      const backLeg = box(`${id}-cat-back-leg-${side}`, { width: 0.18, height: 0.42, depth: 0.2 }, fur.scale(0.78)); backLeg.parent = root; backLeg.position.set(side * 0.34, 0.24, -0.38);
+    }
+  }
+}
+
 function playerBuild(classId: string | null) {
   if (classId === "warrior") return { bodyWidth: 0.92, bodyHeight: 1.02, bodyDepth: 0.52, headWidth: 0.56, headDepth: 0.54, armWidth: 0.26, armHeight: 0.78, armDepth: 0.26, armX: 0.68, skin: new Color3(0.78, 0.55, 0.38) };
   if (classId === "hunter") return { bodyWidth: 0.72, bodyHeight: 0.96, bodyDepth: 0.42, headWidth: 0.48, headDepth: 0.5, armWidth: 0.18, armHeight: 0.76, armDepth: 0.2, armX: 0.52, skin: new Color3(0.84, 0.62, 0.43) };
   if (classId === "priest") return { bodyWidth: 0.82, bodyHeight: 1.06, bodyDepth: 0.48, headWidth: 0.5, headDepth: 0.5, armWidth: 0.2, armHeight: 0.72, armDepth: 0.22, armX: 0.58, skin: new Color3(0.88, 0.68, 0.5) };
   if (classId === "rogue") return { bodyWidth: 0.66, bodyHeight: 0.92, bodyDepth: 0.38, headWidth: 0.46, headDepth: 0.46, armWidth: 0.16, armHeight: 0.72, armDepth: 0.18, armX: 0.5, skin: new Color3(0.78, 0.56, 0.42) };
+  if (classId === "druid") return { bodyWidth: 0.76, bodyHeight: 1.0, bodyDepth: 0.46, headWidth: 0.5, headDepth: 0.5, armWidth: 0.2, armHeight: 0.74, armDepth: 0.22, armX: 0.56, skin: new Color3(0.76, 0.56, 0.38) };
   return { bodyWidth: 0.74, bodyHeight: 0.98, bodyDepth: 0.44, headWidth: 0.5, headDepth: 0.5, armWidth: 0.18, armHeight: 0.74, armDepth: 0.2, armX: 0.54, skin: new Color3(0.84, 0.64, 0.48) };
 }
 
@@ -1669,8 +1722,11 @@ function addClassDetails(root: TransformNode, id: string, classId: string | null
   } else if (classId === "hunter") {
     const cloak = box(`${id}-cloak`, { width: 0.66, height: 0.9, depth: 0.08 }, new Color3(0.04, 0.18, 0.08)); cloak.parent = root; cloak.position.set(0, 0.76, 0.31); cloak.rotation.x = -0.14;
     const quiver = box(`${id}-quiver`, { width: 0.28, height: 0.86, depth: 0.24 }, new Color3(0.32, 0.18, 0.08)); quiver.parent = root; quiver.position.set(-0.28, 0.95, -0.34); quiver.rotation.z = 0.25;
-    const bow = MeshBuilder.CreateTorus(`${id}-bow`, { diameter: 0.78, thickness: 0.035, tessellation: 24 }, scene); bow.parent = rightArm || root; bow.position.set(0.22, -0.05, 0.08); bow.rotation.z = Math.PI / 2; bow.scaling.y = 1.95; bow.material = mat(`${id}-bow-mat`, new Color3(0.42, 0.24, 0.1));
-    const bowString = box(`${id}-bow-string`, { width: 0.025, height: 1.42, depth: 0.025 }, new Color3(0.86, 0.82, 0.68)); bowString.parent = bow; bowString.position.set(0, 0, 0);
+    const bowPath = Array.from({ length: 17 }, (_, i) => {
+      const angle = -Math.PI * 0.72 + (Math.PI * 1.44 * i) / 16;
+      return new Vector3(Math.cos(angle) * 0.24, Math.sin(angle) * 0.72, 0);
+    });
+    const bow = MeshBuilder.CreateTube(`${id}-bow`, { path: bowPath, radius: 0.035, tessellation: 8 }, scene); bow.parent = rightArm || root; bow.position.set(0.12, -0.12, -0.16); bow.rotation.set(0, 0, 0); bow.material = mat(`${id}-bow-mat`, new Color3(0.42, 0.24, 0.1));
     for (let i = 0; i < 3; i++) { const arrow = box(`${id}-quiver-arrow-${i}`, { width: 0.035, height: 0.58, depth: 0.035 }, new Color3(0.92, 0.82, 0.58)); arrow.parent = root; arrow.position.set(-0.35 + i * 0.07, 1.36, -0.42); arrow.rotation.z = 0.22; }
     const hood = MeshBuilder.CreateCylinder(`${id}-hood`, { diameterTop: 0.34, diameterBottom: 0.62, height: 0.32, tessellation: 6 }, scene); hood.parent = root; hood.position.y = 1.65; hood.material = mat(`${id}-hood-mat`, baseColor.scale(0.75));
     const chestBand = box(`${id}-chest-band`, { width: 0.12, height: 0.92, depth: 0.46 }, new Color3(0.45, 0.29, 0.08)); chestBand.parent = root; chestBand.position.set(0.05, 0.78, -0.04); chestBand.rotation.z = 0.42;
@@ -1709,6 +1765,12 @@ function addClassDetails(root: TransformNode, id: string, classId: string | null
       const grip = box(`${id}-dagger-grip-${side}`, { width: 0.16, height: 0.055, depth: 0.06 }, new Color3(0.12, 0.07, 0.04)); grip.parent = dagger; grip.position.set(0, -0.3, 0); grip.rotation.z = Math.PI / 2;
     }
     const shadow = MeshBuilder.CreateCylinder(`${id}-rogue-shadow`, { diameter: 1.0, height: 0.018, tessellation: 40 }, scene); shadow.parent = root; shadow.position.y = 0.035; shadow.material = transparentMat(`${id}-rogue-shadow-mat`, new Color3(0.38, 0.12, 0.6), 0.14);
+  } else if (classId === "druid") {
+    const leafMantle = box(`${id}-leaf-mantle`, { width: 0.84, height: 0.16, depth: 0.52 }, new Color3(0.1, 0.31, 0.09)); leafMantle.parent = root; leafMantle.position.y = 1.18;
+    const vine = box(`${id}-vine-sash`, { width: 0.1, height: 0.98, depth: 0.48 }, new Color3(0.18, 0.42, 0.13)); vine.parent = root; vine.position.set(0.08, 0.76, -0.02); vine.rotation.z = -0.38;
+    const antlerLeft = MeshBuilder.CreateCylinder(`${id}-antler-left`, { diameterTop: 0.03, diameterBottom: 0.07, height: 0.42, tessellation: 5 }, scene); antlerLeft.parent = root; antlerLeft.position.set(-0.18, 1.86, 0); antlerLeft.rotation.z = 0.42; antlerLeft.material = mat(`${id}-antler-left-mat`, new Color3(0.62, 0.48, 0.28));
+    const antlerRight = MeshBuilder.CreateCylinder(`${id}-antler-right`, { diameterTop: 0.03, diameterBottom: 0.07, height: 0.42, tessellation: 5 }, scene); antlerRight.parent = root; antlerRight.position.set(0.18, 1.86, 0); antlerRight.rotation.z = -0.42; antlerRight.material = mat(`${id}-antler-right-mat`, new Color3(0.62, 0.48, 0.28));
+    const charm = MeshBuilder.CreateSphere(`${id}-nature-charm`, { diameter: 0.16, segments: 8 }, scene); charm.parent = root; charm.position.set(0, 1.04, -0.28); const charmMat = mat(`${id}-nature-charm-mat`, new Color3(0.45, 0.95, 0.28)); charmMat.emissiveColor = new Color3(0.12, 0.42, 0.08); charm.material = charmMat;
   }
 }
 
@@ -1929,6 +1991,12 @@ function playCastEffect(event: CombatEvent) {
   const color = effectColor(event.abilityId || "", event.school || "");
   if (event.abilityId?.includes("frost_nova")) {
     frostRing(source.position, 4.2, 900);
+  } else if (event.abilityId?.includes("druid_bear_form")) {
+    expandingDisc("bear-form", source.position, 1.9, new Color3(0.62, 0.36, 0.12), 650, 0.34);
+  } else if (event.abilityId?.includes("druid_cat_form")) {
+    expandingDisc("cat-form", source.position, 1.45, new Color3(0.34, 0.92, 0.2), 520, 0.28);
+  } else if (event.abilityId?.includes("druid_humanoid_form")) {
+    expandingDisc("humanoid-form", source.position, 1.6, new Color3(0.7, 0.95, 0.62), 520, 0.3);
   } else if (event.abilityId?.includes("whirlwind")) {
     slashRing(source.position, 760);
   } else if (event.abilityId?.includes("snare_trap")) {
@@ -1949,6 +2017,8 @@ function playCastEffect(event: CombatEvent) {
     lightningStrike(target.position, 420);
   } else if (event.abilityId?.includes("meteor")) {
     meteorStrike(target.position, 850, 10);
+  } else if (event.abilityId?.includes("moonfire")) {
+    moonfireStrike(target.position, 1000);
   } else if (event.abilityId?.includes("multishot")) {
     multiArrow(source.position, target.position);
   } else if (event.abilityId?.includes("power_shot")) {
@@ -2305,6 +2375,44 @@ function frostSpikes(center: Vector3, duration: number) {
   }
 }
 
+function moonfireStrike(center: Vector3, duration: number) {
+  const beam = MeshBuilder.CreateCylinder("moonfire-beam", { diameter: 0.52, height: 7.5, tessellation: 32 }, scene);
+  beam.position = center.add(new Vector3(0, 4.0, 0));
+  const beamMat = transparentMat("moonfire-beam-mat", new Color3(0.72, 0.95, 1), 0.42);
+  beamMat.emissiveColor = new Color3(0.46, 0.85, 0.95);
+  beam.material = beamMat;
+  const core = MeshBuilder.CreateCylinder("moonfire-core", { diameter: 0.16, height: 7.8, tessellation: 24 }, scene);
+  core.position = center.add(new Vector3(0, 4.0, 0));
+  const coreMat = transparentMat("moonfire-core-mat", new Color3(0.88, 1, 0.78), 0.74);
+  coreMat.emissiveColor = new Color3(0.65, 1, 0.45);
+  core.material = coreMat;
+  const ground = MeshBuilder.CreateTorus("moonfire-ground", { diameter: 1.35, thickness: 0.055, tessellation: 48 }, scene);
+  ground.position = center.add(new Vector3(0, 0.08, 0));
+  ground.rotation.x = Math.PI / 2;
+  const groundMat = transparentMat("moonfire-ground-mat", new Color3(0.65, 1, 0.36), 0.58);
+  groundMat.emissiveColor = new Color3(0.3, 0.8, 0.15);
+  ground.material = groundMat;
+  const started = performance.now();
+  const observer = scene.onBeforeRenderObservable.add(() => {
+    const progress = (performance.now() - started) / duration;
+    const pulse = 0.9 + Math.sin(progress * Math.PI * 7) * 0.08;
+    beam.scaling.x = pulse;
+    beam.scaling.z = pulse;
+    core.rotation.y += 0.11;
+    ground.rotation.z += 0.08;
+    ground.scaling.setAll(1 + progress * 0.35);
+    beamMat.alpha = Math.max(0, 0.42 * (1 - progress));
+    coreMat.alpha = Math.max(0, 0.74 * (1 - progress));
+    groundMat.alpha = Math.max(0, 0.58 * (1 - progress));
+    if (progress >= 1) {
+      scene.onBeforeRenderObservable.remove(observer);
+      beam.dispose();
+      core.dispose();
+      ground.dispose();
+    }
+  });
+}
+
 function expandingDisc(name: string, center: Vector3, radius: number, color: Color3, duration: number, alpha = 0.42) {
   const disc = MeshBuilder.CreateCylinder(name, { diameter: radius * 2, height: 0.035, tessellation: 64 }, scene);
   disc.position = center.add(new Vector3(0, 0.045, 0));
@@ -2467,6 +2575,8 @@ function animateParticle(mesh: Mesh, material: StandardMaterial, velocity: Vecto
 function effectColor(abilityId: string, school: string) {
   if (abilityId.includes("fire") || school === "fire") return new Color3(1, 0.28, 0.02);
   if (abilityId.includes("frost") || school === "frost") return new Color3(0.2, 0.85, 1);
+  if (abilityId.includes("druid") || school === "nature") return new Color3(0.38, 0.95, 0.28);
+  if (school === "bleed") return new Color3(0.78, 0.02, 0.02);
   if (abilityId.includes("heal") || abilityId.includes("priest") || school === "holy") return new Color3(1, 0.84, 0.22);
   if (abilityId.includes("arcane") || school === "arcane") return new Color3(0.8, 0.28, 1);
   if (abilityId.includes("rogue") || abilityId.includes("vanish") || school === "poison") return new Color3(0.5, 0.12, 0.72);
