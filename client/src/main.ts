@@ -6,7 +6,7 @@ type CastState = { abilityId: string; targetId: string | null; duration: number;
 type AutoAttackState = { remaining: number; interval: number; progress: number };
 type PlayerState = { id: string; name: string; classId: string | null; ready: boolean; hp: number; maxHealth: number; resource: number; maxResource: number; resourceType: string | null; level: number; xp: number; dead: boolean; targetId: string | null; allyTargetId: string | null; position: Vec; facing: number; jumping: boolean; jumpProgress: number; abilities: string[]; abilitySlots?: Record<string, number>; cooldowns: Record<string, number>; globalCooldown: number; autoAttack: AutoAttackState; pendingUpgrades: Upgrade[]; stats: Record<string, number>; baseStats?: Record<string, number>; shield?: number; shieldRemaining?: number; casting: CastState | null; lobbyUpgradePoints?: number; lobbyUpgrades?: Upgrade[] };
 type EnemyState = { id: string; type: string; name: string; hp: number; maxHealth: number; position: Vec; boss: boolean; alerted?: boolean; facing?: number };
-type MapObject = { id: string; type: string; x: number; z: number; radius?: number; width?: number; depth?: number; blocksSight?: boolean; variant?: number };
+type MapObject = { id: string; type: string; x: number; z: number; radius?: number; width?: number; depth?: number; blocksSight?: boolean; variant?: number; rotation?: number };
 type GroundEffect = { id: string; type: string; abilityId?: string; x: number; z: number; radius: number; remaining?: number };
 type Upgrade = { id: string; name: string; choiceType?: string; abilityId?: string; description?: string; stat?: string; mode?: string; value?: number };
 type ClassData = { id: string; name: string; description: string; resourceType: string; startingResource: number; baseStats: Record<string, number>; statGrowth: Record<string, number>; startingAbilities: string[] };
@@ -91,28 +91,45 @@ const lowSpecMode = qualityOverride === "low" || (qualityOverride !== "high" && 
 const engine = new Engine(canvas, !lowSpecMode);
 engine.setHardwareScalingLevel(lowSpecMode ? 1.75 : 1);
 const scene = new Scene(engine);
-scene.clearColor = new Color4(0.2, 0.21, 0.22, 1);
+scene.clearColor = new Color4(0.13, 0.16, 0.17, 1);
 const camera = new ArcRotateCamera("camera", -Math.PI / 2, 0.9, 42, Vector3.Zero(), scene);
 camera.attachControl(canvas, false);
 camera.inputs.clear();
-new HemisphericLight("light", new Vector3(0.3, 1, 0.2), scene).intensity = 0.42;
+new HemisphericLight("light", new Vector3(0.3, 1, 0.2), scene).intensity = 0.5;
 const dirLight = new DirectionalLight("dirLight", new Vector3(-0.45, -1, -0.35), scene);
 dirLight.position = new Vector3(18, 32, 18);
-dirLight.intensity = 0.66;
+dirLight.intensity = 0.72;
+
+const palette = {
+  void: new Color3(0.13, 0.16, 0.17),
+  outerGround: new Color3(0.18, 0.22, 0.2),
+  arenaBase: new Color3(0.61, 0.66, 0.54),
+  arenaWarm: new Color3(0.74, 0.69, 0.52),
+  arenaMoss: new Color3(0.32, 0.47, 0.29),
+  stone: new Color3(0.44, 0.46, 0.45),
+  stoneLight: new Color3(0.58, 0.59, 0.55),
+  bark: new Color3(0.31, 0.19, 0.1),
+  leaf: new Color3(0.13, 0.42, 0.2),
+  leafDark: new Color3(0.07, 0.29, 0.18),
+  leafGold: new Color3(0.37, 0.47, 0.18),
+  shadow: new Color3(0.05, 0.07, 0.06),
+  magic: new Color3(0.34, 0.9, 0.96)
+};
 
 const outerGround = MeshBuilder.CreateCylinder("outer-ground", { diameter: 110, height: 0.04, tessellation: 128 }, scene);
 outerGround.position.y = -0.14;
-outerGround.material = mat("outer-ground-mat", new Color3(0.21, 0.22, 0.23));
+outerGround.material = mat("outer-ground-mat", palette.outerGround);
 outerGround.receiveShadows = false;
 const floorFade = MeshBuilder.CreateCylinder("arena-floor-fade", { diameter: 61, height: 0.035, tessellation: 128 }, scene);
 floorFade.position.y = -0.12;
-floorFade.material = transparentMat("arena-floor-fade-mat", new Color3(0.5, 0.52, 0.47), 0.34);
+floorFade.material = transparentMat("arena-floor-fade-mat", palette.arenaMoss, 0.26);
 floorFade.receiveShadows = false;
-const arenaMat = mat("arena", new Color3(0.72, 0.73, 0.66));
+const arenaMat = mat("arena", palette.arenaBase);
 const arena = MeshBuilder.CreateCylinder("arena-floor", { diameter: 56, height: 0.15, tessellation: 96 }, scene);
 arena.material = arenaMat;
 arena.position.y = -0.08;
 arena.receiveShadows = false;
+createGroundDressing();
 
 const configuredWsUrl = import.meta.env.VITE_WS_URL as string | undefined;
 const defaultWsUrl = `${window.location.protocol === "https:" ? "wss" : "ws"}://${window.location.hostname}:8000/ws`;
@@ -1027,6 +1044,44 @@ function createGroundEffect(effect: GroundEffect) {
   return root;
 }
 
+function createGroundDressing() {
+  const patches = [
+    { x: -11.5, z: -7.2, sx: 7.8, sz: 4.2, color: palette.arenaMoss, alpha: 0.13, rot: 0.45 },
+    { x: 12.8, z: 8.6, sx: 6.2, sz: 3.4, color: palette.arenaMoss, alpha: 0.12, rot: -0.35 },
+    { x: 4.2, z: -14.5, sx: 8.2, sz: 3.6, color: palette.arenaWarm, alpha: 0.14, rot: 0.2 },
+    { x: -17.4, z: 10.8, sx: 6.4, sz: 3.0, color: palette.arenaWarm, alpha: 0.12, rot: -0.85 },
+    { x: 0, z: 0, sx: 10.5, sz: 6.0, color: palette.arenaWarm, alpha: 0.08, rot: 0.7 }
+  ];
+  patches.forEach((patch, index) => {
+    const disc = MeshBuilder.CreateCylinder(`ground-patch-${index}`, { diameter: 1, height: 0.025, tessellation: 16 }, scene);
+    disc.position.set(patch.x, 0.018 + index * 0.001, patch.z);
+    disc.scaling.set(patch.sx, 1, patch.sz);
+    disc.rotation.y = patch.rot;
+    disc.material = transparentMat(`ground-patch-${index}-mat`, patch.color, patch.alpha);
+    disc.isPickable = false;
+  });
+
+  for (let i = 0; i < 28; i++) {
+    const angle = i * Math.PI * 2 / 28;
+    const dist = i % 2 === 0 ? 25.8 : 24.9;
+    const stone = MeshBuilder.CreateBox(`arena-edge-stone-${i}`, { width: 0.62 + (i % 3) * 0.12, height: 0.12, depth: 0.32 }, scene);
+    stone.position.set(Math.cos(angle) * dist, 0.05, Math.sin(angle) * dist);
+    stone.rotation.y = -angle + Math.PI / 2 + (i % 4 - 1.5) * 0.08;
+    stone.material = mat(`arena-edge-stone-${i}-mat`, i % 5 === 0 ? palette.stoneLight : palette.stone);
+    stone.isPickable = false;
+  }
+}
+
+function addContactShadow(parent: TransformNode, name: string, diameter: number, alpha = 0.16, flatten = 1) {
+  const shadow = MeshBuilder.CreateCylinder(name, { diameter, height: 0.018, tessellation: 28 }, scene);
+  shadow.parent = parent;
+  shadow.position.y = 0.018;
+  shadow.scaling.z = flatten;
+  shadow.material = transparentMat(`${name}-mat`, palette.shadow, alpha);
+  shadow.isPickable = false;
+  return shadow;
+}
+
 function renderMapObjects() {
   if (!state) return;
   const live = new Set((state.mapObjects || []).map((object) => object.id));
@@ -1053,33 +1108,85 @@ function renderMapObjects() {
 }
 
 function mapObjectSignature(object: MapObject) {
-  return [object.type, object.x, object.z, object.radius, object.width, object.depth, object.variant, object.blocksSight].join(":");
+  return [object.type, object.x, object.z, object.radius, object.width, object.depth, object.variant, object.rotation, object.blocksSight].join(":");
 }
 
 function createMapObject(object: MapObject) {
   const root = new TransformNode(object.id, scene);
+  root.rotation.y = object.type === "wall" ? 0 : object.rotation || 0;
   if (object.type === "wall") {
     const wallHeight = 3.2;
-    const wall = box(`${object.id}-body`, { width: object.width || 1, height: wallHeight, depth: object.depth || 1 }, new Color3(0.42, 0.43, 0.48));
+    const width = object.width || 1;
+    const depth = object.depth || 1;
+    const longAxis = width >= depth ? "x" : "z";
+    const length = Math.max(width, depth);
+    const thickness = Math.min(width, depth);
+    addContactShadow(root, `${object.id}-shadow`, length * 1.15, 0.18, 0.72);
+    const wall = box(`${object.id}-body`, { width, height: wallHeight, depth }, palette.stone);
     wall.parent = root;
     wall.position.y = wallHeight / 2;
-    const cap = box(`${object.id}-cap`, { width: (object.width || 1) + 0.22, height: 0.22, depth: (object.depth || 1) + 0.22 }, new Color3(0.55, 0.56, 0.62));
+    const cap = box(`${object.id}-cap`, { width: width + 0.22, height: 0.22, depth: depth + 0.22 }, palette.stoneLight);
     cap.parent = root;
     cap.position.y = wallHeight + 0.11;
-    const band = box(`${object.id}-band`, { width: (object.width || 1) + 0.06, height: 0.18, depth: (object.depth || 1) + 0.06 }, new Color3(0.28, 0.29, 0.34));
+    const band = box(`${object.id}-band`, { width: width + 0.06, height: 0.18, depth: depth + 0.06 }, palette.stone.scale(0.62));
     band.parent = root;
     band.position.y = wallHeight * 0.55;
+    const moss = box(`${object.id}-moss`, { width: width * 0.84, height: 0.08, depth: depth + 0.1 }, palette.leafDark);
+    moss.parent = root;
+    moss.position.y = wallHeight + 0.25;
+    const merlonCount = Math.max(3, Math.floor(length / 1.15));
+    const merlonStep = length / merlonCount;
+    for (let i = 0; i < merlonCount; i++) {
+      if (i % 2 === 1 && merlonCount > 4) continue;
+      const offset = -length / 2 + merlonStep * (i + 0.5);
+      const merlon = box(`${object.id}-merlon-${i}`, longAxis === "x"
+        ? { width: merlonStep * 0.58, height: 0.62, depth: thickness + 0.34 }
+        : { width: thickness + 0.34, height: 0.62, depth: merlonStep * 0.58 }, palette.stoneLight.scale(0.95));
+      merlon.parent = root;
+      merlon.position.y = wallHeight + 0.52;
+      if (longAxis === "x") merlon.position.x = offset;
+      else merlon.position.z = offset;
+    }
+    for (const side of [-1, 1]) {
+      const tower = box(`${object.id}-end-tower-${side}`, longAxis === "x"
+        ? { width: 0.75, height: wallHeight + 0.35, depth: thickness + 0.55 }
+        : { width: thickness + 0.55, height: wallHeight + 0.35, depth: 0.75 }, palette.stone.scale(1.04));
+      tower.parent = root;
+      tower.position.y = (wallHeight + 0.35) / 2;
+      if (longAxis === "x") tower.position.x = side * length / 2;
+      else tower.position.z = side * length / 2;
+      const towerCap = box(`${object.id}-end-cap-${side}`, longAxis === "x"
+        ? { width: 0.95, height: 0.2, depth: thickness + 0.78 }
+        : { width: thickness + 0.78, height: 0.2, depth: 0.95 }, palette.stoneLight);
+      towerCap.parent = root;
+      towerCap.position.y = wallHeight + 0.5;
+      if (longAxis === "x") towerCap.position.x = side * length / 2;
+      else towerCap.position.z = side * length / 2;
+    }
+    const layerCount = 4;
+    for (let i = 1; i <= layerCount; i++) {
+      const layer = box(`${object.id}-stone-layer-${i}`, longAxis === "x"
+        ? { width: length + 0.08, height: 0.055, depth: thickness + 0.08 }
+        : { width: thickness + 0.08, height: 0.055, depth: length + 0.08 }, palette.stone.scale(i % 2 ? 0.78 : 0.9));
+      layer.parent = root;
+      layer.position.y = i * wallHeight / (layerCount + 1);
+    }
   } else if (object.type === "tree") {
     const variant = object.variant || 0;
     const scale = (object.radius || 1.0) / 1.0;
-    const trunkColor = new Color3(0.34 + variant * 0.03, 0.18, 0.08);
-    const trunk = MeshBuilder.CreateCylinder(`${object.id}-trunk`, { diameter: 0.5 + variant * 0.08, height: 1.6 + variant * 0.2, tessellation: 8 }, scene);
+    addContactShadow(root, `${object.id}-shadow`, 2.6, 0.2);
+    const trunkHeight = 1.45 + variant * 0.16;
+    const trunk = MeshBuilder.CreateCylinder(`${object.id}-trunk`, { diameterTop: 0.36 + variant * 0.03, diameterBottom: 0.56 + variant * 0.06, height: trunkHeight, tessellation: 7 }, scene);
     trunk.parent = root;
-    trunk.position.y = (1.6 + variant * 0.2) / 2;
-    trunk.material = mat(`${object.id}-trunk-mat`, trunkColor);
-    const crownColor = variant === 1 ? new Color3(0.12, 0.45, 0.18) : variant === 2 ? new Color3(0.06, 0.38, 0.14) : variant === 3 ? new Color3(0.18, 0.42, 0.1) : variant === 4 ? new Color3(0.08, 0.35, 0.16) : new Color3(0.08, 0.42, 0.16);
+    trunk.position.y = trunkHeight / 2;
+    trunk.rotation.z = (variant - 2) * 0.035;
+    trunk.material = mat(`${object.id}-trunk-mat`, palette.bark.scale(0.92 + variant * 0.04));
+    const rootA = box(`${object.id}-root-a`, { width: 1.0, height: 0.16, depth: 0.18 }, palette.bark.scale(0.8));
+    rootA.parent = root; rootA.position.set(0.28, 0.1, 0.24); rootA.rotation.y = 0.55;
+    const rootB = box(`${object.id}-root-b`, { width: 0.82, height: 0.14, depth: 0.16 }, palette.bark.scale(0.72));
+    rootB.parent = root; rootB.position.set(-0.26, 0.09, -0.18); rootB.rotation.y = -0.85;
+    const crownColor = variant === 2 ? palette.leafDark : variant === 3 ? palette.leafGold : palette.leaf;
     if (variant === 4) {
-      // Ancient tree: wide layered crown
       const lower = MeshBuilder.CreateCylinder(`${object.id}-crown-lower`, { diameterTop: 1.8, diameterBottom: 3.4, height: 1.6, tessellation: 8 }, scene);
       lower.parent = root; lower.position.y = 2.4; lower.material = mat(`${object.id}-crown-lower-mat`, crownColor);
       const upper = MeshBuilder.CreateCylinder(`${object.id}-crown-upper`, { diameterTop: 0.9, diameterBottom: 2.2, height: 1.4, tessellation: 8 }, scene);
@@ -1088,17 +1195,24 @@ function createMapObject(object: MapObject) {
       const crown = MeshBuilder.CreateCylinder(`${object.id}-crown`, { diameterTop: 0.75, diameterBottom: 2.35, height: 2.35, tessellation: 7 }, scene);
       crown.parent = root; crown.position.y = 2.7; crown.material = mat(`${object.id}-crown-mat`, crownColor);
     } else {
-      const crown = MeshBuilder.CreateSphere(`${object.id}-crown`, { diameter: 2.2 + variant * 0.15, segments: 7 }, scene);
-      crown.parent = root; crown.position.y = 2.6; crown.material = mat(`${object.id}-crown-mat`, crownColor);
+      const lower = MeshBuilder.CreateSphere(`${object.id}-crown-lower`, { diameter: 2.0 + variant * 0.14, segments: 7 }, scene);
+      lower.parent = root; lower.position.set(-0.18, 2.35, 0.04); lower.scaling.y = 0.82; lower.material = mat(`${object.id}-crown-lower-mat`, crownColor);
+      const upper = MeshBuilder.CreateSphere(`${object.id}-crown-upper`, { diameter: 1.55 + variant * 0.1, segments: 7 }, scene);
+      upper.parent = root; upper.position.set(0.26, 3.05, -0.12); upper.scaling.y = 0.95; upper.material = mat(`${object.id}-crown-upper-mat`, crownColor.scale(1.08));
     }
     root.scaling.setAll(scale);
   } else if (object.type === "bush") {
     const variant = object.variant || 0;
-    const bushColor = variant === 1 ? new Color3(0.18, 0.52, 0.12) : variant === 2 ? new Color3(0.35, 0.55, 0.14) : new Color3(0.14, 0.48, 0.16);
-    const bush = MeshBuilder.CreateSphere(`${object.id}-bush`, { diameter: 1.2 + (object.radius || 0.7) * 0.6, segments: 6 }, scene);
-    bush.parent = root;
-    bush.position.y = 0.45 + (object.radius || 0.7) * 0.25;
-    bush.material = mat(`${object.id}-bush-mat`, bushColor);
+    const radius = object.radius || 0.7;
+    addContactShadow(root, `${object.id}-shadow`, radius * 1.9, 0.12);
+    const bushColor = variant === 1 ? palette.leaf.scale(1.1) : variant === 2 ? palette.leafGold : palette.leafDark.scale(1.18);
+    for (let i = 0; i < 3; i++) {
+      const bush = MeshBuilder.CreateSphere(`${object.id}-bush-${i}`, { diameter: radius * (1.0 + i * 0.18), segments: 6 }, scene);
+      bush.parent = root;
+      bush.position.set((i - 1) * radius * 0.38, 0.38 + i * 0.08, i % 2 ? radius * 0.18 : -radius * 0.12);
+      bush.scaling.y = 0.72;
+      bush.material = mat(`${object.id}-bush-${i}-mat`, bushColor.scale(0.9 + i * 0.08));
+    }
     const berries = variant === 2 ? MeshBuilder.CreateSphere(`${object.id}-berries`, { diameter: 0.16, segments: 5 }, scene) : null;
     if (berries) {
       berries.parent = root;
@@ -1106,6 +1220,7 @@ function createMapObject(object: MapObject) {
       berries.material = mat(`${object.id}-berries-mat`, new Color3(0.85, 0.2, 0.25));
     }
   } else if (object.type === "crystal") {
+    addContactShadow(root, `${object.id}-shadow`, 1.8, 0.14);
     const crystal = MeshBuilder.CreateCylinder(`${object.id}-crystal`, { diameterTop: 0.18, diameterBottom: 1.15, height: 2.65, tessellation: 5 }, scene);
     crystal.parent = root;
     crystal.position.y = 1.32;
@@ -1116,6 +1231,7 @@ function createMapObject(object: MapObject) {
   } else if (object.type === "tube") {
     const variant = object.variant || 0;
     const radius = object.radius || 0.85;
+    addContactShadow(root, `${object.id}-shadow`, radius * 2.0, 0.16);
     const tube = MeshBuilder.CreateCylinder(`${object.id}-tube`, { diameter: radius * 1.55, height: 2.4 + variant * 0.25, tessellation: 16 }, scene);
     tube.parent = root;
     tube.position.y = (2.4 + variant * 0.25) / 2;
@@ -1128,6 +1244,7 @@ function createMapObject(object: MapObject) {
       rim.material = mat(`${object.id}-tube-rim-${y}-mat`, rimColor);
     }
   } else if (object.type === "well") {
+    addContactShadow(root, `${object.id}-shadow`, 2.8, 0.18);
     const well = MeshBuilder.CreateCylinder(`${object.id}-well`, { diameter: 2.45, height: 1.0, tessellation: 18 }, scene);
     well.parent = root;
     well.position.y = 0.5;
@@ -1136,7 +1253,26 @@ function createMapObject(object: MapObject) {
     water.parent = root;
     water.position.y = 1.03;
     water.material = transparentMat(`${object.id}-water-mat`, new Color3(0.22, 0.62, 1), 0.58);
+  } else if (object.type === "rock") {
+    const radius = object.radius || 0.8;
+    addContactShadow(root, `${object.id}-shadow`, radius * 1.85, 0.15);
+    const main = MeshBuilder.CreateSphere(`${object.id}-rock-main`, { diameter: radius * 1.45, segments: 6 }, scene);
+    main.parent = root; main.position.y = radius * 0.46; main.scaling.set(1.18, 0.62, 0.86); main.material = mat(`${object.id}-rock-main-mat`, palette.stone);
+    const chip = MeshBuilder.CreateSphere(`${object.id}-rock-chip`, { diameter: radius * 0.8, segments: 5 }, scene);
+    chip.parent = root; chip.position.set(radius * 0.42, radius * 0.36, -radius * 0.16); chip.scaling.set(0.82, 0.48, 0.7); chip.material = mat(`${object.id}-rock-chip-mat`, palette.stoneLight.scale(0.9));
+  } else if (object.type === "ruin") {
+    const radius = object.radius || 1.5;
+    addContactShadow(root, `${object.id}-shadow`, radius * 2.25, 0.17, 0.8);
+    const base = box(`${object.id}-base`, { width: radius * 1.8, height: 0.28, depth: radius * 1.2 }, palette.stone.scale(0.86));
+    base.parent = root; base.position.y = 0.14;
+    const slab = box(`${object.id}-slab`, { width: radius * 1.25, height: 1.15, depth: 0.32 }, palette.stone);
+    slab.parent = root; slab.position.set(-radius * 0.22, 0.78, 0); slab.rotation.z = 0.12;
+    const broken = box(`${object.id}-broken`, { width: radius * 0.58, height: 0.72, depth: 0.3 }, palette.stoneLight.scale(0.9));
+    broken.parent = root; broken.position.set(radius * 0.58, 0.5, radius * 0.16); broken.rotation.z = -0.22;
+    const rune = MeshBuilder.CreateCylinder(`${object.id}-rune`, { diameter: radius * 0.55, height: 0.035, tessellation: 6 }, scene);
+    rune.parent = root; rune.position.set(-radius * 0.22, 1.38, -0.18); rune.rotation.x = Math.PI / 2; rune.material = transparentMat(`${object.id}-rune-mat`, palette.magic, 0.46);
   } else {
+    addContactShadow(root, `${object.id}-shadow`, (object.radius || 1) * 1.8, 0.15);
     const pillar = MeshBuilder.CreateCylinder(`${object.id}-pillar`, { diameter: (object.radius || 1) * 1.35, height: 2.9, tessellation: 10 }, scene);
     pillar.parent = root;
     pillar.position.y = 1.45;
@@ -1358,6 +1494,25 @@ function animateWorld() {
     if (leftFist) leftFist.rotation.x = Math.sin(t * speedBob) * 0.55;
     if (rightFist) rightFist.rotation.x = -Math.sin(t * speedBob) * 0.55;
   }
+  for (const [, node] of mapMeshes) {
+    const crystal = node.getChildMeshes().find((mesh) => mesh.name.endsWith("-crystal"));
+    if (crystal) {
+      crystal.rotation.y += dt * 0.35;
+      const material = crystal.material as StandardMaterial;
+      material.emissiveColor = palette.magic.scale(0.28 + Math.sin(t * 2.2) * 0.08);
+    }
+    const water = node.getChildMeshes().find((mesh) => mesh.name.endsWith("-water"));
+    if (water) {
+      water.rotation.y += dt * 0.18;
+      const material = water.material as StandardMaterial;
+      material.alpha = 0.48 + Math.sin(t * 1.7) * 0.08;
+    }
+    const rune = node.getChildMeshes().find((mesh) => mesh.name.endsWith("-rune"));
+    if (rune) {
+      const material = rune.material as StandardMaterial;
+      material.alpha = 0.32 + Math.sin(t * 2.4) * 0.12;
+    }
+  }
   playAmbientFoley(playerIsMoving);
 }
 
@@ -1365,6 +1520,7 @@ function createPlayer(p: PlayerState) {
   const root = new TransformNode(p.id, scene);
   root.metadata = { entityId: p.id, classId: p.classId };
   const color = p.classId === "warrior" ? new Color3(0.7, 0.15, 0.1) : p.classId === "hunter" ? new Color3(0.1, 0.45, 0.18) : p.classId === "priest" ? new Color3(0.95, 0.9, 0.72) : new Color3(0.15, 0.2, 0.85);
+  addContactShadow(root, `${p.id}-contact-shadow`, 1.25, 0.2, 0.78);
   const body = box(`${p.id}-body`, { width: 0.8, height: 1.0, depth: 0.45 }, color); body.parent = root; body.position.y = 0.7;
   const head = box(`${p.id}-head`, { width: 0.52, height: 0.45, depth: 0.52 }, new Color3(0.85, 0.64, 0.45)); head.parent = root; head.position.y = 1.45;
   const leftArm = box(`${p.id}-left-arm`, { width: 0.2, height: 0.74, depth: 0.22 }, color.scale(0.85)); leftArm.parent = root; leftArm.position.set(-0.58, 0.92, 0); leftArm.rotation.z = -0.16;
@@ -1415,6 +1571,7 @@ function createEnemy(e: EnemyState) {
   root.metadata = { entityId: e.id };
   const color = enemyColor(e.type, e.boss);
   const size = e.boss ? 2.2 : e.type === "brute" ? 1.4 : 0.9;
+  addContactShadow(root, `${e.id}-contact-shadow`, size * 1.7, e.boss ? 0.24 : 0.2, 0.82);
   const body = box(`${e.id}-body`, { width: size, height: size, depth: size }, color); body.parent = root; body.position.y = size / 2; body.metadata = { entityId: e.id, baseY: body.position.y };
   const head = box(`${e.id}-head`, { width: size * 0.72, height: size * 0.46, depth: size * 0.62 }, color.scale(1.12)); head.parent = root; head.position.y = size * 1.12; head.metadata = { entityId: e.id, baseY: head.position.y };
   addEnemyDetails(root, e, size, color);

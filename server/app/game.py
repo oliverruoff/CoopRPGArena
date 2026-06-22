@@ -306,7 +306,6 @@ class Game:
             depth = round(random.uniform(2.5, 2.8), 2)
             if random.random() > 0.5:
                 width, depth = depth, width
-            angle = random.random() * math.pi
             add("wall", spot[0], spot[1], width=width, depth=depth, radius=max(width, depth) * 0.7, blocksSight=True)
 
         # Trees with variants
@@ -347,7 +346,7 @@ class Game:
             spot = place_spot(3.0, arena - 1.0, 1.6)
             if not spot:
                 continue
-            add("ruin", spot[0], spot[1], radius=round(random.uniform(1.3, 2.0), 2), variant=random.randint(0, 2))
+            add("ruin", spot[0], spot[1], radius=round(random.uniform(1.3, 2.0), 2), variant=random.randint(0, 2), rotation=round(random.random() * math.pi, 2))
 
     def _start_match_locked(self) -> None:
         if any(player.ready for player in self.players.values()) and not self._all_ready_locked():
