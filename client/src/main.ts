@@ -497,13 +497,16 @@ function renderUi() {
   const me = state.players[state.you];
   const you = state.you;
   const isSpectator = me?.spectator === true;
+  const wasLobby = document.body.dataset.mode === "lobby";
   document.body.dataset.mode = state.matchState;
   document.body.dataset.spectator = isSpectator ? "true" : "false";
   document.querySelector<HTMLElement>("#lobby")!.style.display = state.matchState === "lobby" ? "block" : "none";
   document.querySelector<HTMLElement>("#hud")!.style.display = state.matchState === "lobby" ? "none" : "block";
   document.querySelector<HTMLElement>("#classPreviewInfo")!.style.display = state.matchState === "lobby" ? "block" : "none";
-  document.querySelector<HTMLElement>("#statTooltip")!.style.display = "none";
-  hideStatTooltip();
+  if (wasLobby && state.matchState !== "lobby") {
+    document.querySelector<HTMLElement>("#statTooltip")!.style.display = "none";
+    hideStatTooltip();
+  }
   if (classPreview) classPreview.setEnabled(state.matchState === "lobby" && !isSpectator);
   text("countdown", state.countdown ? `Starting in ${Math.ceil(state.countdown)}` : "");
   const currentState = state;
