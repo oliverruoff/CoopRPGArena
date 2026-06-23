@@ -57,6 +57,7 @@ root.innerHTML = `
     <div id="countdown" data-testid="countdown"></div>
   </section>
   <div id="classPreviewInfo" data-testid="class-preview-info"></div>
+  <div id="statTooltip" data-testid="stat-tooltip"></div>
   <section id="hud">
     <div id="party" data-testid="party"></div>
     <div id="target" data-testid="target-frame">No target</div>
@@ -82,7 +83,6 @@ root.innerHTML = `
     <div id="overhead"></div>
     <div id="levelPanel" data-testid="level-up-panel"></div>
     <div id="abilityTooltip" data-testid="ability-tooltip"></div>
-    <div id="statTooltip" data-testid="stat-tooltip"></div>
     <div id="end" data-testid="end-screen">
       <div id="endTitle"></div>
       <div id="endScoreboard"></div>
@@ -357,33 +357,23 @@ document.querySelector<HTMLElement>("#lobbyUpgradeChoices")!.addEventListener("c
 (function bindClassPreviewStatTooltips() {
   const container = document.querySelector<HTMLElement>("#classPreviewInfo");
   if (!container) return;
-  let active: HTMLElement | null = null;
-  container.addEventListener("mouseover", (event) => {
-    const target = (event.target as HTMLElement).closest<HTMLElement>("[data-stat-tooltip]");
-    if (!target || !target.dataset.statTooltip) return;
-    if (active === target) {
-      if (statTooltipHideTimer !== null) {
-        clearTimeout(statTooltipHideTimer);
-        statTooltipHideTimer = null;
-      }
-      return;
-    }
-    active = target;
-    showStatTooltip(target, target.dataset.statTooltip);
-  });
-  container.addEventListener("mouseout", (event) => {
-    if (!active) return;
-    if ((event.target as HTMLElement).closest("[data-stat-tooltip]") !== active) return;
-    const related = event.relatedTarget as HTMLElement | null;
-    if (related && active.contains(related)) return;
-    active = null;
-    if (statTooltipHideTimer !== null) clearTimeout(statTooltipHideTimer);
-    statTooltipHideTimer = window.setTimeout(() => {
-      const tooltip = document.querySelector<HTMLElement>("#statTooltip");
-      if (tooltip) tooltip.style.display = "none";
-      statTooltipHideTimer = null;
-    }, 80);
-  });
+  const attach = () => {
+    container.querySelectorAll<HTMLElement>("[data-stat-tooltip]").forEach((el) => {
+      if (el.dataset.statTooltipBound) return;
+      el.dataset.statTooltipBound = "1";
+      el.addEventListener("mouseenter", () => {
+        if (state?.matchState !== "lobby") return;
+        showStatTooltip(el, el.dataset.statTooltip!);
+      });
+      el.addEventListener("mouseleave", () => {
+        if (state?.matchState !== "lobby") return;
+        hideStatTooltip();
+      });
+    });
+  };
+  attach();
+  const observer = new MutationObserver(attach);
+  observer.observe(container, { childList: true, subtree: true });
 })();
 document.querySelector<HTMLButtonElement>("#resetLobbyUpgrades")!.addEventListener("click", () => {
   unlockAudio();
@@ -512,6 +502,8 @@ function renderUi() {
   document.querySelector<HTMLElement>("#lobby")!.style.display = state.matchState === "lobby" ? "block" : "none";
   document.querySelector<HTMLElement>("#hud")!.style.display = state.matchState === "lobby" ? "none" : "block";
   document.querySelector<HTMLElement>("#classPreviewInfo")!.style.display = state.matchState === "lobby" ? "block" : "none";
+  document.querySelector<HTMLElement>("#statTooltip")!.style.display = "none";
+  hideStatTooltip();
   if (classPreview) classPreview.setEnabled(state.matchState === "lobby" && !isSpectator);
   text("countdown", state.countdown ? `Starting in ${Math.ceil(state.countdown)}` : "");
   const currentState = state;
