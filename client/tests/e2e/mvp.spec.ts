@@ -87,6 +87,9 @@ test("single player can start, move, target, level, and win", async ({ page, req
   await expect(page.getByTestId("level-up-panel")).toBeHidden();
   const afterUpgrade = await (await request.get("http://127.0.0.1:8000/debug/state")).json();
   if (chosenUpgradeText.includes("Health")) expect(afterUpgrade.players[playerId].stats.maxHealth).toBeGreaterThan(beforeUpgrade.players[playerId].stats.maxHealth);
+  else if (chosenUpgradeText.includes("Max Resource")) expect(afterUpgrade.players[playerId].stats.maxResource).toBeGreaterThan(beforeUpgrade.players[playerId].stats.maxResource);
+  else if (chosenUpgradeText.includes("Attack Power")) expect(afterUpgrade.players[playerId].stats.attackPower).toBeGreaterThan(beforeUpgrade.players[playerId].stats.attackPower);
+  else if (chosenUpgradeText.includes("Spell Power")) expect(afterUpgrade.players[playerId].stats.spellPower).toBeGreaterThan(beforeUpgrade.players[playerId].stats.spellPower);
   else if (chosenUpgradeText.includes("Move Speed")) expect(afterUpgrade.players[playerId].stats.moveSpeed).toBeGreaterThan(beforeUpgrade.players[playerId].stats.moveSpeed);
   else if (chosenUpgradeText.includes("Crit")) expect(afterUpgrade.players[playerId].stats.critChance).toBeGreaterThan(beforeUpgrade.players[playerId].stats.critChance);
   else if (chosenUpgradeText.includes("Resource Costs")) expect(afterUpgrade.players[playerId].stats.resourceCostMultiplier).toBeLessThan(beforeUpgrade.players[playerId].stats.resourceCostMultiplier);
