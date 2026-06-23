@@ -816,3 +816,53 @@ async def _ice_block_blocks_damage_and_movement():
         before_x = player.x
         game._tick_players_locked(1, 1)
         assert player.x == before_x
+
+
+def test_reconnect_during_match_resumes_active_player():
+    asyncio.run(_reconnect_during_match_resumes_active_player())
+
+
+async def _reconnect_during_match_resumes_active_player():
+    game = Game()
+    player = await game.add_player()
+    await game.handle_message(player.id, {"type": "select_class", "classId": "mage"})
+    await _spend_lobby_upgrades(game, player.id)
+    await game.handle_message(player.id, {"type": "ready", "ready": True})
+    async with game._lock:
+        game._start_match_locked()
+    token = player.reconnect_token
+    # Disconnect leaves the player object behind for a grace period.
+    await game.remove_player(player.id)
+    assert player.id in game.players
+    assert game.players[player.id].disconnected_at is not None
+    # A late joiner without the token still becomes a spectator.
+    spectator = await game.add_player()
+    assert spectator.spectator is True
+    # Reconnecting with the token resumes the original player.
+    reconnected = await game.add_player(token)
+    assert reconnected.id == player.id
+    assert reconnected.spectator is False
+    assert reconnected.disconnected_at is None
+    # The resumed player can act again.
+    snapshot = await game.snapshot(reconnected.id)
+    assert snapshot["players"][reconnected.id]["spectator"] is False
+    assert snapshot.get("reconnectToken") == token
+
+
+def test_disconnected_player_is_not_counted_for_defeat():
+    asyncio.run(_disconnected_player_is_not_counted_for_defeat())
+
+
+async def _disconnected_player_is_not_counted_for_defeat():
+    game = Game()
+    player = await game.add_player()
+    await game.handle_message(player.id, {"type": "select_class", "classId": "mage"})
+    await _spend_lobby_upgrades(game, player.id)
+    await game.handle_message(player.id, {"type": "ready", "ready": True})
+    async with game._lock:
+        game._start_match_locked()
+    await game.remove_player(player.id)
+    # With no active players left the match should not immediately end in defeat.
+    async with game._lock:
+        game._check_end_states_locked()
+    assert game.match_state == "running"

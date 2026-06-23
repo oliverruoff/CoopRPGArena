@@ -10,6 +10,7 @@ from .game import game
 
 
 clients: dict[str, WebSocket] = {}
+client_versions: dict[str, int] = {}
 client_map_revisions: dict[str, int] = {}
 client_static_sent_at: dict[str, float] = {}
 SIMULATION_INTERVAL = 0.05
@@ -47,10 +48,12 @@ async def broadcast(now: float) -> None:
             client_static_sent_at[player_id] = now
             await ws.send_json(snapshot)
         except Exception:
-            clients.pop(player_id, None)
-            client_map_revisions.pop(player_id, None)
-            client_static_sent_at.pop(player_id, None)
-            await game.remove_player(player_id)
+            if clients.get(player_id) is ws:
+                clients.pop(player_id, None)
+                client_versions.pop(player_id, None)
+                client_map_revisions.pop(player_id, None)
+                client_static_sent_at.pop(player_id, None)
+                await game.remove_player(player_id)
 
     await asyncio.gather(*(send_snapshot(player_id, ws) for player_id, ws in list(clients.items())))
 
@@ -94,12 +97,21 @@ async def debug_action(body: dict):
 async def websocket_endpoint(ws: WebSocket):
     await ws.accept()
     player = None
+    reconnect_token = ws.query_params.get("token")
     try:
-        player = await game.add_player()
+        player = await game.add_player(reconnect_token)
     except ValueError:
         await ws.close(code=1008)
         return
+    my_version = client_versions.get(player.id, 0) + 1
+    client_versions[player.id] = my_version
     try:
+        old_ws = clients.get(player.id)
+        if old_ws is not None and old_ws != ws:
+            try:
+                await old_ws.close()
+            except Exception:
+                pass
         clients[player.id] = ws
         snapshot = await game.snapshot(player.id)
         client_map_revisions[player.id] = int(snapshot.get("mapRevision", 0))
@@ -111,8 +123,10 @@ async def websocket_endpoint(ws: WebSocket):
     except WebSocketDisconnect:
         pass
     finally:
-        clients.pop(player.id, None)
-        client_map_revisions.pop(player.id, None)
-        client_static_sent_at.pop(player.id, None)
-        if player is not None:
-            await game.remove_player(player.id)
+        if client_versions.get(player.id) == my_version:
+            clients.pop(player.id, None)
+            client_versions.pop(player.id, None)
+            client_map_revisions.pop(player.id, None)
+            client_static_sent_at.pop(player.id, None)
+            if player is not None:
+                await game.remove_player(player.id)

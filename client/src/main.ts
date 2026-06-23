@@ -13,8 +13,8 @@ type ClassData = { id: string; name: string; description: string; resourceType: 
 type Ability = { id: string; name: string; classId: string; slot: number; targetType: string; cooldown: number; resourceCost?: { type: string; amount: number }; castTime?: number; range?: number; requiredForm?: string; description?: string; effects?: Array<{ type: string; amount?: number; school?: string; scaling?: { stat: string; coefficient: number }; duration?: number; tickInterval?: number; slowPercent?: number; radius?: number; multiplier?: number; add?: number; stat?: string; center?: string; behindDistance?: number; stopDistance?: number; stunDuration?: number; form?: string; statMultipliers?: Record<string, number>; statAdds?: Record<string, number> }> };
 type CombatEvent = { id: number; type: string; sourceId?: string; targetId?: string; abilityId?: string; castTime?: number; duration?: number; amount?: number; school?: string; status?: string; critical?: boolean };
 type MatchStats = { name: string; classId: string | null; spectator: boolean; level: number; damageDealt: number; healingDone: number; damageTaken: number; kills: number; deaths: number; biggestHit: number };
-type Snapshot = { type: string; you: string; matchState: string; countdown: number | null; players: Record<string, PlayerState>; enemies: Record<string, EnemyState>; mapObjects: MapObject[]; mapRevision?: number; groundEffects?: GroundEffect[]; wave: { number: number; state: string; aliveEnemies: number; nextWaveIn?: number }; abilities: Record<string, Ability>; classes: Record<string, ClassData>; upgrades: Upgrade[]; events: CombatEvent[]; matchStats: Record<string, MatchStats> };
-type IncomingSnapshot = Omit<Snapshot, "mapObjects" | "abilities" | "classes" | "upgrades" | "matchStats"> & { mapObjects?: MapObject[]; abilities?: Record<string, Ability>; classes?: Record<string, ClassData>; upgrades?: Upgrade[]; matchStats?: Record<string, MatchStats> };
+type Snapshot = { type: string; you: string; reconnectToken?: string; matchState: string; countdown: number | null; players: Record<string, PlayerState>; enemies: Record<string, EnemyState>; mapObjects: MapObject[]; mapRevision?: number; groundEffects?: GroundEffect[]; wave: { number: number; state: string; aliveEnemies: number; nextWaveIn?: number }; abilities: Record<string, Ability>; classes: Record<string, ClassData>; upgrades: Upgrade[]; events: CombatEvent[]; matchStats: Record<string, MatchStats> };
+type IncomingSnapshot = Omit<Snapshot, "mapObjects" | "abilities" | "classes" | "upgrades" | "matchStats"> & { mapObjects?: MapObject[]; abilities?: Record<string, Ability>; classes?: Record<string, ClassData>; upgrades?: Upgrade[]; matchStats?: Record<string, MatchStats>; reconnectToken?: string };
 
 const classInfo: Record<string, { name: string; description: string; stats: string[] }> = {
   warrior: { name: "Warrior", description: "A durable frontliner. Great at surviving, holding enemy attention, and smashing threats up close.", stats: ["HP 162", "Rage", "Armor 32", "Melee bruiser / tank"] },
@@ -192,6 +192,14 @@ function isLocalhostOnlyUrl(url: string): boolean {
   }
 }
 
+function getWsUrl(): string {
+  const base = configuredWsUrl && !isLocalhostOnlyUrl(configuredWsUrl) ? configuredWsUrl : defaultWsUrl;
+  const token = localStorage.getItem("cooprpg_reconnect_token");
+  if (!token) return base;
+  const sep = base.includes("?") ? "&" : "?";
+  return `${base}${sep}token=${encodeURIComponent(token)}`;
+}
+
 function connect() {
   if (reconnectTimer !== null) {
     window.clearTimeout(reconnectTimer);
@@ -200,7 +208,7 @@ function connect() {
   if (ws && ws.readyState !== WebSocket.CLOSED) {
     return;
   }
-  ws = new WebSocket(wsUrl);
+  ws = new WebSocket(getWsUrl());
   ws.addEventListener("open", () => {
     text("connection", "Connected");
     reconnectDelay = 1000;
@@ -209,6 +217,9 @@ function connect() {
   ws.addEventListener("message", (event) => {
     previousState = state;
     const incoming = JSON.parse(event.data) as IncomingSnapshot;
+    if (incoming.reconnectToken) {
+      localStorage.setItem("cooprpg_reconnect_token", incoming.reconnectToken);
+    }
     const incomingHasStatic = incoming.mapObjects !== undefined;
     state = mergeSnapshot(incoming);
     const staticWorldSignature = worldStaticSignature(state);
