@@ -12,8 +12,9 @@ type Upgrade = { id: string; name: string; choiceType?: string; abilityId?: stri
 type ClassData = { id: string; name: string; description: string; resourceType: string; startingResource: number; baseStats: Record<string, number>; statGrowth: Record<string, number>; startingAbilities: string[] };
 type Ability = { id: string; name: string; classId: string; slot: number; targetType: string; cooldown: number; resourceCost?: { type: string; amount: number }; castTime?: number; range?: number; requiredForm?: string; description?: string; effects?: Array<{ type: string; amount?: number; school?: string; scaling?: { stat: string; coefficient: number }; duration?: number; tickInterval?: number; slowPercent?: number; radius?: number; multiplier?: number; add?: number; stat?: string; center?: string; behindDistance?: number; stopDistance?: number; stunDuration?: number; form?: string; statMultipliers?: Record<string, number>; statAdds?: Record<string, number> }> };
 type CombatEvent = { id: number; type: string; sourceId?: string; targetId?: string; abilityId?: string; castTime?: number; duration?: number; amount?: number; school?: string; status?: string; critical?: boolean };
-type Snapshot = { type: string; you: string; matchState: string; countdown: number | null; players: Record<string, PlayerState>; enemies: Record<string, EnemyState>; mapObjects: MapObject[]; mapRevision?: number; groundEffects?: GroundEffect[]; wave: { number: number; state: string; aliveEnemies: number; nextWaveIn?: number }; abilities: Record<string, Ability>; classes: Record<string, ClassData>; upgrades: Upgrade[]; events: CombatEvent[] };
-type IncomingSnapshot = Omit<Snapshot, "mapObjects" | "abilities" | "classes" | "upgrades"> & { mapObjects?: MapObject[]; abilities?: Record<string, Ability>; classes?: Record<string, ClassData>; upgrades?: Upgrade[] };
+type MatchStats = { name: string; classId: string | null; spectator: boolean; level: number; damageDealt: number; healingDone: number; damageTaken: number; kills: number; deaths: number; biggestHit: number };
+type Snapshot = { type: string; you: string; matchState: string; countdown: number | null; players: Record<string, PlayerState>; enemies: Record<string, EnemyState>; mapObjects: MapObject[]; mapRevision?: number; groundEffects?: GroundEffect[]; wave: { number: number; state: string; aliveEnemies: number; nextWaveIn?: number }; abilities: Record<string, Ability>; classes: Record<string, ClassData>; upgrades: Upgrade[]; events: CombatEvent[]; matchStats: Record<string, MatchStats> };
+type IncomingSnapshot = Omit<Snapshot, "mapObjects" | "abilities" | "classes" | "upgrades" | "matchStats"> & { mapObjects?: MapObject[]; abilities?: Record<string, Ability>; classes?: Record<string, ClassData>; upgrades?: Upgrade[]; matchStats?: Record<string, MatchStats> };
 
 const classInfo: Record<string, { name: string; description: string; stats: string[] }> = {
   warrior: { name: "Warrior", description: "A durable frontliner. Great at surviving, holding enemy attention, and smashing threats up close.", stats: ["HP 162", "Rage", "Armor 32", "Melee bruiser / tank"] },
@@ -83,6 +84,7 @@ root.innerHTML = `
     <div id="abilityTooltip" data-testid="ability-tooltip"></div>
     <div id="end" data-testid="end-screen">
       <div id="endTitle"></div>
+      <div id="endScoreboard"></div>
       <button id="restart" data-testid="restart-button">Back to Lobby</button>
     </div>
   </section>
@@ -555,8 +557,10 @@ function renderUi() {
   const endTitle = document.querySelector<HTMLElement>("#endTitle")!;
   const restartButton = document.querySelector<HTMLButtonElement>("#restart")!;
   endTitle.textContent = state.matchState === "victory" ? "Victory" : state.matchState === "defeat" ? "Wipe" : "";
-  restartButton.style.display = isSpectator ? "none" : "inline-block";
+  restartButton.style.display = "inline-block";
   end.style.display = endTitle.textContent ? "grid" : "none";
+  const scoreboard = document.querySelector<HTMLElement>("#endScoreboard")!;
+  scoreboard.innerHTML = endTitle.textContent ? renderScoreboard(state.matchStats, state.players, state.you) : "";
   playMatchStateSound(state.matchState);
 }
 
@@ -566,7 +570,8 @@ function mergeSnapshot(incoming: IncomingSnapshot): Snapshot {
     mapObjects: incoming.mapObjects ?? state?.mapObjects ?? [],
     abilities: incoming.abilities ?? state?.abilities ?? {},
     classes: incoming.classes ?? state?.classes ?? {},
-    upgrades: incoming.upgrades ?? state?.upgrades ?? []
+    upgrades: incoming.upgrades ?? state?.upgrades ?? [],
+    matchStats: incoming.matchStats ?? state?.matchStats ?? {},
   };
 }
 
@@ -618,6 +623,50 @@ function renderStatsPanel(me: PlayerState) {
     const improvement = base !== undefined && value !== base ? formatStatImprovement(stat, value, base) : "";
     return `<div class="statRow"><span>${statLabel(stat)}</span><b>${formatStat(stat, value)}${improvement ? ` <em class="statImprovement">${improvement}</em>` : ""}</b></div>`;
   }).join("")}`;
+}
+
+function renderScoreboard(matchStats: Record<string, MatchStats>, players: Record<string, PlayerState>, you: string) {
+  const rows = Object.entries(matchStats).sort(([, a], [, b]) => b.damageDealt - a.damageDealt || b.healingDone - a.healingDone);
+  return `<table class="scoreboardTable">
+    <thead>
+      <tr>
+        <th>Player</th>
+        <th>Role</th>
+        <th class="num">Level</th>
+        <th class="num">Kills</th>
+        <th class="num">Deaths</th>
+        <th class="num">Damage</th>
+        <th class="num">Healing</th>
+        <th class="num">Taken</th>
+        <th class="num">Biggest Hit</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${rows.map(([id, s]) => {
+        const isYou = id === you;
+        const role = s.spectator ? "Spectator" : s.classId ? (state?.classes[s.classId]?.name || s.classId) : "—";
+        return `<tr class="${s.spectator ? "spectatorRow" : ""}${isYou ? " youRow" : ""}">
+          <td><b>${escapeHtml(s.name)}</b>${isYou ? " (you)" : ""}</td>
+          <td>${role}</td>
+          <td class="num">${s.level}</td>
+          <td class="num">${s.kills}</td>
+          <td class="num">${s.deaths}</td>
+          <td class="num damage">${formatScoreboardNumber(s.damageDealt)}</td>
+          <td class="num heal">${formatScoreboardNumber(s.healingDone)}</td>
+          <td class="num taken">${formatScoreboardNumber(s.damageTaken)}</td>
+          <td class="num crit">${formatScoreboardNumber(s.biggestHit)}</td>
+        </tr>`;
+      }).join("")}
+    </tbody>
+  </table>`;
+}
+
+function formatScoreboardNumber(value: number) {
+  return Math.round(value).toLocaleString();
+}
+
+function escapeHtml(text: string) {
+  return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
 
 function formatStatImprovement(stat: string, current: number, base: number) {

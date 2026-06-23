@@ -61,6 +61,12 @@ class Player:
     shapeshift_multipliers: dict[str, float] = field(default_factory=dict)
     shapeshift_adds: dict[str, float] = field(default_factory=dict)
     stat_buffs: list[dict[str, Any]] = field(default_factory=list)
+    damage_dealt: float = 0
+    healing_done: float = 0
+    damage_taken: float = 0
+    kills: int = 0
+    deaths: int = 0
+    biggest_hit: float = 0
 
 
 @dataclass
@@ -118,6 +124,7 @@ class Game:
         self._enemy_seq = 0
         self._last_tick = time.monotonic()
         self._lock = asyncio.Lock()
+        self.match_stats: dict[str, dict[str, Any]] = {}
 
     async def reset(self) -> None:
         async with self._lock:
@@ -125,6 +132,7 @@ class Game:
             self.enemies.clear()
             self.match_state = "lobby"
             self.match_end_at = None
+            self.match_stats = {}
             self.wave = {"number": 0, "state": "lobby", "aliveEnemies": 0}
             self.countdown_until = None
             self.events.clear()
@@ -224,7 +232,7 @@ class Game:
         self.match_state = "lobby"
         self.wave = {"number": 0, "state": "lobby", "aliveEnemies": 0}
         self.countdown_until = None
-        self.match_end_at = None
+        self.match_stats = {}
         self.events.clear()
         self.ground_effects.clear()
         for player in self.players.values():
@@ -266,6 +274,12 @@ class Game:
             player.stat_buffs = []
             player.lobby_upgrades = []
             player.lobby_upgrade_points = 0
+            player.damage_dealt = 0
+            player.healing_done = 0
+            player.damage_taken = 0
+            player.kills = 0
+            player.deaths = 0
+            player.biggest_hit = 0
 
     def _all_ready_locked(self) -> bool:
         active = [p for p in self.players.values() if not p.spectator]
@@ -422,6 +436,13 @@ class Game:
             player.shapeshift_adds = {}
             player.stat_buffs = []
             player.auto_attack_at = time.monotonic() + player.stats["autoAttackInterval"]
+            player.damage_dealt = 0
+            player.healing_done = 0
+            player.damage_taken = 0
+            player.kills = 0
+            player.deaths = 0
+            player.biggest_hit = 0
+        self.match_stats = {}
         self._start_wave_locked(1)
 
     def _start_wave_locked(self, number: int) -> None:
@@ -486,8 +507,6 @@ class Game:
                     self._start_match_locked()
                 else:
                     self.countdown_until = None
-            if self.match_state in {"victory", "defeat"} and self.match_end_at is not None and now >= self.match_end_at:
-                self._restart_to_lobby_locked()
             if self.match_state != "running":
                 return
             self._tick_players_locked(now, dt)
@@ -574,6 +593,9 @@ class Game:
             elif now >= enemy.attack_at:
                 damage = self._mitigate(enemy.damage, target.stats.get("armor", 0))
                 damage = self._damage_player_locked(target, damage)
+                target.damage_taken += damage
+                if target.hp <= 0 and not target.dead:
+                    target.deaths += 1
                 if target.class_id == "warrior":
                     target.resource = min(target.stats["maxResource"], target.resource + damage * 0.35)
                 if target.hp <= 0:
@@ -840,6 +862,7 @@ class Game:
                         continue
                     healed = min(amount, target.stats["maxHealth"] - target.hp)
                     target.hp += healed
+                    player.healing_done += healed
                     for enemy in self.enemies.values():
                         enemy.threat[player.id] = enemy.threat.get(player.id, 0) + healed * self.constants["healingThreatMultiplier"]
                     self._emit_locked({"type": "heal", "sourceId": player.id, "targetId": target.id, "amount": round(healed, 1), "school": "holy"})
@@ -853,6 +876,7 @@ class Game:
                         continue
                     target.dead = False
                     target.hp = max(1, min(target.stats.get("maxHealth", 1), amount))
+                    player.healing_done += target.hp
                     self._emit_locked({"type": "heal", "sourceId": player.id, "targetId": target.id, "amount": round(target.hp, 1), "school": "holy"})
                     self._emit_locked({"type": "status", "sourceId": player.id, "targetId": target.id, "abilityId": ability_id, "status": "revived", "duration": 1.5})
             elif effect["type"] == "shield":
@@ -1051,6 +1075,7 @@ class Game:
                 healed = min(hot["amount"], player.stats["maxHealth"] - player.hp)
                 player.hp += healed
                 if source:
+                    source.healing_done += healed
                     for enemy in self.enemies.values():
                         enemy.threat[source.id] = enemy.threat.get(source.id, 0) + healed * self.constants["healingThreatMultiplier"]
                     self._emit_locked({"type": "heal", "sourceId": source.id, "targetId": player.id, "amount": round(healed, 1), "school": "holy"})
@@ -1119,6 +1144,9 @@ class Game:
         critical = random.random() < player.stats.get("critChance", 0)
         damage = self._mitigate(raw * (player.stats.get("critMultiplier", 1.5) if critical else 1), mitigation)
         enemy.hp = max(0, enemy.hp - damage)
+        player.damage_dealt += damage
+        if critical and damage > player.biggest_hit:
+            player.biggest_hit = damage
         if not self._is_stealthed_locked(player, now):
             enemy.alerted = True
             enemy.target_id = player.id
@@ -1127,7 +1155,7 @@ class Game:
             player.resource = min(player.stats["maxResource"], player.resource + damage * 0.25 + 4)
         self._emit_locked({"type": "damage", "sourceId": player.id, "targetId": enemy.id, "amount": round(damage, 1), "school": school, "abilityId": ability_id, "critical": critical})
         if enemy.hp <= 0:
-            self._kill_enemy_locked(enemy.id)
+            self._kill_enemy_locked(enemy.id, player.id)
 
     def _tick_dots_locked(self, enemy: Enemy, now: float) -> None:
         for dot in list(enemy.dots):
@@ -1140,10 +1168,12 @@ class Game:
                     self._damage_enemy_locked(source, enemy, dot["amount"], dot["school"], dot["threatMultiplier"])
                 dot["nextTick"] = now + dot["tickInterval"]
 
-    def _kill_enemy_locked(self, enemy_id: str) -> None:
+    def _kill_enemy_locked(self, enemy_id: str, killer_id: str | None = None) -> None:
         enemy = self.enemies.pop(enemy_id, None)
         if not enemy:
             return
+        if killer_id and killer_id in self.players:
+            self.players[killer_id].kills += 1
         for player in self.players.values():
             self._give_xp_locked(player, enemy.xp)
         self._emit_locked({"type": "death", "targetId": enemy_id})
@@ -1151,7 +1181,7 @@ class Game:
         if enemy.boss:
             self.match_state = "victory"
             self.wave["state"] = "complete"
-            self.match_end_at = time.monotonic() + 5.0
+            self.match_stats = self._compute_match_stats_locked()
         elif not self.enemies and self.match_state == "running" and self.wave.get("state") != "break":
             now = time.monotonic()
             self.wave["nextWaveAt"] = now + BREAK_SECONDS
@@ -1287,7 +1317,24 @@ class Game:
         if active and all(p.dead for p in active):
             self.match_state = "defeat"
             self.wave["state"] = "failed"
-            self.match_end_at = time.monotonic() + 5.0
+            self.match_stats = self._compute_match_stats_locked()
+
+    def _compute_match_stats_locked(self) -> dict[str, dict[str, Any]]:
+        stats: dict[str, dict[str, Any]] = {}
+        for pid, p in self.players.items():
+            stats[pid] = {
+                "name": p.name,
+                "classId": p.class_id,
+                "spectator": p.spectator,
+                "level": p.level,
+                "damageDealt": round(p.damage_dealt, 1),
+                "healingDone": round(p.healing_done, 1),
+                "damageTaken": round(p.damage_taken, 1),
+                "kills": p.kills,
+                "deaths": p.deaths,
+                "biggestHit": round(p.biggest_hit, 1),
+            }
+        return stats
 
     async def snapshot(self, player_id: str | None = None, include_static: bool = True) -> dict[str, Any]:
         async with self._lock:
@@ -1307,6 +1354,7 @@ class Game:
             "mapRevision": self._map_revision,
             "groundEffects": self._ground_effects_dict(now),
             "events": events or [],
+            "matchStats": self.match_stats,
         }
         if include_static:
             snapshot["mapObjects"] = self.map_objects

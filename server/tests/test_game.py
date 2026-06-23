@@ -698,10 +698,11 @@ async def _match_restarts_automatically_after_defeat_and_keeps_spectator():
         game.players[player.id].hp = 0
         game.players[player.id].dead = True
         game._check_end_states_locked()
-        assert game.match_end_at is not None
-        # Simulate elapsed time to trigger automatic restart.
-        game.match_end_at = 0
+        assert game.match_state == "defeat"
+    # Match should stay in defeat until a player clicks restart.
     await game.tick()
+    assert game.match_state == "defeat"
+    await game.handle_message(player.id, {"type": "restart_match"})
     assert game.match_state == "lobby"
     assert game.players[spectator.id].spectator is True
     assert game.players[player.id].class_id is None
