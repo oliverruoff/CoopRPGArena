@@ -269,3 +269,21 @@ test("mage can drag and drop abilities to swap slots", async ({ page, request })
   await expect(slotE).toContainText("Firebolt");
   await expect(slot1).not.toContainText("Firebolt");
 });
+
+test("low quality mode renders map objects", async ({ page }) => {
+  await page.goto("/?q=low");
+  await expect(page.getByTestId("lobby")).toBeVisible();
+  await page.getByTestId("class-mage").click();
+  for (let i = 0; i < 3; i++) {
+    await page.getByTestId("lobby-upgrade-max_health").click();
+  }
+  await page.getByTestId("ready-button").click();
+  await expect(page.getByTestId("wave-counter")).toContainText("Wave 1", { timeout: 14000 });
+  await page.waitForTimeout(500);
+  const wallMeshes = await page.evaluate(() => {
+    const canvas = document.querySelector("canvas") as any;
+    const scene = canvas?.scene;
+    return scene ? scene.meshes.filter((m: any) => m.name?.toLowerCase().includes("wall")).length : 0;
+  });
+  expect(wallMeshes).toBeGreaterThan(0);
+});
