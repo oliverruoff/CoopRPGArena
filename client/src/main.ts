@@ -1940,8 +1940,21 @@ function addClassDetails(root: TransformNode, id: string, classId: string | null
   } else if (classId === "druid") {
     const leafMantle = box(`${id}-leaf-mantle`, { width: 0.84, height: 0.16, depth: 0.52 }, new Color3(0.1, 0.31, 0.09)); leafMantle.parent = root; leafMantle.position.y = 1.18;
     const vine = box(`${id}-vine-sash`, { width: 0.1, height: 0.98, depth: 0.48 }, new Color3(0.18, 0.42, 0.13)); vine.parent = root; vine.position.set(0.08, 0.76, -0.02); vine.rotation.z = -0.38;
-    const antlerLeft = MeshBuilder.CreateCylinder(`${id}-antler-left`, { diameterTop: 0.03, diameterBottom: 0.07, height: 0.42, tessellation: 5 }, scene); antlerLeft.parent = root; antlerLeft.position.set(-0.18, 1.86, 0); antlerLeft.rotation.z = 0.42; antlerLeft.material = mat(`${id}-antler-left-mat`, new Color3(0.62, 0.48, 0.28));
-    const antlerRight = MeshBuilder.CreateCylinder(`${id}-antler-right`, { diameterTop: 0.03, diameterBottom: 0.07, height: 0.42, tessellation: 5 }, scene); antlerRight.parent = root; antlerRight.position.set(0.18, 1.86, 0); antlerRight.rotation.z = -0.42; antlerRight.material = mat(`${id}-antler-right-mat`, new Color3(0.62, 0.48, 0.28));
+    const antlerColor = new Color3(0.62, 0.48, 0.28);
+    function createAntler(side: number) {
+      const base = MeshBuilder.CreateCylinder(`${id}-antler-base-${side}`, { diameterTop: 0.07, diameterBottom: 0.12, height: 0.32, tessellation: 6 }, scene);
+      base.parent = root; base.position.set(side * 0.16, 1.88, -0.02); base.rotation.z = side * 0.52; base.rotation.x = -0.22; base.material = mat(`${id}-antler-base-${side}-mat`, antlerColor);
+      const mid = MeshBuilder.CreateCylinder(`${id}-antler-mid-${side}`, { diameterTop: 0.05, diameterBottom: 0.08, height: 0.34, tessellation: 6 }, scene);
+      mid.parent = root; mid.position.set(side * 0.32, 2.04, 0.02); mid.rotation.z = side * 0.42; mid.rotation.x = 0.12; mid.material = mat(`${id}-antler-mid-${side}-mat`, antlerColor);
+      const tip = MeshBuilder.CreateCylinder(`${id}-antler-tip-${side}`, { diameterTop: 0.02, diameterBottom: 0.05, height: 0.3, tessellation: 6 }, scene);
+      tip.parent = root; tip.position.set(side * 0.46, 2.2, 0.02); tip.rotation.z = side * 0.26; tip.rotation.x = 0.18; tip.material = mat(`${id}-antler-tip-${side}-mat`, antlerColor);
+      const browTine = MeshBuilder.CreateCylinder(`${id}-antler-brow-${side}`, { diameterTop: 0.02, diameterBottom: 0.05, height: 0.22, tessellation: 5 }, scene);
+      browTine.parent = root; browTine.position.set(side * 0.26, 1.96, -0.04); browTine.rotation.z = side * -0.35; browTine.rotation.x = -0.3; browTine.material = mat(`${id}-antler-brow-${side}-mat`, antlerColor);
+      const frontTine = MeshBuilder.CreateCylinder(`${id}-antler-front-${side}`, { diameterTop: 0.015, diameterBottom: 0.04, height: 0.2, tessellation: 5 }, scene);
+      frontTine.parent = root; frontTine.position.set(side * 0.4, 2.1, 0.06); frontTine.rotation.z = side * 0.05; frontTine.rotation.x = 0.52; frontTine.material = mat(`${id}-antler-front-${side}-mat`, antlerColor);
+    }
+    createAntler(-1);
+    createAntler(1);
     const charm = MeshBuilder.CreateSphere(`${id}-nature-charm`, { diameter: 0.16, segments: 8 }, scene); charm.parent = root; charm.position.set(0, 1.04, -0.28); const charmMat = mat(`${id}-nature-charm-mat`, new Color3(0.45, 0.95, 0.28)); charmMat.emissiveColor = new Color3(0.12, 0.42, 0.08); charm.material = charmMat;
   }
 }

@@ -1292,7 +1292,8 @@ class Game:
             player.ally_target_id = self._next_id(ids, current) if ids else player.id
             player.target_id = None
         else:
-            ids = list(self.enemies)
+            living = [e for e in self.enemies.values() if e.hp > 0]
+            ids = [e.id for e in sorted(living, key=lambda e: self._distance(player, e))]
             player.target_id = self._next_id(ids, player.target_id) if ids else None
             player.ally_target_id = None
 
