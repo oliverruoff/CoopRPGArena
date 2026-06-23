@@ -25,6 +25,7 @@ class Player:
     name: str
     class_id: str | None = None
     ready: bool = False
+    spectator: bool = False
     x: float = 0
     z: float = 0
     hp: float = 1
@@ -123,6 +124,7 @@ class Game:
             self.players.clear()
             self.enemies.clear()
             self.match_state = "lobby"
+            self.match_end_at = None
             self.wave = {"number": 0, "state": "lobby", "aliveEnemies": 0}
             self.countdown_until = None
             self.events.clear()
@@ -134,10 +136,14 @@ class Game:
             self._ground_effect_seq = 0
 
     def add_player_locked(self) -> Player:
-        if len(self.players) >= 5:
-            raise ValueError("Lobby is full")
+        if self.match_state == "lobby":
+            active_count = sum(1 for p in self.players.values() if not p.spectator)
+            if active_count >= 5:
+                raise ValueError("Lobby is full")
         self._player_seq += 1
         player = Player(id=f"player_{self._player_seq}", name=f"Player {self._player_seq}")
+        if self.match_state != "lobby":
+            player.spectator = True
         self.players[player.id] = player
         if self.match_state == "lobby":
             self._update_countdown_locked()
@@ -159,11 +165,11 @@ class Game:
             if not player:
                 return
             typ = msg.get("type")
-            if typ == "set_name" and self.match_state == "lobby":
+            if typ == "set_name":
                 name = str(msg.get("name", "")).strip()
                 if name:
                     player.name = name[:18]
-            elif typ == "select_class" and self.match_state == "lobby":
+            elif typ == "select_class" and self.match_state == "lobby" and not player.spectator:
                 class_id = msg.get("classId")
                 if class_id in self.classes:
                     player.class_id = class_id
@@ -175,10 +181,10 @@ class Game:
                     player.lobby_upgrades = []
                     player.lobby_upgrade_points = 3
                     self._update_countdown_locked()
-            elif typ == "ready" and self.match_state == "lobby":
+            elif typ == "ready" and self.match_state == "lobby" and not player.spectator:
                 player.ready = bool(msg.get("ready")) and player.class_id is not None and player.lobby_upgrade_points == 0
                 self._update_countdown_locked()
-            elif typ == "input":
+            elif typ == "input" and not player.spectator:
                 movement = msg.get("movement", {})
                 if self._is_ice_blocked_locked(player, time.monotonic()):
                     player.input = {}
@@ -188,11 +194,11 @@ class Game:
                     self._emit_locked({"type": "cast_cancelled", "sourceId": player.id, "abilityId": player.casting.get("abilityId")})
                     player.casting = None
                 player.input = msg.get("movement", {}) if not player.dead else {}
-            elif typ == "jump" and self.match_state == "running" and not player.dead:
+            elif typ == "jump" and self.match_state == "running" and not player.dead and not player.spectator:
                 if self._is_ice_blocked_locked(player, time.monotonic()):
                     return
                 player.jump_until = time.monotonic() + 0.36
-            elif typ == "select_target":
+            elif typ == "select_target" and not player.spectator:
                 target_id = msg.get("targetId")
                 if target_id in self.enemies:
                     player.target_id = target_id
@@ -200,17 +206,17 @@ class Game:
                 if target_id in self.players:
                     player.ally_target_id = target_id
                     player.target_id = None
-            elif typ == "cycle_target":
+            elif typ == "cycle_target" and not player.spectator:
                 self._cycle_target_locked(player, bool(msg.get("ally")))
-            elif typ == "cast_ability":
+            elif typ == "cast_ability" and not player.spectator:
                 self._cast_ability_locked(player, int(msg.get("abilitySlot", 1)))
-            elif typ == "choose_upgrade":
+            elif typ == "choose_upgrade" and not player.spectator:
                 self._choose_upgrade_locked(player, msg.get("upgradeId"))
-            elif typ == "choose_lobby_upgrade" and self.match_state == "lobby":
+            elif typ == "choose_lobby_upgrade" and self.match_state == "lobby" and not player.spectator:
                 self._choose_lobby_upgrade_locked(player, msg.get("upgradeId"))
-            elif typ == "reset_lobby_upgrades" and self.match_state == "lobby":
+            elif typ == "reset_lobby_upgrades" and self.match_state == "lobby" and not player.spectator:
                 self._reset_lobby_upgrades_locked(player)
-            elif typ == "restart_match" and self.match_state in {"defeat", "victory"}:
+            elif typ == "restart_match" and self.match_state in {"defeat", "victory"} and not player.spectator:
                 self._restart_to_lobby_locked()
 
     def _restart_to_lobby_locked(self) -> None:
@@ -218,9 +224,12 @@ class Game:
         self.match_state = "lobby"
         self.wave = {"number": 0, "state": "lobby", "aliveEnemies": 0}
         self.countdown_until = None
+        self.match_end_at = None
         self.events.clear()
         self.ground_effects.clear()
         for player in self.players.values():
+            if player.spectator:
+                continue
             player.class_id = None
             player.ready = False
             player.x = 0
@@ -259,9 +268,10 @@ class Game:
             player.lobby_upgrade_points = 0
 
     def _all_ready_locked(self) -> bool:
-        return bool(self.players) and all(
+        active = [p for p in self.players.values() if not p.spectator]
+        return bool(active) and all(
             p.ready and p.class_id in self.classes and p.lobby_upgrade_points == 0
-            for p in self.players.values()
+            for p in active
         )
 
     def _update_countdown_locked(self) -> None:
@@ -365,21 +375,23 @@ class Game:
             add("ruin", spot[0], spot[1], radius=round(random.uniform(1.3, 2.0), 2), variant=random.randint(0, 2), rotation=round(random.random() * math.pi, 2))
 
     def _start_match_locked(self) -> None:
-        if any(player.ready for player in self.players.values()) and not self._all_ready_locked():
+        active = [p for p in self.players.values() if not p.spectator]
+        if any(p.ready for p in active) and not self._all_ready_locked():
             self.countdown_until = None
             return
-        if not self.players:
+        if not active:
             self.countdown_until = None
             return
-        if any(player.class_id not in self.classes for player in self.players.values()):
+        if any(p.class_id not in self.classes for p in active):
             self.countdown_until = None
             return
         self.match_state = "running"
         self.countdown_until = None
+        self.match_end_at = None
         self._generate_map_locked()
         radius = self.constants["playerSpawnRadius"]
-        for index, player in enumerate(self.players.values()):
-            angle = index * math.tau / max(1, len(self.players))
+        for index, player in enumerate(active):
+            angle = index * math.tau / max(1, len(active))
             player.x = math.cos(angle) * radius
             player.z = math.sin(angle) * radius
             data = self.classes[player.class_id]
@@ -474,6 +486,8 @@ class Game:
                     self._start_match_locked()
                 else:
                     self.countdown_until = None
+            if self.match_state in {"victory", "defeat"} and self.match_end_at is not None and now >= self.match_end_at:
+                self._restart_to_lobby_locked()
             if self.match_state != "running":
                 return
             self._tick_players_locked(now, dt)
@@ -488,7 +502,7 @@ class Game:
 
     def _tick_players_locked(self, now: float, dt: float) -> None:
         for player in self.players.values():
-            if player.dead:
+            if player.spectator or player.dead:
                 continue
             self._tick_stat_buffs_locked(player, now)
             self._tick_hots_locked(player, now)
@@ -576,7 +590,7 @@ class Game:
     def _enemy_target_locked(self, enemy: Enemy, now: float) -> Player | None:
         if now < enemy.stun_until:
             return None
-        living = [p for p in self.players.values() if not p.dead and not self._is_stealthed_locked(p, now)]
+        living = [p for p in self.players.values() if not p.dead and not p.spectator and not self._is_stealthed_locked(p, now)]
         if not living:
             return None
         if not enemy.alerted:
@@ -1025,7 +1039,7 @@ class Game:
         center = player if effect.get("center") == "caster" else target
         if radius is None:
             return [target] if isinstance(target, Player) else []
-        return [ally for ally in self.players.values() if self._distance(center, ally) <= radius]
+        return [ally for ally in self.players.values() if not ally.spectator and self._distance(center, ally) <= radius]
 
     def _tick_hots_locked(self, player: Player, now: float) -> None:
         for hot in list(player.hots):
@@ -1137,12 +1151,15 @@ class Game:
         if enemy.boss:
             self.match_state = "victory"
             self.wave["state"] = "complete"
+            self.match_end_at = time.monotonic() + 5.0
         elif not self.enemies and self.match_state == "running" and self.wave.get("state") != "break":
             now = time.monotonic()
             self.wave["nextWaveAt"] = now + BREAK_SECONDS
             self.wave["state"] = "break"
 
     def _give_xp_locked(self, player: Player, amount: int) -> None:
+        if player.spectator:
+            return
         thresholds = [100, 180, 280, 420, 600, 820, 1080, 1380, 1720, 2100, 2520]
         player.xp += amount
         while player.level < self.constants["maxLevel"] and player.xp >= thresholds[player.level - 1]:
@@ -1240,7 +1257,7 @@ class Game:
 
     def _cycle_target_locked(self, player: Player, ally: bool) -> None:
         if ally:
-            ids = [p.id for p in self.players.values() if p.id != player.id]
+            ids = [p.id for p in self.players.values() if p.id != player.id and not p.spectator]
             current = player.ally_target_id
             player.ally_target_id = self._next_id(ids, current) if ids else player.id
             player.target_id = None
@@ -1266,9 +1283,11 @@ class Game:
         return raw * (100 / (100 + mitigation))
 
     def _check_end_states_locked(self) -> None:
-        if self.players and all(p.dead for p in self.players.values()):
+        active = [p for p in self.players.values() if not p.spectator]
+        if active and all(p.dead for p in active):
             self.match_state = "defeat"
             self.wave["state"] = "failed"
+            self.match_end_at = time.monotonic() + 5.0
 
     async def snapshot(self, player_id: str | None = None, include_static: bool = True) -> dict[str, Any]:
         async with self._lock:
@@ -1326,6 +1345,7 @@ class Game:
             "form": p.shapeshift_form,
             "lobbyUpgradePoints": p.lobby_upgrade_points,
             "lobbyUpgrades": p.lobby_upgrades,
+            "spectator": p.spectator,
         }
 
     @staticmethod

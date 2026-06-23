@@ -174,6 +174,7 @@ async def _same_spell_recast_does_not_restart_cast():
     async with game._lock:
         game._start_match_locked()
         game.enemies.clear()
+        game.map_objects.clear()
         enemy = game.spawn_enemy_locked("goblin", {"x": 3, "z": 0})
         player = game.players[mage.id]
         player.x = 0
@@ -412,6 +413,7 @@ async def _mage_fireball_dot_and_frostbolt_slow():
     async with game._lock:
         game._start_match_locked()
         game.enemies.clear()
+        game.map_objects.clear()
         enemy = game.spawn_enemy_locked("brute", {"x": 3, "z": 0})
         player = game.players[mage.id]
         player.x = 0
@@ -617,6 +619,92 @@ async def _set_name_in_lobby():
 
 def test_restart_after_defeat_returns_players_to_lobby():
     asyncio.run(_restart_after_defeat_returns_players_to_lobby())
+
+
+def test_late_joiner_during_match_becomes_spectator():
+    asyncio.run(_late_joiner_during_match_becomes_spectator())
+
+
+def test_spectator_is_not_targeted_by_enemies_or_counted_for_end_states():
+    asyncio.run(_spectator_is_not_targeted_by_enemies_or_counted_for_end_states())
+
+
+def test_match_restarts_automatically_after_defeat_and_keeps_spectator():
+    asyncio.run(_match_restarts_automatically_after_defeat_and_keeps_spectator())
+
+
+async def _late_joiner_during_match_becomes_spectator():
+    game = Game()
+    p = await game.add_player()
+    await game.handle_message(p.id, {"type": "select_class", "classId": "mage"})
+    await _spend_lobby_upgrades(game, p.id)
+    await game.handle_message(p.id, {"type": "ready", "ready": True})
+    async with game._lock:
+        game._start_match_locked()
+    spectator = await game.add_player()
+    state = await game.snapshot(spectator.id)
+    assert state["matchState"] == "running"
+    assert state["players"][spectator.id]["spectator"] is True
+    assert state["players"][spectator.id]["classId"] is None
+    # Spectators should be ignored by enemy targeting.
+    async with game._lock:
+        game.enemies.clear()
+        enemy = game.spawn_enemy_locked("brute", {"x": 3, "z": 0})
+        enemy.alerted = True
+    await game.tick()
+    assert enemy.target_id != spectator.id
+
+
+async def _spectator_is_not_targeted_by_enemies_or_counted_for_end_states():
+    game = Game()
+    player = await game.add_player()
+    await game.handle_message(player.id, {"type": "select_class", "classId": "mage"})
+    await _spend_lobby_upgrades(game, player.id)
+    await game.handle_message(player.id, {"type": "ready", "ready": True})
+    async with game._lock:
+        game._start_match_locked()
+    spectator = await game.add_player()
+    async with game._lock:
+        game.players[player.id].hp = 0
+        game.players[player.id].dead = True
+        game._check_end_states_locked()
+    assert game.match_state == "defeat"
+    # A live active player should prevent defeat even when a spectator is present.
+    game2 = Game()
+    active = await game2.add_player()
+    await game2.handle_message(active.id, {"type": "select_class", "classId": "warrior"})
+    await _spend_lobby_upgrades(game2, active.id)
+    await game2.handle_message(active.id, {"type": "ready", "ready": True})
+    async with game2._lock:
+        game2._start_match_locked()
+    await game2.add_player()
+    async with game2._lock:
+        game2.players[active.id].hp = 0
+        game2.players[active.id].dead = True
+        game2._check_end_states_locked()
+    assert game2.match_state == "defeat"
+
+
+async def _match_restarts_automatically_after_defeat_and_keeps_spectator():
+    game = Game()
+    player = await game.add_player()
+    await game.handle_message(player.id, {"type": "select_class", "classId": "mage"})
+    await _spend_lobby_upgrades(game, player.id)
+    await game.handle_message(player.id, {"type": "ready", "ready": True})
+    async with game._lock:
+        game._start_match_locked()
+    spectator = await game.add_player()
+    async with game._lock:
+        game.players[player.id].hp = 0
+        game.players[player.id].dead = True
+        game._check_end_states_locked()
+        assert game.match_end_at is not None
+        # Simulate elapsed time to trigger automatic restart.
+        game.match_end_at = 0
+    await game.tick()
+    assert game.match_state == "lobby"
+    assert game.players[spectator.id].spectator is True
+    assert game.players[player.id].class_id is None
 
 
 async def _restart_after_defeat_returns_players_to_lobby():

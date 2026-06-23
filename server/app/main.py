@@ -31,16 +31,20 @@ async def game_loop() -> None:
 async def broadcast(now: float) -> None:
     async def send_snapshot(player_id: str, ws: WebSocket) -> None:
         try:
-            snapshot = await game.snapshot(player_id, include_static=False)
+            snapshot = await game.snapshot(player_id, include_static=True)
             map_revision = int(snapshot.get("mapRevision", 0))
+            last_revision = client_map_revisions.get(player_id)
             include_static = (
-                client_map_revisions.get(player_id) != map_revision
+                last_revision != map_revision
                 or now - client_static_sent_at.get(player_id, 0) >= STATIC_REFRESH_INTERVAL
             )
-            if include_static:
-                snapshot = await game.snapshot(player_id, include_static=True)
-                client_map_revisions[player_id] = int(snapshot.get("mapRevision", 0))
-                client_static_sent_at[player_id] = now
+            if not include_static:
+                snapshot.pop("mapObjects", None)
+                snapshot.pop("abilities", None)
+                snapshot.pop("classes", None)
+                snapshot.pop("upgrades", None)
+            client_map_revisions[player_id] = map_revision
+            client_static_sent_at[player_id] = now
             await ws.send_json(snapshot)
         except Exception:
             clients.pop(player_id, None)

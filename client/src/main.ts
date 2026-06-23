@@ -4,7 +4,7 @@ import "./style.css";
 type Vec = { x: number; z: number };
 type CastState = { abilityId: string; targetId: string | null; duration: number; remaining: number; progress: number };
 type AutoAttackState = { remaining: number; interval: number; progress: number };
-type PlayerState = { id: string; name: string; classId: string | null; ready: boolean; hp: number; maxHealth: number; resource: number; maxResource: number; resourceType: string | null; level: number; xp: number; dead: boolean; targetId: string | null; allyTargetId: string | null; position: Vec; facing: number; jumping: boolean; jumpProgress: number; abilities: string[]; abilitySlots?: Record<string, number>; cooldowns: Record<string, number>; globalCooldown: number; autoAttack: AutoAttackState; pendingUpgrades: Upgrade[]; stats: Record<string, number>; baseStats?: Record<string, number>; shield?: number; shieldRemaining?: number; casting: CastState | null; stealthed?: boolean; stealthRemaining?: number; iceBlocked?: boolean; sprinting?: boolean; form?: string | null; lobbyUpgradePoints?: number; lobbyUpgrades?: Upgrade[] };
+type PlayerState = { id: string; name: string; classId: string | null; ready: boolean; spectator?: boolean; hp: number; maxHealth: number; resource: number; maxResource: number; resourceType: string | null; level: number; xp: number; dead: boolean; targetId: string | null; allyTargetId: string | null; position: Vec; facing: number; jumping: boolean; jumpProgress: number; abilities: string[]; abilitySlots?: Record<string, number>; cooldowns: Record<string, number>; globalCooldown: number; autoAttack: AutoAttackState; pendingUpgrades: Upgrade[]; stats: Record<string, number>; baseStats?: Record<string, number>; shield?: number; shieldRemaining?: number; casting: CastState | null; stealthed?: boolean; stealthRemaining?: number; iceBlocked?: boolean; sprinting?: boolean; form?: string | null; lobbyUpgradePoints?: number; lobbyUpgrades?: Upgrade[] };
 type EnemyState = { id: string; type: string; name: string; hp: number; maxHealth: number; position: Vec; boss: boolean; alerted?: boolean; facing?: number };
 type MapObject = { id: string; type: string; x: number; z: number; radius?: number; width?: number; depth?: number; blocksSight?: boolean; variant?: number; rotation?: number };
 type GroundEffect = { id: string; type: string; abilityId?: string; x: number; z: number; radius: number; remaining?: number };
@@ -205,12 +205,16 @@ function connect() {
   });
   ws.addEventListener("message", (event) => {
     previousState = state;
-    state = mergeSnapshot(JSON.parse(event.data) as IncomingSnapshot);
+    const incoming = JSON.parse(event.data) as IncomingSnapshot;
+    const incomingHasStatic = incoming.mapObjects !== undefined;
+    state = mergeSnapshot(incoming);
     const staticWorldSignature = worldStaticSignature(state);
     snapshotReceivedAt = performance.now();
     uiDirty = true;
-    staticWorldDirty = staticWorldSignature !== lastStaticWorldSignature;
-    lastStaticWorldSignature = staticWorldSignature;
+    const matchStarted = previousState?.matchState === "lobby" && state.matchState === "running";
+    staticWorldDirty = matchStarted || incomingHasStatic || staticWorldSignature !== lastStaticWorldSignature;
+    if (matchStarted) lastStaticWorldSignature = "";
+    else lastStaticWorldSignature = staticWorldSignature;
     processEvents(state.events);
   });
   ws.addEventListener("close", () => {
@@ -346,6 +350,7 @@ document.querySelectorAll<HTMLButtonElement>("[data-slot]").forEach((button) => 
 });
 
 window.addEventListener("keydown", (event) => {
+  if (state?.players[state.you]?.spectator) return;
   unlockAudio();
   let movementChanged = false;
   if (event.code === "KeyW") input.up = true;
@@ -359,6 +364,7 @@ window.addEventListener("keydown", (event) => {
   if (movementChanged) send({ type: "input", movement: input });
 });
 window.addEventListener("keyup", (event) => {
+  if (state?.players[state.you]?.spectator) return;
   let movementChanged = false;
   if (event.code === "KeyW") input.up = false;
   if (event.code === "KeyS") input.down = false;
@@ -367,10 +373,11 @@ window.addEventListener("keyup", (event) => {
   movementChanged = ["KeyW", "KeyS", "KeyA", "KeyD"].includes(event.code);
   if (movementChanged) send({ type: "input", movement: input });
 });
-setInterval(() => { if (state?.matchState === "running") send({ type: "input", movement: input }); }, 50);
+setInterval(() => { if (state?.matchState === "running" && !state?.players[state.you]?.spectator) send({ type: "input", movement: input }); }, 50);
 
 scene.onPointerObservable.add((pointerInfo) => {
   if (pointerInfo.type !== PointerEventTypes.POINTERDOWN) return;
+  if (state?.players[state.you]?.spectator) return;
   unlockAudio();
   const pick = scene.pick(scene.pointerX, scene.pointerY);
   const id = pick?.pickedMesh?.metadata?.entityId;
@@ -386,9 +393,16 @@ scene.onPointerObservable.add((pointerInfo) => {
 engine.runRenderLoop(() => {
   const currentState = state;
   const me = currentState?.players[currentState.you];
-  if (me) {
+  if (me && !me.spectator) {
     const position = interpolatedPosition(currentState.you, me.position, "player");
     camera.setTarget(new Vector3(position.x, 0, position.z));
+  } else if (me?.spectator && currentState?.matchState === "running") {
+    const active = Object.values(currentState.players).filter((p) => !p.spectator);
+    if (active.length) {
+      const avgX = active.reduce((sum, p) => sum + p.position.x, 0) / active.length;
+      const avgZ = active.reduce((sum, p) => sum + p.position.z, 0) / active.length;
+      camera.setTarget(new Vector3(avgX, 0, avgZ));
+    }
   }
   canvas.style.filter = me?.dead ? "grayscale(1) contrast(0.9) brightness(0.72)" : "";
   renderPendingUi();
@@ -408,19 +422,21 @@ function renderUi() {
   if (!state) return;
   const me = state.players[state.you];
   const you = state.you;
+  const isSpectator = me?.spectator === true;
   document.body.dataset.mode = state.matchState;
+  document.body.dataset.spectator = isSpectator ? "true" : "false";
   document.querySelector<HTMLElement>("#lobby")!.style.display = state.matchState === "lobby" ? "block" : "none";
   document.querySelector<HTMLElement>("#hud")!.style.display = state.matchState === "lobby" ? "none" : "block";
   document.querySelector<HTMLElement>("#classPreviewInfo")!.style.display = state.matchState === "lobby" ? "block" : "none";
-  if (classPreview) classPreview.setEnabled(state.matchState === "lobby");
+  if (classPreview) classPreview.setEnabled(state.matchState === "lobby" && !isSpectator);
   text("countdown", state.countdown ? `Starting in ${Math.ceil(state.countdown)}` : "");
   const currentState = state;
   document.querySelector("#lobbyPlayers")!.innerHTML = `<h3 data-testid="lobby-player-count">Players connected: ${Object.keys(currentState.players).length}</h3>` + Object.values(currentState.players).map((p) => {
     const isYou = p.id === you;
     const classes = currentState.classes;
-    const className = p.classId ? classes[p.classId]?.name || p.classId : "choosing class";
-    const status = p.ready ? "Ready" : p.classId ? "Picking..." : "Choosing name/class";
-    return `<div class="lobbyPlayer${p.ready ? " ready" : ""}${isYou ? " you" : ""}" data-testid="lobby-player" data-id="${p.id}">
+    const className = p.spectator ? "spectator" : p.classId ? classes[p.classId]?.name || p.classId : "choosing class";
+    const status = p.spectator ? "Spectator" : p.ready ? "Ready" : p.classId ? "Picking..." : "Choosing name/class";
+    return `<div class="lobbyPlayer${p.ready ? " ready" : ""}${isYou ? " you" : ""}${p.spectator ? " spectator" : ""}" data-testid="lobby-player" data-id="${p.id}">
       <b>${p.name}${isYou ? " (you)" : ""}</b>
       <span>${className}</span>
       <span class="lobbyStatus">${status}</span>
@@ -428,13 +444,14 @@ function renderUi() {
   }).join("");
   document.querySelectorAll<HTMLButtonElement>("[data-class]").forEach((btn) => {
     btn.classList.toggle("selectedClass", Boolean(me?.classId) && btn.dataset.class === me?.classId);
+    btn.disabled = isSpectator && currentState.matchState === "lobby";
   });
   const readyButton = document.querySelector<HTMLButtonElement>("#ready")!;
   const lobbyUpgradePoints = (me?.lobbyUpgradePoints ?? 0);
   const hasClass = Boolean(me?.classId);
-  readyButton.disabled = !hasClass || lobbyUpgradePoints > 0;
+  readyButton.disabled = isSpectator || !hasClass || lobbyUpgradePoints > 0;
   const lobbyUpgradesPanel = document.querySelector<HTMLElement>("#lobbyUpgrades")!;
-  lobbyUpgradesPanel.style.display = hasClass ? "block" : "none";
+  lobbyUpgradesPanel.style.display = hasClass && !isSpectator ? "block" : "none";
   text("lobbyUpgradePoints", `${lobbyUpgradePoints}`);
   const lobbyUpgradeChoices = document.querySelector<HTMLElement>("#lobbyUpgradeChoices")!;
   const lobbyUpgradesSignature = (me?.lobbyUpgrades || []).map((u) => u.id).join(",") + "|" + lobbyUpgradePoints;
@@ -456,9 +473,35 @@ function renderUi() {
     }
   }
   const nameInput = document.querySelector<HTMLInputElement>("#playerName")!;
+  nameInput.disabled = isSpectator && state.matchState === "lobby";
   const isEditingName = document.activeElement === nameInput;
   if (me && !isEditingName && localPlayerName === null && nameInput.value !== me.name) nameInput.value = me.name;
+  if (state.matchState === "lobby") {
+    text("connection", isSpectator ? "Spectator mode — waiting for the next match" : "Connected");
+  }
   if (!me) return;
+  const bars = document.querySelector<HTMLElement>("#bars")!;
+  const action = document.querySelector<HTMLElement>("#action")!;
+  const cast = document.querySelector<HTMLElement>("#cast")!;
+  const statsPanel = document.querySelector<HTMLElement>("#statsPanel")!;
+  const levelPanel = document.querySelector<HTMLElement>("#levelPanel")!;
+  const targetFrame = document.querySelector<HTMLElement>("#target")!;
+  const party = document.querySelector<HTMLElement>("#party")!;
+  if (isSpectator) {
+    bars.style.display = "none";
+    action.style.display = "none";
+    cast.style.display = "none";
+    statsPanel.style.display = "none";
+    levelPanel.style.display = "none";
+    targetFrame.style.display = "none";
+    party.style.pointerEvents = "none";
+  } else {
+    bars.style.display = "grid";
+    action.style.display = "flex";
+    statsPanel.style.display = "block";
+    targetFrame.style.display = "block";
+    party.style.pointerEvents = "auto";
+  }
   text("level", `Level ${me.level}`);
   width("hp", me.hp / me.maxHealth);
   width("res", me.resource / me.maxResource);
@@ -476,7 +519,7 @@ function renderUi() {
     text("wave", `Wave ${state.wave.number} • ${state.wave.aliveEnemies} enemies`);
   }
   const selectedAllyId = me.allyTargetId || optimisticAllyTargetId;
-  document.querySelector("#party")!.innerHTML = Object.values(state.players).map((p) => renderPartyFrame(p, selectedAllyId)).join("");
+  document.querySelector("#party")!.innerHTML = Object.values(state.players).filter((p) => !p.spectator).map((p) => renderPartyFrame(p, selectedAllyId)).join("");
   const target = me.targetId ? state.enemies[me.targetId] : me.allyTargetId ? state.players[me.allyTargetId] : null;
   text("target", target ? `${target.name} ${Math.round(target.hp)}/${Math.round(target.maxHealth)}` : "No target");
   for (let slot = 1; slot <= 7; slot++) {
@@ -510,7 +553,9 @@ function renderUi() {
   panel.style.display = me.pendingUpgrades.length ? "block" : "none";
   const end = document.querySelector<HTMLElement>("#end")!;
   const endTitle = document.querySelector<HTMLElement>("#endTitle")!;
+  const restartButton = document.querySelector<HTMLButtonElement>("#restart")!;
   endTitle.textContent = state.matchState === "victory" ? "Victory" : state.matchState === "defeat" ? "Wipe" : "";
+  restartButton.style.display = isSpectator ? "none" : "inline-block";
   end.style.display = endTitle.textContent ? "grid" : "none";
   playMatchStateSound(state.matchState);
 }
@@ -747,7 +792,7 @@ function hideAbilityTooltip() {
 function updateHoverRangeIndicator() {
   const me = state ? state.players[state.you] : null;
   const ability = hoveredAbilityId && state ? state.abilities[hoveredAbilityId] : null;
-  if (!me || !ability || state?.matchState !== "running") {
+  if (!me || me.spectator || !ability || state?.matchState !== "running") {
     hoverRangeRing?.dispose();
     hoverRangeRing = null;
     return;
@@ -938,7 +983,7 @@ function updateCastBar() {
   const cast = document.querySelector<HTMLElement>("#cast")!;
   const fill = document.querySelector<HTMLElement>("#castFill")!;
   const me = state?.players[state.you];
-  if (!me?.casting) {
+  if (!me?.casting || me.spectator) {
     cast.style.display = "none";
     castBarVisualProgress = 0;
     fill.style.transform = "scaleX(0)";
@@ -985,6 +1030,11 @@ function renderWorld() {
   const live = new Set([...Object.keys(state.players), ...Object.keys(state.enemies)]);
   for (const [id, node] of meshes) if (!live.has(id)) { node.dispose(); meshes.delete(id); removeEnemyBar(id); }
   for (const p of Object.values(state.players)) {
+    if (p.spectator) {
+      const existing = meshes.get(p.id);
+      if (existing) { existing.dispose(); meshes.delete(p.id); removePlayerNameLabel(p.id); }
+      continue;
+    }
     let node = meshes.get(p.id);
     if (node && (node.metadata?.classId !== p.classId || node.metadata?.form !== (p.form || null))) {
       node.dispose();
@@ -1972,6 +2022,10 @@ function updateOverheadUi() {
     if (!state.players[id]) removePlayerNameLabel(id);
   }
   for (const player of Object.values(state.players)) {
+    if (player.spectator) {
+      removePlayerNameLabel(player.id);
+      continue;
+    }
     if (state.matchState === "lobby") {
       removePlayerNameLabel(player.id);
       continue;
