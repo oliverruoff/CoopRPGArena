@@ -82,6 +82,7 @@ root.innerHTML = `
     <div id="overhead"></div>
     <div id="levelPanel" data-testid="level-up-panel"></div>
     <div id="abilityTooltip" data-testid="ability-tooltip"></div>
+    <div id="statTooltip" data-testid="stat-tooltip"></div>
     <div id="end" data-testid="end-screen">
       <div id="endTitle"></div>
       <div id="endScoreboard"></div>
@@ -351,6 +352,22 @@ document.querySelector<HTMLElement>("#lobbyUpgradeChoices")!.addEventListener("c
     playUiClickSound();
     send({ type: "choose_lobby_upgrade", upgradeId: button.dataset.lobbyUpgrade });
   }
+});
+document.querySelector<HTMLElement>("#lobbyUpgradeChoices")!.addEventListener("mouseover", (event) => {
+  const target = (event.target as HTMLElement).closest<HTMLElement>("[data-lobby-upgrade][data-stat-tooltip]");
+  if (!target) return;
+  const upgrade = state?.upgrades.find((u) => u.id === target.dataset.lobbyUpgrade);
+  if (upgrade?.stat) showStatTooltip(target, upgrade.stat, upgrade);
+});
+document.querySelector<HTMLElement>("#lobbyUpgradeChoices")!.addEventListener("mouseout", (event) => {
+  if ((event.target as HTMLElement).closest("[data-lobby-upgrade][data-stat-tooltip]")) hideStatTooltip();
+});
+document.querySelector<HTMLElement>("#classPreviewInfo")!.addEventListener("mouseover", (event) => {
+  const target = (event.target as HTMLElement).closest<HTMLElement>("[data-stat-tooltip]");
+  if (target?.dataset.statTooltip) showStatTooltip(target, target.dataset.statTooltip);
+});
+document.querySelector<HTMLElement>("#classPreviewInfo")!.addEventListener("mouseout", (event) => {
+  if ((event.target as HTMLElement).closest("[data-stat-tooltip]")) hideStatTooltip();
 });
 document.querySelector<HTMLButtonElement>("#resetLobbyUpgrades")!.addEventListener("click", () => {
   unlockAudio();
@@ -739,7 +756,8 @@ function formatStatImprovement(stat: string, current: number, base: number) {
 }
 
 function renderLobbyUpgradeChoice(choice: Upgrade) {
-  return `<button data-lobby-upgrade="${choice.id}" data-testid="lobby-upgrade-${choice.id}">${choice.name}</button>`;
+  const tooltipAttr = choice.stat ? ` data-stat-tooltip="${choice.stat}"` : "";
+  return `<button data-lobby-upgrade="${choice.id}" data-testid="lobby-upgrade-${choice.id}"${tooltipAttr}>${choice.name}</button>`;
 }
 
 function renderLevelChoice(choice: Upgrade) {
@@ -814,6 +832,141 @@ function formatStat(stat: string, value: number) {
   if (stat === "critMultiplier") return `${value.toFixed(1)}x`;
   if (stat === "castSpeed") return `${value.toFixed(2)}`;
   return Number.isInteger(value) ? `${value}` : value.toFixed(1);
+}
+
+const STAT_DESCRIPTIONS: Record<string, { title: string; body: string; formula: string; usedBy?: string[] }> = {
+  maxHealth: {
+    title: "Max Health",
+    body: "The size of your health pool. You die when it reaches 0.",
+    formula: "HP is clamped between 0 and maxHealth. Healing and HoTs cannot push HP past this cap."
+  },
+  maxResource: {
+    title: "Max Resource",
+    body: "The cap on your class resource (Mana, Rage, Energy or Focus).",
+    formula: "Resource regen and Restore effects are clamped at maxResource. Higher cap = more spells before having to wait."
+  },
+  attackPower: {
+    title: "Attack Power",
+    body: "Boosts your auto attack and every physical ability that scales with it.",
+    formula: "Auto attack: damage = autoAttackDamage + max(attackPower × 0.35, spellPower × 0.2).\nEach physical effect: final += attackPower × its coefficient.",
+    usedBy: ["Strike", "Taunting Blow", "Whirlwind", "Concussive Slam", "Charge", "Thunder Clap", "Power Shot", "Quick Shot", "Multishot", "Snare Trap", "Explosive Shot", "Arrow Barrage", "Backstep", "Poisoned Blades", "Kidney Shot", "Blade Flurry", "Eviscerate", "Maul", "Rake"]
+  },
+  spellPower: {
+    title: "Spell Power",
+    body: "Boosts spell damage, healing, HoTs, DoTs and shields that scale with it.",
+    formula: "Each spell effect: final += spellPower × its coefficient.\nAuto attack: damage = autoAttackDamage + max(attackPower × 0.35, spellPower × 0.2).",
+    usedBy: ["Heal", "Smite", "Renew", "Sanctify", "Barrier", "Resurrection", "Shadow Word: Pain", "Firebolt", "Frostbolt", "Frost Nova", "Meteor", "Arcane Blast", "Arcane Missiles", "Moonfire", "Rejuvenation"]
+  },
+  armor: {
+    title: "Armor",
+    body: "Reduces physical damage you take.",
+    formula: "Physical damage taken = raw × 100 / (100 + armor).\nEach point of armor is worth more the lower your total is."
+  },
+  resistance: {
+    title: "Resistance",
+    body: "Reduces magical damage you take.",
+    formula: "Magical damage taken = raw × 100 / (100 + resistance)."
+  },
+  critChance: {
+    title: "Crit Chance",
+    body: "Chance for any damage or heal to land as a critical strike.",
+    formula: "On a crit the hit is multiplied by critMultiplier (default 1.5x). Cat Form adds +8%, Bear Form subtracts 2%."
+  },
+  critMultiplier: {
+    title: "Crit Multiplier",
+    body: "Damage multiplier applied on every critical strike.",
+    formula: "Crit damage = base hit × critMultiplier."
+  },
+  moveSpeed: {
+    title: "Move Speed",
+    body: "How fast you move across the arena, in units per second.",
+    formula: "Each tick the position advances by moveSpeed × dt. Sprint multiplies this by 1.75."
+  },
+  resourceRegen: {
+    title: "Resource Regen",
+    body: "Resource restored passively per second.",
+    formula: "Resource += resourceRegen × dt every tick, capped at maxResource. Rage is generated by hitting and being hit instead."
+  },
+  resourceCostMultiplier: {
+    title: "Resource Cost",
+    body: "Multiplier applied to every ability's resource cost.",
+    formula: "Effective cost = base cost × resourceCostMultiplier. Lower is cheaper (the upgrade applies ×0.85)."
+  },
+  autoAttackDamage: {
+    title: "Auto Damage",
+    body: "Base damage of your auto attack before stat scaling.",
+    formula: "Final auto damage = autoAttackDamage + max(attackPower × 0.35, spellPower × 0.2), then crit / mitigation."
+  },
+  autoAttackInterval: {
+    title: "Auto Speed",
+    body: "Seconds between two auto attacks.",
+    formula: "Effective interval = autoAttackInterval / haste multiplier. Adrenaline (Hunter) sets the multiplier to 3 for 3 seconds."
+  },
+  autoAttackRange: {
+    title: "Auto Range",
+    body: "Maximum distance at which your auto attack can land.",
+    formula: "Auto attack fires only when the target is within autoAttackRange and in line of sight."
+  },
+  cooldownReduction: {
+    title: "Cooldown Reduction",
+    body: "Percentage shaved off every ability cooldown.",
+    formula: "Effective cooldown = base × (1 - cooldownReduction). Global cooldown uses the same factor."
+  },
+  castSpeed: {
+    title: "Cast Speed",
+    body: "How quickly casts finish.",
+    formula: "Effective cast time = base / castSpeed. Higher is faster."
+  }
+};
+
+function statTooltipInfo(stat: string) {
+  return STAT_DESCRIPTIONS[stat] || { title: statLabel(stat), body: "", formula: "" };
+}
+
+let statTooltipHideTimer: number | null = null;
+function showStatTooltip(target: HTMLElement, stat: string, upgrade?: Upgrade) {
+  const tooltip = document.querySelector<HTMLElement>("#statTooltip")!;
+  const info = statTooltipInfo(stat);
+  const headline = upgrade ? `<div class="upgradeHeadline">${escapeHtml(upgrade.name)} → ${escapeHtml(statLabel(upgrade.stat || stat))}</div>` : "";
+  const usedBy = info.usedBy && info.usedBy.length
+    ? `<div class="usedBy"><b>Used by</b><span>${info.usedBy.join(", ")}</span></div>`
+    : "";
+  tooltip.innerHTML = `${headline}<h3>${escapeHtml(info.title)}</h3>${info.body ? `<p>${escapeHtml(info.body)}</p>` : ""}${info.formula ? `<div class="formula">${escapeHtml(info.formula)}</div>` : ""}${usedBy}`;
+  tooltip.style.display = "block";
+  tooltip.classList.remove("above", "below");
+  const rect = target.getBoundingClientRect();
+  const tooltipRect = tooltip.getBoundingClientRect();
+  const wouldOverflowTop = rect.top - tooltipRect.height - 12 < 8;
+  if (wouldOverflowTop) {
+    tooltip.classList.add("below");
+    tooltip.style.top = `${rect.bottom}px`;
+  } else {
+    tooltip.classList.add("above");
+    tooltip.style.top = `${rect.top - 10}px`;
+  }
+  let left = rect.left + rect.width / 2;
+  left = Math.max(tooltipRect.width / 2 + 8, Math.min(window.innerWidth - tooltipRect.width / 2 - 8, left));
+  tooltip.style.left = `${left}px`;
+  if (statTooltipHideTimer !== null) {
+    clearTimeout(statTooltipHideTimer);
+    statTooltipHideTimer = null;
+  }
+}
+
+function scheduleHideStatTooltip() {
+  if (statTooltipHideTimer !== null) clearTimeout(statTooltipHideTimer);
+  statTooltipHideTimer = window.setTimeout(() => {
+    document.querySelector<HTMLElement>("#statTooltip")!.style.display = "none";
+    statTooltipHideTimer = null;
+  }, 80);
+}
+
+function hideStatTooltip() {
+  if (statTooltipHideTimer !== null) clearTimeout(statTooltipHideTimer);
+  statTooltipHideTimer = window.setTimeout(() => {
+    document.querySelector<HTMLElement>("#statTooltip")!.style.display = "none";
+    statTooltipHideTimer = null;
+  }, 80);
 }
 
 function formatCooldown(value: number, global: boolean) {
@@ -1021,7 +1174,7 @@ function renderClassStatRows(classId: string) {
     const value = currentStats[row.stat];
     const base = baseStats[row.stat];
     const improvement = base !== undefined && value !== base ? formatStatImprovement(row.stat, value, base) : "";
-    return `<div><span>${row.label}</span><b>${formatStat(row.stat, value)}${improvement ? ` <em class="statImprovement">${improvement}</em>` : ""}</b></div>`;
+    return `<div data-stat-tooltip="${row.stat}"><span>${row.label}</span><b>${formatStat(row.stat, value)}${improvement ? ` <em class="statImprovement">${improvement}</em>` : ""}</b></div>`;
   }).join("");
 }
 
