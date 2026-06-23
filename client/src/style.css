@@ -76,7 +76,9 @@ button:disabled:hover { filter: grayscale(0.35); }
 #xp { background: #d4a72c; }
 #swing { background: linear-gradient(90deg, #64748b, #f8fafc); }
 #action { position: absolute; bottom: 24px; left: 50%; transform: translateX(-50%); display: flex; gap: 8px; pointer-events: auto; }
-#action button { position: relative; min-width: 76px; height: 58px; background: rgba(20,26,38,0.92); overflow: hidden; }
+#action button { position: relative; min-width: 76px; height: 58px; background: rgba(20,26,38,0.92); overflow: hidden; cursor: grab; }
+#action button.dragSource { opacity: 0.4; }
+#action button.dragOver { outline: 2px solid #60a5fa; outline-offset: 2px; }
 #action button.onCooldown { color: rgba(255,255,255,0.55); filter: grayscale(0.85); }
 #action button.globalCooldown { color: rgba(255,255,255,0.72); filter: grayscale(1) brightness(0.82); }
 .cooldownOverlay { display: none; position: absolute; inset: 0; background: rgba(15, 23, 42, 0.68); border-radius: inherit; }

@@ -346,9 +346,46 @@ document.querySelector<HTMLButtonElement>("#resetLobbyUpgrades")!.addEventListen
   send({ type: "reset_lobby_upgrades" });
 });
 document.querySelectorAll<HTMLButtonElement>("[data-slot]").forEach((button) => {
+  button.setAttribute("draggable", "true");
   button.addEventListener("click", () => { unlockAudio(); cast(slotNumber(button.dataset.slot)); });
   button.addEventListener("mouseenter", () => showAbilityTooltip(button));
   button.addEventListener("mouseleave", hideAbilityTooltip);
+  button.addEventListener("dragstart", (event) => {
+    const abilityId = button.dataset.abilityId;
+    if (!abilityId || !(event instanceof DragEvent) || !event.dataTransfer) {
+      event.preventDefault();
+      return;
+    }
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("text/plain", abilityId);
+    button.classList.add("dragSource");
+    if (event.dataTransfer.setDragImage) {
+      event.dataTransfer.setDragImage(button, 38, 29);
+    }
+  });
+  button.addEventListener("dragend", () => {
+    button.classList.remove("dragSource");
+    document.querySelectorAll<HTMLButtonElement>("#action button").forEach((b) => b.classList.remove("dragOver"));
+  });
+  button.addEventListener("dragover", (event) => {
+    if (!(event instanceof DragEvent)) return;
+    event.preventDefault();
+    event.dataTransfer!.dropEffect = "move";
+    document.querySelectorAll<HTMLButtonElement>("#action button").forEach((b) => b.classList.remove("dragOver"));
+    button.classList.add("dragOver");
+  });
+  button.addEventListener("dragleave", () => {
+    button.classList.remove("dragOver");
+  });
+  button.addEventListener("drop", (event) => {
+    if (!(event instanceof DragEvent) || !event.dataTransfer) return;
+    event.preventDefault();
+    button.classList.remove("dragOver");
+    const sourceAbilityId = event.dataTransfer.getData("text/plain");
+    const targetSlot = slotNumber(button.dataset.slot);
+    if (!sourceAbilityId || !Number.isFinite(targetSlot)) return;
+    send({ type: "set_ability_slot", abilityId: sourceAbilityId, slot: targetSlot });
+  });
 });
 
 window.addEventListener("keydown", (event) => {
@@ -531,6 +568,7 @@ function renderUi() {
     const cooldown = abilityId ? me.cooldowns[abilityId] || 0 : 0;
     const globalCooldown = abilityId ? me.globalCooldown || 0 : 0;
     const shownCooldown = Math.max(cooldown, globalCooldown);
+    btn.dataset.abilityId = abilityId || "";
     btn.classList.toggle("onCooldown", shownCooldown > 0);
     btn.classList.toggle("globalCooldown", globalCooldown > 0 && cooldown <= globalCooldown);
     btn.firstChild!.textContent = abilityId ? `${key.toUpperCase()} ${state.abilities[abilityId].name}` : `${key.toUpperCase()}`;
@@ -1281,8 +1319,9 @@ function createGroundDressing() {
     stone.isPickable = false;
   }
 
-  createGrassMesh("arena-field-grass", null, 52, lowSpecMode ? 160 : 360, palette.leafDark.scale(1.02), false);
-  createGrassMesh("arena-edge-grass", null, 26.2, lowSpecMode ? 58 : 118, palette.leafDark.scale(1.08), true);
+  // Grass disabled
+  // createGrassMesh("arena-field-grass", null, 52, lowSpecMode ? 160 : 360, palette.leafDark.scale(1.02), false);
+  // createGrassMesh("arena-edge-grass", null, 26.2, lowSpecMode ? 58 : 118, palette.leafDark.scale(1.08), true);
 }
 
 function addContactShadow(parent: TransformNode, name: string, diameter: number, alpha = 0.16, flatten = 1) {
@@ -1296,8 +1335,7 @@ function addContactShadow(parent: TransformNode, name: string, diameter: number,
 }
 
 function addPropGrass(parent: TransformNode, object: MapObject, diameter: number, count: number) {
-  if (object.type === "crystal" || object.type === "tube") return;
-  createGrassMesh(`${object.id}-grass`, parent, diameter, lowSpecMode ? Math.ceil(count * 0.45) : count, palette.leafDark, false);
+  // grass disabled
 }
 
 function createGrassMesh(name: string, parent: TransformNode | null, spread: number, count: number, color: Color3, ringOnly: boolean) {

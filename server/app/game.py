@@ -218,6 +218,8 @@ class Game:
                 self._cycle_target_locked(player, bool(msg.get("ally")))
             elif typ == "cast_ability" and not player.spectator:
                 self._cast_ability_locked(player, int(msg.get("abilitySlot", 1)))
+            elif typ == "set_ability_slot" and not player.spectator:
+                self._set_ability_slot_locked(player, msg.get("abilityId"), int(msg.get("slot", 1)))
             elif typ == "choose_upgrade" and not player.spectator:
                 self._choose_upgrade_locked(player, msg.get("upgradeId"))
             elif typ == "choose_lobby_upgrade" and self.match_state == "lobby" and not player.spectator:
@@ -226,6 +228,26 @@ class Game:
                 self._reset_lobby_upgrades_locked(player)
             elif typ == "restart_match" and self.match_state in {"defeat", "victory"} and not player.spectator:
                 self._restart_to_lobby_locked()
+
+    def _set_ability_slot_locked(self, player: Player, ability_id: str | None, slot: int) -> None:
+        if not ability_id or ability_id not in player.abilities:
+            return
+        if slot < 1 or slot > 7:
+            return
+        current_slot = player.ability_slots.get(ability_id, self.abilities[ability_id]["slot"])
+        if current_slot == slot:
+            return
+        other_ability_id = next(
+            (
+                a
+                for a in player.abilities
+                if a != ability_id and player.ability_slots.get(a, self.abilities[a]["slot"]) == slot
+            ),
+            None,
+        )
+        player.ability_slots[ability_id] = slot
+        if other_ability_id:
+            player.ability_slots[other_ability_id] = current_slot
 
     def _restart_to_lobby_locked(self) -> None:
         self.enemies.clear()

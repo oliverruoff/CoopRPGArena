@@ -249,3 +249,23 @@ test("all players dead triggers defeat", async ({ page, request }) => {
   expect(restarted.matchState).toBe("lobby");
   expect(restarted.players[playerId].classId).toBeNull();
 });
+
+test("mage can drag and drop abilities to swap slots", async ({ page, request }) => {
+  await startMage(page);
+  const before = await (await request.get("http://127.0.0.1:8000/debug/state")).json();
+  const playerId = Object.values<any>(before.players).find((p) => p.classId === "mage").id;
+
+  const slot1 = page.getByTestId("ability-slot-1");
+  const slotE = page.getByTestId("ability-slot-e");
+  await expect(slot1).toContainText("Firebolt");
+  await expect(slotE).toContainText("E");
+
+  await slot1.dragTo(slotE);
+
+  const after = await (await request.get("http://127.0.0.1:8000/debug/state")).json();
+  const abilitySlots = after.players[playerId].abilitySlots;
+  expect(abilitySlots["mage_fireball"]).toBe(6);
+
+  await expect(slotE).toContainText("Firebolt");
+  await expect(slot1).not.toContainText("Firebolt");
+});
