@@ -353,22 +353,38 @@ document.querySelector<HTMLElement>("#lobbyUpgradeChoices")!.addEventListener("c
     send({ type: "choose_lobby_upgrade", upgradeId: button.dataset.lobbyUpgrade });
   }
 });
-document.querySelector<HTMLElement>("#lobbyUpgradeChoices")!.addEventListener("mouseover", (event) => {
-  const target = (event.target as HTMLElement).closest<HTMLElement>("[data-lobby-upgrade][data-stat-tooltip]");
-  if (!target) return;
-  const upgrade = state?.upgrades.find((u) => u.id === target.dataset.lobbyUpgrade);
-  if (upgrade?.stat) showStatTooltip(target, upgrade.stat, upgrade);
-});
-document.querySelector<HTMLElement>("#lobbyUpgradeChoices")!.addEventListener("mouseout", (event) => {
-  if ((event.target as HTMLElement).closest("[data-lobby-upgrade][data-stat-tooltip]")) hideStatTooltip();
-});
-document.querySelector<HTMLElement>("#classPreviewInfo")!.addEventListener("mouseover", (event) => {
-  const target = (event.target as HTMLElement).closest<HTMLElement>("[data-stat-tooltip]");
-  if (target?.dataset.statTooltip) showStatTooltip(target, target.dataset.statTooltip);
-});
-document.querySelector<HTMLElement>("#classPreviewInfo")!.addEventListener("mouseout", (event) => {
-  if ((event.target as HTMLElement).closest("[data-stat-tooltip]")) hideStatTooltip();
-});
+
+(function bindClassPreviewStatTooltips() {
+  const container = document.querySelector<HTMLElement>("#classPreviewInfo");
+  if (!container) return;
+  let active: HTMLElement | null = null;
+  container.addEventListener("mouseover", (event) => {
+    const target = (event.target as HTMLElement).closest<HTMLElement>("[data-stat-tooltip]");
+    if (!target || !target.dataset.statTooltip) return;
+    if (active === target) {
+      if (statTooltipHideTimer !== null) {
+        clearTimeout(statTooltipHideTimer);
+        statTooltipHideTimer = null;
+      }
+      return;
+    }
+    active = target;
+    showStatTooltip(target, target.dataset.statTooltip);
+  });
+  container.addEventListener("mouseout", (event) => {
+    if (!active) return;
+    if ((event.target as HTMLElement).closest("[data-stat-tooltip]") !== active) return;
+    const related = event.relatedTarget as HTMLElement | null;
+    if (related && active.contains(related)) return;
+    active = null;
+    if (statTooltipHideTimer !== null) clearTimeout(statTooltipHideTimer);
+    statTooltipHideTimer = window.setTimeout(() => {
+      const tooltip = document.querySelector<HTMLElement>("#statTooltip");
+      if (tooltip) tooltip.style.display = "none";
+      statTooltipHideTimer = null;
+    }, 80);
+  });
+})();
 document.querySelector<HTMLButtonElement>("#resetLobbyUpgrades")!.addEventListener("click", () => {
   unlockAudio();
   playUiClickSound();
@@ -756,8 +772,7 @@ function formatStatImprovement(stat: string, current: number, base: number) {
 }
 
 function renderLobbyUpgradeChoice(choice: Upgrade) {
-  const tooltipAttr = choice.stat ? ` data-stat-tooltip="${choice.stat}"` : "";
-  return `<button data-lobby-upgrade="${choice.id}" data-testid="lobby-upgrade-${choice.id}"${tooltipAttr}>${choice.name}</button>`;
+  return `<button data-lobby-upgrade="${choice.id}" data-testid="lobby-upgrade-${choice.id}">${choice.name}</button>`;
 }
 
 function renderLevelChoice(choice: Upgrade) {
@@ -924,47 +939,45 @@ function statTooltipInfo(stat: string) {
 }
 
 let statTooltipHideTimer: number | null = null;
-function showStatTooltip(target: HTMLElement, stat: string, upgrade?: Upgrade) {
-  const tooltip = document.querySelector<HTMLElement>("#statTooltip")!;
+function showStatTooltip(target: HTMLElement, stat: string) {
+  const tooltip = document.querySelector<HTMLElement>("#statTooltip");
+  if (!tooltip) return;
   const info = statTooltipInfo(stat);
-  const headline = upgrade ? `<div class="upgradeHeadline">${escapeHtml(upgrade.name)} → ${escapeHtml(statLabel(upgrade.stat || stat))}</div>` : "";
   const usedBy = info.usedBy && info.usedBy.length
     ? `<div class="usedBy"><b>Used by</b><span>${info.usedBy.join(", ")}</span></div>`
     : "";
-  tooltip.innerHTML = `${headline}<h3>${escapeHtml(info.title)}</h3>${info.body ? `<p>${escapeHtml(info.body)}</p>` : ""}${info.formula ? `<div class="formula">${escapeHtml(info.formula)}</div>` : ""}${usedBy}`;
+  tooltip.innerHTML = `<h3>${escapeHtml(info.title)}</h3>${info.body ? `<p>${escapeHtml(info.body)}</p>` : ""}${info.formula ? `<div class="formula">${escapeHtml(info.formula)}</div>` : ""}${usedBy}`;
+  tooltip.style.visibility = "hidden";
   tooltip.style.display = "block";
-  tooltip.classList.remove("above", "below");
-  const rect = target.getBoundingClientRect();
+  const targetRect = target.getBoundingClientRect();
   const tooltipRect = tooltip.getBoundingClientRect();
-  const wouldOverflowTop = rect.top - tooltipRect.height - 12 < 8;
-  if (wouldOverflowTop) {
-    tooltip.classList.add("below");
-    tooltip.style.top = `${rect.bottom}px`;
-  } else {
-    tooltip.classList.add("above");
-    tooltip.style.top = `${rect.top - 10}px`;
+  const margin = 12;
+  let top = targetRect.top - tooltipRect.height - margin;
+  let placement: "above" | "below" = "above";
+  if (top < 8) {
+    top = targetRect.bottom + margin;
+    placement = "below";
   }
-  let left = rect.left + rect.width / 2;
-  left = Math.max(tooltipRect.width / 2 + 8, Math.min(window.innerWidth - tooltipRect.width / 2 - 8, left));
+  if (top + tooltipRect.height > window.innerHeight - 8) {
+    top = Math.max(8, window.innerHeight - tooltipRect.height - 8);
+  }
+  let left = targetRect.left + targetRect.width / 2 - tooltipRect.width / 2;
+  left = Math.max(8, Math.min(window.innerWidth - tooltipRect.width - 8, left));
+  tooltip.style.top = `${top}px`;
   tooltip.style.left = `${left}px`;
+  tooltip.dataset.placement = placement;
+  tooltip.style.visibility = "visible";
   if (statTooltipHideTimer !== null) {
     clearTimeout(statTooltipHideTimer);
     statTooltipHideTimer = null;
   }
 }
 
-function scheduleHideStatTooltip() {
-  if (statTooltipHideTimer !== null) clearTimeout(statTooltipHideTimer);
-  statTooltipHideTimer = window.setTimeout(() => {
-    document.querySelector<HTMLElement>("#statTooltip")!.style.display = "none";
-    statTooltipHideTimer = null;
-  }, 80);
-}
-
 function hideStatTooltip() {
   if (statTooltipHideTimer !== null) clearTimeout(statTooltipHideTimer);
   statTooltipHideTimer = window.setTimeout(() => {
-    document.querySelector<HTMLElement>("#statTooltip")!.style.display = "none";
+    const tooltip = document.querySelector<HTMLElement>("#statTooltip");
+    if (tooltip) tooltip.style.display = "none";
     statTooltipHideTimer = null;
   }, 80);
 }
