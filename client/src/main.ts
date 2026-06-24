@@ -189,7 +189,12 @@ let autoAttackVisualProgress = 0;
 function isLocalhostOnlyUrl(url: string): boolean {
   try {
     const u = new URL(url);
-    return u.hostname === "localhost" || u.hostname === "127.0.0.1";
+    // Treat explicit non-default ports as user-supplied overrides (e.g. VITE_WS_URL=ws://127.0.0.1:8001).
+    // Only fall back to the default port when the user is on the loopback hostname with the same
+    // port as the page (so a same-origin dev server on a remote host still finds the backend).
+    const isLoopback = u.hostname === "localhost" || u.hostname === "127.0.0.1";
+    if (!isLoopback) return false;
+    return u.port === window.location.port;
   } catch {
     return false;
   }

@@ -561,12 +561,12 @@ class Game:
                     self._start_match_locked()
                 else:
                     self.countdown_until = None
+            self._check_end_states_locked()
             if self.match_state != "running":
                 return
             self._tick_players_locked(now, dt)
             self._tick_ground_effects_locked(now)
             self._tick_enemies_locked(now, dt)
-            self._check_end_states_locked()
             if self.match_state == "running" and self.wave.get("nextWaveAt") is not None and now >= self.wave.get("nextWaveAt", now):
                 if self.wave.get("state") == "break":
                     self._start_wave_locked(min(10, self.wave["number"] + 1))
@@ -1506,6 +1506,11 @@ class Game:
             self.match_state = "defeat"
             self.wave["state"] = "failed"
             self.match_stats = self._compute_match_stats_locked()
+            return
+        # If no active players are left in a finished match, return to lobby so new
+        # players don't get auto-spectated on a stale match.
+        if not active and self.match_state in {"running", "defeat", "victory"}:
+            self._restart_to_lobby_locked()
 
     def _compute_match_stats_locked(self) -> dict[str, dict[str, Any]]:
         stats: dict[str, dict[str, Any]] = {}
