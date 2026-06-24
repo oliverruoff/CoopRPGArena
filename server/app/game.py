@@ -999,6 +999,10 @@ class Game:
                     "tickInterval": effect.get("tickInterval", 0.5),
                 })
                 self._emit_locked({"type": "status", "sourceId": player.id, "targetId": player.id, "abilityId": ability_id, "status": "spinning", "duration": effect.get("duration", 3)})
+            elif effect["type"] == "totem":
+                self._summon_totem_locked(player, ability_id, effect)
+            elif effect["type"] == "chain_lightning":
+                self._chain_lightning_locked(player, ability, target, effect)
 
     def _backstep_locked(self, player: Player, enemy: Enemy, effect: dict[str, Any]) -> None:
         forward_x = math.sin(enemy.facing)
@@ -1087,23 +1091,152 @@ class Game:
             if now >= effect["expiresAt"]:
                 self.ground_effects.remove(effect)
                 continue
-            if effect.get("type") != "trap":
-                continue
-            source = self.players.get(effect.get("sourceId", ""))
-            if not source or source.dead:
-                continue
-            for enemy in list(self.enemies.values()):
-                if math.hypot(enemy.x - effect["x"], enemy.z - effect["z"]) > effect["radius"]:
+            if effect.get("type") == "trap":
+                source = self.players.get(effect.get("sourceId", ""))
+                if not source or source.dead:
                     continue
-                self._damage_enemy_locked(source, enemy, effect.get("damage", 0), effect.get("school", "physical"), 0.8)
-                if enemy.id in self.enemies:
-                    enemy.stun_until = max(enemy.stun_until, now + effect.get("stunDuration", 1.5))
-                    enemy.slow_percent = max(enemy.slow_percent, 1.0)
-                    enemy.slow_until = max(enemy.slow_until, now + effect.get("stunDuration", 1.5))
-                    self._emit_locked({"type": "status", "sourceId": source.id, "targetId": enemy.id, "abilityId": effect.get("abilityId"), "status": "trapped", "duration": effect.get("stunDuration", 1.5)})
-                if effect in self.ground_effects:
-                    self.ground_effects.remove(effect)
+                for enemy in list(self.enemies.values()):
+                    if math.hypot(enemy.x - effect["x"], enemy.z - effect["z"]) > effect["radius"]:
+                        continue
+                    self._damage_enemy_locked(source, enemy, effect.get("damage", 0), effect.get("school", "physical"), 0.8)
+                    if enemy.id in self.enemies:
+                        enemy.stun_until = max(enemy.stun_until, now + effect.get("stunDuration", 1.5))
+                        enemy.slow_percent = max(enemy.slow_percent, 1.0)
+                        enemy.slow_until = max(enemy.slow_until, now + effect.get("stunDuration", 1.5))
+                        self._emit_locked({"type": "status", "sourceId": source.id, "targetId": enemy.id, "abilityId": effect.get("abilityId"), "status": "trapped", "duration": effect.get("stunDuration", 1.5)})
+                    if effect in self.ground_effects:
+                        self.ground_effects.remove(effect)
+                    break
+            elif effect.get("type") == "totem":
+                self._tick_totem_locked(effect, now)
+
+    def _summon_totem_locked(self, player: Player, ability_id: str, effect: dict[str, Any]) -> None:
+        # A player can keep up to one of each totem type at once (healing / searing / earthbind). Recasting the same type replaces the old one.
+        totem_type = effect.get("totemType", "healing")
+        same_type = [e for e in self.ground_effects if e.get("type") == "totem" and e.get("sourceId") == player.id and e.get("totemType") == totem_type]
+        for old in same_type:
+            if old in self.ground_effects:
+                self.ground_effects.remove(old)
+        now = time.monotonic()
+        self._ground_effect_seq += 1
+        totem = {
+            "id": f"totem_{self._ground_effect_seq}",
+            "type": "totem",
+            "totemType": totem_type,
+            "sourceId": player.id,
+            "abilityId": ability_id,
+            "x": player.x,
+            "z": player.z,
+            "radius": effect.get("radius", 6.0),
+            "expiresAt": now + effect.get("duration", 15),
+            "nextTick": now + effect.get("tickInterval", 1.0),
+            "tickInterval": effect.get("tickInterval", 1.0),
+            "duration": effect.get("duration", 15),
+            "tickCount": 0,
+        }
+        if totem_type == "healing":
+            totem["healAmount"] = effect.get("healAmount", 8)
+            totem["healScaling"] = effect.get("healScaling", {})
+        elif totem_type == "searing":
+            totem["damageAmount"] = effect.get("damageAmount", 9)
+            totem["damageScaling"] = effect.get("damageScaling", {})
+            totem["school"] = effect.get("school", "fire")
+        elif totem_type == "earthbind":
+            totem["slowPercent"] = effect.get("slowPercent", 0.4)
+            totem["slowDuration"] = effect.get("slowDuration", 1.5)
+        self.ground_effects.append(totem)
+        self._emit_locked({"type": "status", "sourceId": player.id, "targetId": player.id, "abilityId": ability_id, "status": "totem_summoned", "duration": effect.get("duration", 15)})
+
+    def _tick_totem_locked(self, effect: dict[str, Any], now: float) -> None:
+        if now < effect.get("nextTick", now):
+            return
+        source = self.players.get(effect.get("sourceId", ""))
+        if not source or source.dead:
+            return
+        totem_type = effect.get("totemType", "healing")
+        radius = effect.get("radius", 6.0)
+        if totem_type == "healing":
+            heal_base = effect.get("healAmount", 8)
+            scaling = effect.get("healScaling", {}) or {}
+            amount = heal_base + source.stats.get(scaling.get("stat", ""), 0) * scaling.get("coefficient", 0)
+            # Pick the lowest-HP ally in range (or self if none present).
+            candidates = [a for a in self.players.values() if self._is_present_locked(a) and not a.dead and math.hypot(a.x - effect["x"], a.z - effect["z"]) <= radius]
+            if candidates:
+                target = min(candidates, key=lambda a: a.hp / max(1, a.stats.get("maxHealth", 1)))
+                healed = min(amount, target.stats.get("maxHealth", target.hp) - target.hp)
+                if healed > 0:
+                    target.hp = min(target.stats.get("maxHealth", target.hp), target.hp + healed)
+                    source.healing_done += healed
+                    for enemy in self.enemies.values():
+                        enemy.threat[source.id] = enemy.threat.get(source.id, 0) + healed * self.constants["healingThreatMultiplier"]
+                    self._emit_locked({"type": "heal", "sourceId": source.id, "targetId": target.id, "amount": round(healed, 1), "school": "nature"})
+        elif totem_type == "searing":
+            dmg_base = effect.get("damageAmount", 9)
+            scaling = effect.get("damageScaling", {}) or {}
+            amount = dmg_base + source.stats.get(scaling.get("stat", ""), 0) * scaling.get("coefficient", 0)
+            # Pick the closest enemy in range.
+            enemies_in_range = [e for e in self.enemies.values() if math.hypot(e.x - effect["x"], e.z - effect["z"]) <= radius and not self._line_of_sight_blocked_locked(effect["x"], effect["z"], e.x, e.z)]
+            if enemies_in_range:
+                target = min(enemies_in_range, key=lambda e: math.hypot(e.x - effect["x"], e.z - effect["z"]))
+                self._damage_enemy_locked(source, target, amount, effect.get("school", "fire"), 1.0, effect.get("abilityId", "shaman_searing_totem"))
+        elif totem_type == "earthbind":
+            slow_pct = effect.get("slowPercent", 0.4)
+            slow_dur = effect.get("slowDuration", 1.5)
+            for enemy in list(self.enemies.values()):
+                if math.hypot(enemy.x - effect["x"], enemy.z - effect["z"]) > radius:
+                    continue
+                if self._line_of_sight_blocked_locked(effect["x"], effect["z"], enemy.x, enemy.z):
+                    continue
+                enemy.slow_percent = max(enemy.slow_percent, slow_pct)
+                enemy.slow_until = max(enemy.slow_until, now + slow_dur)
+        effect["nextTick"] = now + effect.get("tickInterval", 1.0)
+        effect["tickCount"] = effect.get("tickCount", 0) + 1
+
+    def _chain_lightning_locked(self, player: Player, ability: dict[str, Any], target: Any, effect: dict[str, Any]) -> None:
+        if not isinstance(target, Enemy):
+            return
+        jumps_total = int(effect.get("jumps", 3))
+        jump_range = effect.get("jumpRange", 8.0)
+        falloff = effect.get("jumpFalloff", 0.7)
+        amount_base = effect.get("amount", 30)
+        scaling = effect.get("scaling", {}) or {}
+        school = effect.get("school", "nature")
+        # First hit on the explicit target
+        hit = self.players.get(player.id)
+        if hit is None:
+            return
+        # Use the player's precomputed effective amount: base + stat * coefficient (matches _finish_cast_locked)
+        amount = amount_base + player.stats.get(scaling.get("stat", ""), 0) * scaling.get("coefficient", 0)
+        # Path: target -> closest-in-range enemy -> ... up to jumps_total.
+        visited: set[str] = set()
+        current = target
+        for i in range(jumps_total + 1):
+            if current is None or current.id in visited:
                 break
+            visited.add(current.id)
+            self._damage_enemy_locked(player, current, amount, school, ability.get("threatMultiplier", 1.0), ability.get("id", "shaman_chain_lightning"))
+            if current.id not in self.enemies:
+                break
+            # find next hop: closest enemy to `current` within jump_range, not yet visited
+            next_hop = None
+            best_dist = jump_range
+            for enemy in self.enemies.values():
+                if enemy.id in visited:
+                    continue
+                d = math.hypot(enemy.x - current.x, enemy.z - current.z)
+                if d <= best_dist:
+                    best_dist = d
+                    next_hop = enemy
+            current = next_hop
+            amount *= falloff
+            if current is None:
+                break
+
+        radius = effect.get("radius")
+        center = player if effect.get("center") == "caster" else target
+        if radius is None:
+            return [target] if isinstance(target, Enemy) else []
+        return [enemy for enemy in self.enemies.values() if self._distance(center, enemy) <= radius and not self._line_of_sight_blocked_locked(center.x, center.z, enemy.x, enemy.z)]
 
     def _effect_enemy_targets_locked(self, player: Player, target: Any, effect: dict[str, Any]) -> list[Enemy]:
         radius = effect.get("radius")

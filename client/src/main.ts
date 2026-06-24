@@ -7,7 +7,7 @@ type AutoAttackState = { remaining: number; interval: number; progress: number }
 type PlayerState = { id: string; name: string; classId: string | null; ready: boolean; spectator?: boolean; hp: number; maxHealth: number; resource: number; maxResource: number; resourceType: string | null; level: number; xp: number; dead: boolean; targetId: string | null; allyTargetId: string | null; position: Vec; facing: number; jumping: boolean; jumpProgress: number; abilities: string[]; abilitySlots?: Record<string, number>; cooldowns: Record<string, number>; globalCooldown: number; autoAttack: AutoAttackState; pendingUpgrades: Upgrade[]; stats: Record<string, number>; baseStats?: Record<string, number>; shield?: number; shieldRemaining?: number; casting: CastState | null; stealthed?: boolean; stealthRemaining?: number; iceBlocked?: boolean; sprinting?: boolean; form?: string | null; lobbyUpgradePoints?: number; lobbyUpgrades?: Upgrade[] };
 type EnemyState = { id: string; type: string; name: string; hp: number; maxHealth: number; position: Vec; boss: boolean; alerted?: boolean; facing?: number };
 type MapObject = { id: string; type: string; x: number; z: number; radius?: number; width?: number; depth?: number; blocksSight?: boolean; variant?: number; rotation?: number };
-type GroundEffect = { id: string; type: string; abilityId?: string; x: number; z: number; radius: number; remaining?: number };
+type GroundEffect = { id: string; type: string; abilityId?: string; x: number; z: number; radius: number; remaining?: number; totemType?: string };
 type Upgrade = { id: string; name: string; choiceType?: string; abilityId?: string; description?: string; stat?: string; mode?: string; value?: number };
 type ClassData = { id: string; name: string; description: string; resourceType: string; startingResource: number; baseStats: Record<string, number>; statGrowth: Record<string, number>; startingAbilities: string[] };
 type Ability = { id: string; name: string; classId: string; slot: number; targetType: string; cooldown: number; resourceCost?: { type: string; amount: number }; castTime?: number; range?: number; requiredForm?: string; description?: string; effects?: Array<{ type: string; amount?: number; school?: string; scaling?: { stat: string; coefficient: number }; duration?: number; tickInterval?: number; slowPercent?: number; radius?: number; multiplier?: number; add?: number; stat?: string; center?: string; behindDistance?: number; stopDistance?: number; stunDuration?: number; form?: string; statMultipliers?: Record<string, number>; statAdds?: Record<string, number> }> };
@@ -22,7 +22,8 @@ const classInfo: Record<string, { name: string; description: string; stats: stri
   priest: { name: "Priest", description: "A holy support caster. Heals allies, deals holy damage, and can keep a group alive through pressure.", stats: ["HP 103", "Mana 120", "Spell Power 18", "Healer / holy caster"] },
   mage: { name: "Mage", description: "A fragile elemental nuker. Firebolt burns enemies over time; Frostbolt can be learned later to help the team kite.", stats: ["HP 94", "Mana 130", "Spell Power 23", "Burst / control caster"] },
   rogue: { name: "Rogue", description: "A fast dual-dagger assassin. Backstep blinks behind a target for a brutal strike, while Vanish drops enemy attention for a short window.", stats: ["HP 106", "Energy", "Attack Power 22", "Dual-dagger assassin"] },
-  druid: { name: "Druid", description: "A shapeshifting hybrid. Bear Form turns the druid into a durable bruiser, while Cat Form becomes a fast melee predator.", stats: ["HP 118", "Mana 115", "Hybrid scaling", "Bear / Cat shapeshifter"] }
+  druid: { name: "Druid", description: "A shapeshifting hybrid. Bear Form turns the druid into a durable bruiser, while Cat Form becomes a fast melee predator.", stats: ["HP 118", "Mana 115", "Hybrid scaling", "Bear / Cat shapeshifter"] },
+  shaman: { name: "Shaman", description: "A spiritual caster bonded to the elements. Calls down lightning, heals allies with totems, and wades into melee with elemental strikes.", stats: ["HP 108", "Mana 120", "Spell Power 19 / Attack Power 9", "Lightning + Totem caster"] }
 };
 const SNAPSHOT_INTERVAL_MS = 1000 / 15;
 const JUMP_DURATION_SECONDS = 0.36;
@@ -45,6 +46,7 @@ root.innerHTML = `
       <button data-testid="class-mage" data-class="mage">Mage</button>
       <button data-testid="class-rogue" data-class="rogue">Rogue</button>
       <button data-testid="class-druid" data-class="druid">Druid</button>
+      <button data-testid="class-shaman" data-class="shaman">Shaman</button>
     </div>
     <div id="lobbyUpgrades" data-testid="lobby-upgrades">
       <h3>Stat Upgrades <span id="lobbyUpgradePoints" data-testid="lobby-upgrade-points">3</span></h3>
@@ -1123,6 +1125,14 @@ function abilityDescription(abilityId: string) {
     druid_maul: "A heavy bear swipe that hits hard and creates extra threat.",
     druid_rake: "A cat-form claw rake that cuts the enemy and leaves a bleed.",
     druid_rejuvenation: "A light nature HoT that steadily mends an ally.",
+    shaman_lightning_bolt: "Hurl a crackling bolt of storm energy at an enemy, then watch the static eat at them.",
+    shaman_healing_wave: "A slow but strong current of restorative water magic on one ally.",
+    shaman_primal_strike: "Imbue your weapon with storm and strike an enemy up close. Cheap and instant.",
+    shaman_chain_lightning: "Fork of lightning that strikes the target, then leaps to up to three more enemies.",
+    shaman_healing_stream_totem: "Slam a totem that pulses healing water at the most injured nearby ally.",
+    shaman_searing_totem: "Summon a fire totem that hurls flame at the nearest enemy every 1.2s.",
+    shaman_earthbind_totem: "Drop a stone totem that pulses slowing earth magic, dragging down nearby enemies.",
+    shaman_frost_shock: "A freezing instant strike that chills the target and slows their movement.",
     warrior_charge: "Rush into melee, slam the enemy, and briefly stun them.",
     warrior_thunder_clap: "Stomp the ground with a thunderous shockwave, damaging and slowing nearby enemies.",
     hunter_arrow_barrage: "Rain a hail of arrows over the target area.",
@@ -1461,8 +1471,69 @@ function createGroundEffect(effect: GroundEffect) {
       tooth.position.set(-effect.radius * 0.48 + i * effect.radius * 0.19, 0.26, effect.radius * 0.24);
       tooth.material = mat(`${effect.id}-tooth-${i}-mat`, new Color3(0.75, 0.86, 0.55));
     }
+  } else if (effect.type === "totem") {
+    buildTotemModel(root, effect.id, effect.totemType || "healing");
   }
   return root;
+}
+
+function buildTotemModel(root: TransformNode, id: string, totemType: string) {
+  // Shared wooden totem body
+  const wood = new Color3(0.34, 0.2, 0.1);
+  const darkWood = new Color3(0.18, 0.1, 0.05);
+  const baseDisc = MeshBuilder.CreateCylinder(`${id}-base`, { diameterTop: 0.42, diameterBottom: 0.5, height: 0.06, tessellation: 12 }, scene);
+  baseDisc.parent = root; baseDisc.position.y = 0.03;
+  baseDisc.material = mat(`${id}-base-mat`, darkWood);
+  const trunk = MeshBuilder.CreateCylinder(`${id}-trunk`, { diameterTop: 0.16, diameterBottom: 0.22, height: 0.6, tessellation: 6 }, scene);
+  trunk.parent = root; trunk.position.y = 0.36;
+  trunk.material = mat(`${id}-trunk-mat`, wood);
+  // Wrapping cord
+  const cord = MeshBuilder.CreateCylinder(`${id}-cord`, { diameterTop: 0.19, diameterBottom: 0.19, height: 0.08, tessellation: 8 }, scene);
+  cord.parent = root; cord.position.y = 0.18;
+  cord.material = mat(`${id}-cord-mat`, new Color3(0.9, 0.84, 0.55));
+  // Carved skull on top
+  const skullColor = new Color3(0.92, 0.86, 0.72);
+  const skull = box(`${id}-skull`, { width: 0.2, height: 0.16, depth: 0.18 }, skullColor);
+  skull.parent = root; skull.position.y = 0.74;
+  const eyeL = box(`${id}-skull-eye-l`, { width: 0.05, height: 0.05, depth: 0.04 }, new Color3(0.05, 0.05, 0.06));
+  eyeL.parent = root; eyeL.position.set(-0.04, 0.76, -0.085);
+  const eyeR = box(`${id}-skull-eye-r`, { width: 0.05, height: 0.05, depth: 0.04 }, new Color3(0.05, 0.05, 0.06));
+  eyeR.parent = root; eyeR.position.set(0.04, 0.76, -0.085);
+  // Fetish feathers on the side
+  for (let i = 0; i < 2; i++) {
+    const feather = box(`${id}-feather-${i}`, { width: 0.05, height: 0.32, depth: 0.022 }, new Color3(0.92, 0.62, 0.18));
+    feather.parent = root;
+    feather.position.set(-0.1 + i * 0.2, 0.62, 0.04);
+    feather.rotation.x = 0.8;
+  }
+  // Floating elemental orb above the skull + ground aura
+  const aura = MeshBuilder.CreateCylinder(`${id}-aura`, { diameter: 0.95, height: 0.02, tessellation: 48 }, scene);
+  aura.parent = root; aura.position.y = 0.04;
+  let auraColor: Color3;
+  let orbColor: Color3;
+  let orbEmissive: Color3;
+  if (totemType === "healing") {
+    auraColor = new Color3(0.32, 0.78, 0.88);
+    orbColor = new Color3(0.55, 0.95, 1);
+    orbEmissive = new Color3(0.22, 0.62, 0.78);
+  } else if (totemType === "searing") {
+    auraColor = new Color3(1, 0.45, 0.1);
+    orbColor = new Color3(1, 0.75, 0.18);
+    orbEmissive = new Color3(0.85, 0.32, 0.02);
+  } else {
+    // earthbind
+    auraColor = new Color3(0.62, 0.42, 0.22);
+    orbColor = new Color3(0.85, 0.62, 0.28);
+    orbEmissive = new Color3(0.45, 0.28, 0.08);
+  }
+  aura.material = transparentMat(`${id}-aura-mat`, auraColor, 0.22);
+  const orb = MeshBuilder.CreateSphere(`${id}-orb`, { diameter: 0.18, segments: 12 }, scene);
+  orb.parent = root; orb.position.y = 0.96;
+  const orbMat = mat(`${id}-orb-mat`, orbColor);
+  orbMat.emissiveColor = orbEmissive;
+  orb.material = orbMat;
+  // Save references for animation
+  root.metadata = { ...(root.metadata || {}), orb, aura };
 }
 
 function createGroundDressing() {
@@ -2018,6 +2089,26 @@ function animateWorld() {
     }
   }
   playAmbientFoley(playerIsMoving);
+  for (const [, node] of groundEffectMeshes) {
+    const orb = node.metadata?.orb as Mesh | undefined;
+    const aura = node.metadata?.aura as Mesh | undefined;
+    if (orb) {
+      const phase = t * 2.2 + node.position.x * 0.6 + node.position.z * 0.4;
+      orb.position.y = 0.96 + Math.sin(phase) * 0.08;
+      const orbMat = orb.material as StandardMaterial;
+      if (orbMat?.emissiveColor) {
+        const base = orbMat.diffuseColor;
+        orbMat.emissiveColor = base.scale(0.55 + (Math.sin(phase * 1.4) * 0.5 + 0.5) * 0.55);
+      }
+    }
+    if (aura) {
+      const mat = aura.material as StandardMaterial;
+      if (mat) {
+        const base = (node.metadata?.auraBaseAlpha as number) ?? 0.22;
+        mat.alpha = base + Math.sin(t * 1.8 + node.position.z) * 0.08;
+      }
+    }
+  }
 }
 
 function createPlayer(p: PlayerState) {
@@ -2031,7 +2122,7 @@ function createPlayer(p: PlayerState) {
     markEntityMeshes(root, p.id);
     return root;
   }
-  const color = p.classId === "warrior" ? new Color3(0.7, 0.15, 0.1) : p.classId === "hunter" ? new Color3(0.1, 0.45, 0.18) : p.classId === "priest" ? new Color3(0.95, 0.9, 0.72) : p.classId === "rogue" ? new Color3(0.16, 0.12, 0.2) : p.classId === "druid" ? new Color3(0.22, 0.43, 0.18) : new Color3(0.15, 0.2, 0.85);
+  const color = p.classId === "warrior" ? new Color3(0.7, 0.15, 0.1) : p.classId === "hunter" ? new Color3(0.1, 0.45, 0.18) : p.classId === "priest" ? new Color3(0.95, 0.9, 0.72) : p.classId === "rogue" ? new Color3(0.16, 0.12, 0.2) : p.classId === "druid" ? new Color3(0.22, 0.43, 0.18) : p.classId === "shaman" ? new Color3(0.16, 0.42, 0.6) : new Color3(0.15, 0.2, 0.85);
   const build = playerBuild(p.classId);
   addContactShadow(root, `${p.id}-contact-shadow`, 1.25, 0.2, 0.78);
   const body = box(`${p.id}-body`, { width: build.bodyWidth, height: build.bodyHeight, depth: build.bodyDepth }, color); body.parent = root; body.position.y = 0.7;
@@ -2079,6 +2170,7 @@ function playerBuild(classId: string | null) {
   if (classId === "priest") return { bodyWidth: 0.82, bodyHeight: 1.06, bodyDepth: 0.48, headWidth: 0.5, headDepth: 0.5, armWidth: 0.2, armHeight: 0.72, armDepth: 0.22, armX: 0.58, skin: new Color3(0.88, 0.68, 0.5) };
   if (classId === "rogue") return { bodyWidth: 0.66, bodyHeight: 0.92, bodyDepth: 0.38, headWidth: 0.46, headDepth: 0.46, armWidth: 0.16, armHeight: 0.72, armDepth: 0.18, armX: 0.5, skin: new Color3(0.78, 0.56, 0.42) };
   if (classId === "druid") return { bodyWidth: 0.76, bodyHeight: 1.0, bodyDepth: 0.46, headWidth: 0.5, headDepth: 0.5, armWidth: 0.2, armHeight: 0.74, armDepth: 0.22, armX: 0.56, skin: new Color3(0.76, 0.56, 0.38) };
+  if (classId === "shaman") return { bodyWidth: 0.78, bodyHeight: 1.02, bodyDepth: 0.48, headWidth: 0.5, headDepth: 0.5, armWidth: 0.2, armHeight: 0.78, armDepth: 0.22, armX: 0.58, skin: new Color3(0.74, 0.56, 0.4) };
   return { bodyWidth: 0.74, bodyHeight: 0.98, bodyDepth: 0.44, headWidth: 0.5, headDepth: 0.5, armWidth: 0.18, armHeight: 0.74, armDepth: 0.2, armX: 0.54, skin: new Color3(0.84, 0.64, 0.48) };
 }
 
@@ -2167,6 +2259,52 @@ function addClassDetails(root: TransformNode, id: string, classId: string | null
     createAntler(-1);
     createAntler(1);
     const charm = MeshBuilder.CreateSphere(`${id}-nature-charm`, { diameter: 0.16, segments: 8 }, scene); charm.parent = root; charm.position.set(0, 1.04, -0.28); const charmMat = mat(`${id}-nature-charm-mat`, new Color3(0.45, 0.95, 0.28)); charmMat.emissiveColor = new Color3(0.12, 0.42, 0.08); charm.material = charmMat;
+  } else if (classId === "shaman") {
+    const featherColor = new Color3(0.92, 0.62, 0.18);
+    const furColor = new Color3(0.32, 0.22, 0.16);
+    const boneColor = new Color3(0.92, 0.86, 0.72);
+    const turquoise = new Color3(0.18, 0.74, 0.78);
+    // Fur mantle over the shoulders
+    const mantle = box(`${id}-shaman-mantle`, { width: 0.86, height: 0.22, depth: 0.5 }, furColor); mantle.parent = root; mantle.position.y = 1.18;
+    // Tribal chest band (tied diagonally)
+    const band = box(`${id}-shaman-band`, { width: 0.12, height: 1.05, depth: 0.5 }, turquoise); band.parent = root; band.position.set(0.06, 0.78, -0.02); band.rotation.z = 0.42;
+    // Bone necklace
+    const necklace = MeshBuilder.CreateTorus(`${id}-shaman-necklace`, { diameter: 0.5, thickness: 0.022, tessellation: 16 }, scene);
+    necklace.parent = root; necklace.position.set(0, 1.0, -0.22); necklace.scaling.y = 0.55;
+    necklace.material = mat(`${id}-shaman-necklace-mat`, boneColor);
+    // Two feathers sticking up from the back of the head
+    for (let i = 0; i < 2; i++) {
+      const feather = box(`${id}-shaman-feather-${i}`, { width: 0.06, height: 0.42, depth: 0.025 }, featherColor);
+      feather.parent = root;
+      feather.position.set(-0.08 + i * 0.16, 1.78, -0.18);
+      feather.rotation.x = 0.45 + i * 0.18;
+      feather.rotation.z = (i === 0 ? 0.18 : -0.18);
+    }
+    // Face mask / war paint bar
+    const warpaint = box(`${id}-shaman-warpaint`, { width: 0.44, height: 0.08, depth: 0.04 }, new Color3(0.9, 0.32, 0.08));
+    warpaint.parent = root; warpaint.position.set(0, 1.49, -0.24);
+    // Tribal totem staff (in right hand)
+    const staff = box(`${id}-shaman-staff`, { width: 0.08, height: 1.55, depth: 0.08 }, new Color3(0.28, 0.16, 0.08));
+    staff.parent = rightArm || root; staff.position.set(0.2, -0.2, 0.06); staff.rotation.z = 0.18;
+    // Carved animal skull at the top of the staff
+    const skull = box(`${id}-shaman-skull`, { width: 0.18, height: 0.16, depth: 0.16 }, boneColor);
+    skull.parent = staff; skull.position.set(0, 0.78, 0);
+    const eyeL = box(`${id}-shaman-skull-eye-l`, { width: 0.05, height: 0.05, depth: 0.04 }, turquoise); eyeL.parent = skull; eyeL.position.set(-0.04, 0.02, -0.07);
+    const eyeR = box(`${id}-shaman-skull-eye-r`, { width: 0.05, height: 0.05, depth: 0.04 }, turquoise); eyeR.parent = skull; eyeR.position.set(0.04, 0.02, -0.07);
+    // Glowing turquoise element at the tip (the elemental focus)
+    const focusGem = MeshBuilder.CreateSphere(`${id}-shaman-focus`, { diameter: 0.16, segments: 10 }, scene);
+    const focusMat = mat(`${id}-shaman-focus-mat`, new Color3(0.55, 0.95, 1)); focusMat.emissiveColor = new Color3(0.22, 0.62, 0.78);
+    focusGem.material = focusMat;
+    focusGem.parent = staff; focusGem.position.set(0, 0.62, 0);
+    // Small belt pouch
+    const pouch = box(`${id}-shaman-pouch`, { width: 0.22, height: 0.18, depth: 0.12 }, furColor);
+    pouch.parent = root; pouch.position.set(-0.32, 0.62, 0.06);
+    pouch.rotation.z = 0.18;
+    // Elemental aura at the feet (subtle, matches turquoise)
+    const aura = MeshBuilder.CreateCylinder(`${id}-shaman-aura`, { diameter: 1.35, height: 0.02, tessellation: 48 }, scene);
+    aura.parent = root; aura.position.y = 0.025;
+    const auraMat = transparentMat(`${id}-shaman-aura-mat`, new Color3(0.32, 0.78, 0.88), 0.18);
+    aura.material = auraMat;
   }
 }
 
@@ -2441,6 +2579,20 @@ function playCastEffect(event: CombatEvent) {
     slashRing(source.position, 760);
   } else if (event.abilityId?.includes("snare_trap")) {
     trapBurst(source.position, 4.0, 850);
+  } else if (event.abilityId?.includes("shaman_lightning_bolt")) {
+    lightningBolt(source.position, target.position, new Color3(0.55, 0.85, 1), 360);
+  } else if (event.abilityId?.includes("shaman_chain_lightning")) {
+    chainLightning(source.position, target.position, new Color3(0.55, 0.85, 1), 480);
+  } else if (event.abilityId?.includes("shaman_frost_shock")) {
+    frostRing(target.position, 1.6, 520);
+    projectile(source.position, target.position, new Color3(0.2, 0.85, 1), 220);
+  } else if (event.abilityId?.includes("shaman_healing_stream_totem") || event.abilityId?.includes("shaman_searing_totem") || event.abilityId?.includes("shaman_earthbind_totem")) {
+    totemSummonEffect(source.position, event.abilityId || "");
+  } else if (event.abilityId?.includes("shaman_healing_wave")) {
+    beam(source.position, target.position, new Color3(0.32, 0.92, 0.78), 720);
+  } else if (event.abilityId?.includes("shaman_primal_strike")) {
+    slashRing(target.position, 420);
+    expandingDisc("primal-strike", target.position, 1.3, new Color3(0.4, 0.95, 0.5), 460, 0.26);
   } else if (event.abilityId?.includes("sanctify")) {
     holyRing(source.position, 5.0, 1000);
   } else if (event.abilityId?.includes("arcane_blast")) {
@@ -2920,6 +3072,160 @@ function frostRing(center: Vector3, radius: number, duration: number) {
   }
 }
 
+function lightningBolt(from: Vector3, to: Vector3, color: Color3, duration: number) {
+  // A jagged, crackling beam made of small white-blue boxes that flash on/off.
+  const start = from.add(new Vector3(0, 1.05, 0));
+  const end = to.add(new Vector3(0, 1.0, 0));
+  const segments = 7;
+  const points: Vector3[] = [];
+  for (let i = 0; i <= segments; i++) {
+    const t = i / segments;
+    const p = Vector3.Lerp(start, end, t);
+    if (i > 0 && i < segments) {
+      p.x += (Math.random() - 0.5) * 0.55;
+      p.y += (Math.random() - 0.5) * 0.55;
+      p.z += (Math.random() - 0.5) * 0.55;
+    }
+    points.push(p);
+  }
+  const segmentMeshes: Mesh[] = [];
+  for (let i = 0; i < points.length - 1; i++) {
+    const a = points[i];
+    const b = points[i + 1];
+    const dir = b.subtract(a);
+    const len = dir.length();
+    const seg = MeshBuilder.CreateBox("lightning-bolt-seg", { width: 0.16, height: 0.16, depth: len }, scene);
+    seg.position = a.add(dir.scale(0.5));
+    const angleY = Math.atan2(dir.x, dir.z);
+    const angleX = -Math.asin(dir.y / len);
+    seg.rotation.set(angleX, angleY, (Math.random() - 0.5) * 0.6);
+    const material = mat("lightning-bolt-seg-mat", color);
+    material.emissiveColor = new Color3(0.6, 0.85, 1);
+    seg.material = material;
+    segmentMeshes.push(seg);
+  }
+  // Glowing tip orb
+  const tip = MeshBuilder.CreateSphere("lightning-bolt-tip", { diameter: 0.42, segments: 10 }, scene);
+  tip.position = end;
+  const tipMat = mat("lightning-bolt-tip-mat", new Color3(0.85, 0.95, 1));
+  tipMat.emissiveColor = new Color3(0.6, 0.85, 1);
+  tip.material = tipMat;
+  // Brief impact flash
+  const flash = MeshBuilder.CreateSphere("lightning-bolt-flash", { diameter: 1.4, segments: 12 }, scene);
+  flash.position = end;
+  const flashMat = mat("lightning-bolt-flash-mat", color);
+  flashMat.emissiveColor = new Color3(0.7, 0.9, 1);
+  flash.material = flashMat;
+  const started = performance.now();
+  const observer = scene.onBeforeRenderObservable.add(() => {
+    const p = (performance.now() - started) / duration;
+    // Flicker intensity
+    const flicker = 0.7 + Math.sin(performance.now() * 0.04) * 0.3;
+    for (const m of segmentMeshes) {
+      const mm = m.material as StandardMaterial;
+      if (mm) mm.alpha = Math.max(0, flicker * (1 - p));
+    }
+    if (flash) {
+      flash.scaling.setAll(1 + p * 1.6);
+      (flash.material as StandardMaterial).alpha = Math.max(0, (1 - p) * 0.85);
+    }
+    if (tip) {
+      tip.scaling.setAll(1 + Math.sin(performance.now() * 0.02) * 0.2);
+      (tip.material as StandardMaterial).alpha = Math.max(0, 1 - p);
+    }
+    if (p >= 1) {
+      scene.onBeforeRenderObservable.remove(observer);
+      for (const m of segmentMeshes) m.dispose();
+      tip.dispose();
+      flash.dispose();
+    }
+  });
+}
+
+function chainLightning(from: Vector3, to: Vector3, color: Color3, duration: number) {
+  // Initial bolt: lightningBolt
+  lightningBolt(from, to, color, duration);
+  // Side sparks arcing off the impact point
+  for (let i = 0; i < 6; i++) {
+    const dir = new Vector3(Math.cos((Math.PI * 2 * i) / 6), 0.2 + Math.random() * 0.4, Math.sin((Math.PI * 2 * i) / 6)).scale(1.2 + Math.random() * 0.8);
+    const spark = MeshBuilder.CreateBox("chain-spark", { width: 0.08, height: 0.08, depth: 0.6 }, scene);
+    spark.position = to.add(new Vector3(0, 1.0, 0));
+    spark.lookAt(to.add(dir.add(new Vector3(0, 1.0, 0))));
+    const m = mat("chain-spark-mat", color);
+    m.emissiveColor = new Color3(0.65, 0.9, 1);
+    spark.material = m;
+    const start = performance.now();
+    const sparkDur = 280 + Math.random() * 200;
+    const observer = scene.onBeforeRenderObservable.add(() => {
+      const p = (performance.now() - start) / sparkDur;
+      spark.position = to.add(new Vector3(0, 1.0, 0)).add(dir.scale(p));
+      m.alpha = Math.max(0, 1 - p);
+      if (p >= 1) {
+        scene.onBeforeRenderObservable.remove(observer);
+        spark.dispose();
+      }
+    });
+  }
+  // Big flash on impact
+  const flash = MeshBuilder.CreateSphere("chain-flash", { diameter: 2.0, segments: 12 }, scene);
+  flash.position = to.add(new Vector3(0, 1.0, 0));
+  const fm = mat("chain-flash-mat", color);
+  fm.emissiveColor = new Color3(0.75, 0.95, 1);
+  flash.material = fm;
+  const start = performance.now();
+  const obs = scene.onBeforeRenderObservable.add(() => {
+    const p = (performance.now() - start) / 480;
+    flash.scaling.setAll(1 + p * 2.4);
+    fm.alpha = Math.max(0, (1 - p) * 0.9);
+    if (p >= 1) {
+      scene.onBeforeRenderObservable.remove(obs);
+      flash.dispose();
+    }
+  });
+}
+
+function totemSummonEffect(center: Vector3, abilityId: string) {
+  let orbColor: Color3;
+  let auraColor: Color3;
+  if (abilityId.includes("healing_stream")) {
+    orbColor = new Color3(0.55, 0.95, 1);
+    auraColor = new Color3(0.32, 0.78, 0.88);
+  } else if (abilityId.includes("searing")) {
+    orbColor = new Color3(1, 0.75, 0.18);
+    auraColor = new Color3(1, 0.45, 0.1);
+  } else {
+    orbColor = new Color3(0.85, 0.62, 0.28);
+    auraColor = new Color3(0.62, 0.42, 0.22);
+  }
+  // Vertical beam of light where the totem lands
+  const beam = MeshBuilder.CreateCylinder("totem-summon-beam", { diameterTop: 0.18, diameterBottom: 0.6, height: 2.2, tessellation: 14 }, scene);
+  beam.position = center.add(new Vector3(0, 1.1, 0));
+  const bm = mat("totem-summon-beam-mat", orbColor);
+  bm.emissiveColor = orbColor.scale(0.85);
+  beam.material = bm;
+  // Ground ring that pushes outward
+  const ring = MeshBuilder.CreateTorus("totem-summon-ring", { diameter: 0.5, thickness: 0.08, tessellation: 36 }, scene);
+  ring.position = center.add(new Vector3(0, 0.05, 0));
+  ring.rotation.x = Math.PI / 2;
+  const rm = mat("totem-summon-ring-mat", auraColor);
+  rm.emissiveColor = auraColor.scale(0.7);
+  ring.material = rm;
+  const started = performance.now();
+  const observer = scene.onBeforeRenderObservable.add(() => {
+    const p = (performance.now() - started) / 900;
+    beam.scaling.y = 1 + Math.sin(p * Math.PI) * 0.3;
+    bm.alpha = Math.max(0, 1 - p);
+    const ringScale = 1 + p * 4.5;
+    ring.scaling.set(ringScale, ringScale, ringScale);
+    rm.alpha = Math.max(0, (1 - p) * 0.85);
+    if (p >= 1) {
+      scene.onBeforeRenderObservable.remove(observer);
+      beam.dispose();
+      ring.dispose();
+    }
+  });
+}
+
 function slashRing(center: Vector3, duration: number) {
   for (let i = 0; i < 3; i++) {
     const slash = MeshBuilder.CreateTorus(`whirlwind-${i}`, { diameter: 2.6 + i * 0.55, thickness: 0.045, tessellation: 48 }, scene);
@@ -3102,6 +3408,7 @@ function animateParticle(mesh: Mesh, material: StandardMaterial, velocity: Vecto
 function effectColor(abilityId: string, school: string) {
   if (abilityId.includes("fire") || school === "fire") return new Color3(1, 0.28, 0.02);
   if (abilityId.includes("frost") || school === "frost") return new Color3(0.2, 0.85, 1);
+  if (abilityId.includes("shaman") || school === "shaman") return new Color3(0.42, 0.85, 1);
   if (abilityId.includes("druid") || school === "nature") return new Color3(0.38, 0.95, 0.28);
   if (school === "bleed") return new Color3(0.78, 0.02, 0.02);
   if (abilityId.includes("heal") || abilityId.includes("priest") || school === "holy") return new Color3(1, 0.84, 0.22);
