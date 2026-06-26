@@ -430,8 +430,18 @@ document.querySelectorAll<HTMLButtonElement>("[data-slot]").forEach((button) => 
   });
 });
 
+function isTypingInTextField(): boolean {
+  const el = document.activeElement;
+  if (!el) return false;
+  const tag = el.tagName;
+  if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return true;
+  return (el as HTMLElement).isContentEditable === true;
+}
+
 window.addEventListener("keydown", (event) => {
   if (state?.players[state.you]?.spectator) return;
+  if (isTypingInTextField()) return;
+  if (state?.matchState !== "running") return;
   unlockAudio();
   let movementChanged = false;
   if (event.code === "KeyW") input.up = true;
@@ -446,6 +456,8 @@ window.addEventListener("keydown", (event) => {
 });
 window.addEventListener("keyup", (event) => {
   if (state?.players[state.you]?.spectator) return;
+  if (isTypingInTextField()) return;
+  if (state?.matchState !== "running") return;
   let movementChanged = false;
   if (event.code === "KeyW") input.up = false;
   if (event.code === "KeyS") input.down = false;

@@ -1232,12 +1232,6 @@ class Game:
             if current is None:
                 break
 
-        radius = effect.get("radius")
-        center = player if effect.get("center") == "caster" else target
-        if radius is None:
-            return [target] if isinstance(target, Enemy) else []
-        return [enemy for enemy in self.enemies.values() if self._distance(center, enemy) <= radius and not self._line_of_sight_blocked_locked(center.x, center.z, enemy.x, enemy.z)]
-
     def _effect_enemy_targets_locked(self, player: Player, target: Any, effect: dict[str, Any]) -> list[Enemy]:
         radius = effect.get("radius")
         center = player if effect.get("center") == "caster" else target
