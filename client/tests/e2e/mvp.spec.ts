@@ -225,18 +225,17 @@ test("players can set a name and see it in lobby and world", async ({ page }) =>
   await page.goto("/");
   await expect(page.getByTestId("lobby")).toBeVisible();
   await expect(page.getByTestId("player-name-input")).toBeVisible();
-  await expect(page.getByTestId("name-suggestions").getByRole("button").first()).toBeVisible();
-  const suggestedName = await page.getByTestId("name-suggestions").getByRole("button").first().innerText();
-  await page.getByTestId("name-suggestions").getByRole("button").first().click();
+  const playerName = "Aldric";
+  await page.getByTestId("player-name-input").fill(playerName);
   await page.getByTestId("class-mage").click();
   for (let i = 0; i < 3; i++) {
     await page.getByTestId("lobby-upgrade-max_health").click();
   }
   await page.getByTestId("ready-button").click();
-  await expect(page.getByTestId("lobby-player")).toContainText(suggestedName);
+  await expect(page.getByTestId("lobby-player")).toContainText(playerName);
   await expect(page.getByTestId("lobby-player")).toContainText("Mage");
   await expect(page.getByTestId("wave-counter")).toContainText("Wave 1", { timeout: 14000 });
-  await expect(page.getByTestId("player-name-label")).toContainText(suggestedName);
+  await expect(page.getByTestId("player-name-label")).toContainText(playerName);
 });
 
 test("all players dead triggers defeat", async ({ page, request }) => {

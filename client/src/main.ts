@@ -37,7 +37,6 @@ root.innerHTML = `
     <div id="nameField">
       <label for="playerName">Your name</label>
       <input id="playerName" type="text" maxlength="18" placeholder="Enter name" data-testid="player-name-input" />
-      <div id="nameSuggestions" data-testid="name-suggestions"></div>
     </div>
     <div class="classes">
       <button data-testid="class-warrior" data-class="warrior">Warrior</button>
@@ -254,13 +253,8 @@ function connect() {
 
 connect();
 
-const suggestedNames = ["Aldric", "Bruna", "Cassian", "Dorin", "Elena", "Fenn", "Gorath", "Hilde", "Iris", "Joren", "Kira", "Loras", "Mira", "Nox", "Orin", "Petra", "Quinn", "Rook", "Sera", "Thane"];
 const slotKeys: Record<number, string> = { 1: "1", 2: "2", 3: "3", 4: "4", 5: "q", 6: "e", 7: "r" };
 const keySlots: Record<string, number> = { Digit1: 1, Digit2: 2, Digit3: 3, Digit4: 4, KeyQ: 5, KeyE: 6, KeyR: 7 };
-
-function pickSuggestedName() {
-  return suggestedNames[Math.floor(Math.random() * suggestedNames.length)] + " " + Math.floor(Math.random() * 99 + 1);
-}
 
 function setPlayerName(name: string) {
   const input = document.querySelector<HTMLInputElement>("#playerName")!;
@@ -284,19 +278,6 @@ function targetPartyPlayer(playerId: string) {
   send({ type: "select_target", targetId: playerId });
 }
 
-function renderNameSuggestions() {
-  const container = document.querySelector<HTMLElement>("#nameSuggestions")!;
-  const picks = Array.from({ length: 5 }, () => pickSuggestedName());
-  container.innerHTML = picks.map((name) => `<button type="button" data-suggested-name="${name}" data-testid="suggested-name">${name}</button>`).join("");
-  container.querySelectorAll<HTMLButtonElement>("[data-suggested-name]").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      unlockAudio();
-      playUiClickSound();
-      setPlayerName(btn.dataset.suggestedName || "");
-    });
-  });
-}
-
 document.querySelector<HTMLInputElement>("#playerName")!.addEventListener("input", () => {
   setPlayerName(document.querySelector<HTMLInputElement>("#playerName")!.value);
 });
@@ -307,8 +288,6 @@ document.querySelector<HTMLInputElement>("#playerName")!.addEventListener("keydo
     document.querySelector<HTMLInputElement>("#playerName")!.blur();
   }
 });
-
-renderNameSuggestions();
 
 document.querySelectorAll<HTMLButtonElement>("[data-class]").forEach((button) => {
   button.addEventListener("click", () => {
@@ -1729,21 +1708,53 @@ function createMapObject(object: MapObject) {
     const band = box(`${object.id}-band`, { width: width + 0.06, height: 0.18, depth: depth + 0.06 }, palette.stone.scale(0.62));
     band.parent = root;
     band.position.y = wallHeight * 0.55;
-    const moss = box(`${object.id}-moss`, { width: width * 0.84, height: 0.08, depth: depth + 0.1 }, palette.leafDark);
+    const moss = box(`${object.id}-moss`, longAxis === "x"
+      ? { width: width * 0.84, height: 0.08, depth: depth + 0.1 }
+      : { width: width + 0.1, height: 0.08, depth: depth * 0.84 }, palette.leafDark);
     moss.parent = root;
     moss.position.y = wallHeight + 0.25;
-    const merlonCount = Math.max(3, Math.floor(length / 1.15));
+    const merlonCount = Math.max(4, Math.floor(length / 1.05));
     const merlonStep = length / merlonCount;
-    for (let i = 0; i < merlonCount; i++) {
-      if (i % 2 === 1 && merlonCount > 4) continue;
-      const offset = -length / 2 + merlonStep * (i + 0.5);
-      const merlon = box(`${object.id}-merlon-${i}`, longAxis === "x"
-        ? { width: merlonStep * 0.58, height: 0.62, depth: thickness + 0.34 }
-        : { width: thickness + 0.34, height: 0.62, depth: merlonStep * 0.58 }, palette.stoneLight.scale(0.95));
-      merlon.parent = root;
-      merlon.position.y = wallHeight + 0.52;
-      if (longAxis === "x") merlon.position.x = offset;
-      else merlon.position.z = offset;
+    for (const edge of [-1, 1]) {
+      for (let i = 0; i < merlonCount; i++) {
+        if (i % 2 === 1 && merlonCount > 5) continue;
+        const offset = -length / 2 + merlonStep * (i + 0.5);
+        const merlon = box(`${object.id}-merlon-${edge}-${i}`, longAxis === "x"
+          ? { width: merlonStep * 0.48, height: 0.62, depth: 0.42 }
+          : { width: 0.42, height: 0.62, depth: merlonStep * 0.48 }, palette.stoneLight.scale(0.95));
+        merlon.parent = root;
+        merlon.position.y = wallHeight + 0.52;
+        if (longAxis === "x") {
+          merlon.position.x = offset;
+          merlon.position.z = edge * (thickness / 2 + 0.16);
+        } else {
+          merlon.position.x = edge * (thickness / 2 + 0.16);
+          merlon.position.z = offset;
+        }
+      }
+    }
+    const blockRows = 3;
+    const blocksPerRow = Math.max(3, Math.floor(length / 1.45));
+    const blockStep = length / blocksPerRow;
+    for (const face of [-1, 1]) {
+      for (let row = 0; row < blockRows; row++) {
+        for (let i = 0; i < blocksPerRow; i++) {
+          if ((i + row) % 3 === 1) continue;
+          const offset = -length / 2 + blockStep * (i + 0.5) + (row % 2 ? blockStep * 0.18 : -blockStep * 0.08);
+          const block = box(`${object.id}-face-stone-${face}-${row}-${i}`, longAxis === "x"
+            ? { width: blockStep * 0.52, height: 0.09, depth: 0.08 }
+            : { width: 0.08, height: 0.09, depth: blockStep * 0.52 }, palette.stoneLight.scale(row % 2 ? 0.82 : 0.72));
+          block.parent = root;
+          block.position.y = wallHeight * (0.23 + row * 0.2);
+          if (longAxis === "x") {
+            block.position.x = offset;
+            block.position.z = face * (thickness / 2 + 0.045);
+          } else {
+            block.position.x = face * (thickness / 2 + 0.045);
+            block.position.z = offset;
+          }
+        }
+      }
     }
     for (const side of [-1, 1]) {
       const tower = box(`${object.id}-end-tower-${side}`, longAxis === "x"
