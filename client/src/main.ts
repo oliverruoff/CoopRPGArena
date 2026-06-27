@@ -2644,7 +2644,7 @@ function playCastEffect(event: CombatEvent) {
     chainLightning(source.position, target.position, new Color3(0.55, 0.85, 1), 480);
   } else if (event.abilityId?.includes("shaman_frost_shock")) {
     frostRing(target.position, 1.6, 520);
-    projectile(source.position, target.position, new Color3(0.2, 0.85, 1), 220);
+    projectile(source.position, target.position, new Color3(0.2, 0.85, 1), 220, target);
   } else if (event.abilityId?.includes("shaman_healing_stream_totem") || event.abilityId?.includes("shaman_searing_totem") || event.abilityId?.includes("shaman_earthbind_totem")) {
     totemSummonEffect(source.position, event.abilityId || "");
   } else if (event.abilityId?.includes("shaman_healing_wave")) {
@@ -2677,9 +2677,9 @@ function playCastEffect(event: CombatEvent) {
   } else if (event.abilityId?.includes("quick_shot")) {
     bigArrow(source.position, target.position, new Color3(0.62, 0.18, 0.95), 300);
   } else if (event.abilityId?.includes("frostbolt")) {
-    frostBolt(source.position, target.position);
+    frostBolt(source.position, target);
   } else {
-    projectile(source.position, target.position, color, 450);
+    projectile(source.position, target.position, color, 450, target);
     if (event.abilityId?.includes("fireball")) fireBurst(target.position, 650);
     if (event.abilityId?.includes("frostbolt")) frostSpikes(target.position, 700);
   }
@@ -2712,7 +2712,7 @@ function playAutoAttackEffect(event: CombatEvent) {
     arrow(source.position, target.position, new Color3(0.95, 0.75, 0.22), 180);
     hunterTwang(0, 0.035);
   } else if (isSorcerer) {
-    purpleSpellBall(source.position, target.position, 420);
+    purpleSpellBall(source.position, target, 420);
   } else {
     slashArc(target.position, 260);
     if (sourcePlayer?.classId === "warrior") warriorClang(0.04);
@@ -2779,7 +2779,7 @@ function playArcaneMissileTick(event: CombatEvent) {
   const source = event.sourceId ? meshes.get(event.sourceId) : null;
   const target = event.targetId ? meshes.get(event.targetId) : null;
   if (!source || !target) return;
-  projectile(source.position.add(new Vector3((Math.random() - 0.5) * 0.35, 0.15, (Math.random() - 0.5) * 0.35)), target.position, new Color3(0.8, 0.28, 1), 260);
+  projectile(source.position.add(new Vector3((Math.random() - 0.5) * 0.35, 0.15, (Math.random() - 0.5) * 0.35)), target.position, new Color3(0.8, 0.28, 1), 260, target);
 }
 
 function spawnFloatingNumber(target: TransformNode, event: CombatEvent, healing: boolean) {
@@ -2845,25 +2845,48 @@ function playChargeEffect(event: CombatEvent) {
   });
 }
 
-function projectile(from: Vector3, to: Vector3, color: Color3, duration: number) {
+function projectile(from: Vector3, to: Vector3, color: Color3, duration: number, target?: TransformNode | null) {
+  const root = new TransformNode("projectile", scene);
   const orb = MeshBuilder.CreateSphere("projectile", { diameter: 0.35, segments: 10 }, scene);
+  orb.parent = root;
   const material = mat("projectile-mat", color);
   material.emissiveColor = color;
   orb.material = material;
+  const glow = MeshBuilder.CreateSphere("projectile-glow", { diameter: 0.68, segments: 12 }, scene);
+  glow.parent = root;
+  const glowMat = transparentMat("projectile-glow-mat", color, 0.22);
+  glowMat.emissiveColor = color.scale(0.8);
+  glow.material = glowMat;
+  const trail = MeshBuilder.CreateCylinder("projectile-trail", { diameterTop: 0.08, diameterBottom: 0.34, height: 1.35, tessellation: 14 }, scene);
+  trail.parent = root;
+  trail.position.z = -0.72;
+  trail.rotation.x = Math.PI / 2;
+  const trailMat = transparentMat("projectile-trail-mat", color, 0.34);
+  trailMat.emissiveColor = color.scale(0.7);
+  trail.material = trailMat;
   const start = from.add(new Vector3(0, 1.1, 0));
-  const end = to.add(new Vector3(0, 1.0, 0));
+  let end = projectileEnd(to, target, 1.0);
+  const direction = end.subtract(start).normalize();
+  root.position = start;
+  root.rotation.y = Math.atan2(direction.x, direction.z);
+  root.rotation.x = -Math.asin(Math.max(-1, Math.min(1, direction.y)));
   const started = performance.now();
+  const flightDuration = duration * 2;
   const observer = scene.onBeforeRenderObservable.add(() => {
-    const p = Math.min(1, (performance.now() - started) / duration);
-    orb.position = Vector3.Lerp(start, end, p);
+    const p = Math.min(1, (performance.now() - started) / flightDuration);
+    end = projectileEnd(to, target, 1.0);
+    root.position = Vector3.Lerp(start, end, p);
+    orientProjectile(root, root.position, end);
+    glow.scaling.setAll(1 + Math.sin(performance.now() * 0.022) * 0.12);
+    trailMat.alpha = Math.max(0, 0.34 * (1 - p * 0.25));
     if (p >= 1) {
       scene.onBeforeRenderObservable.remove(observer);
-      orb.dispose();
+      root.dispose();
     }
   });
 }
 
-function purpleSpellBall(from: Vector3, to: Vector3, duration: number) {
+function purpleSpellBall(from: Vector3, to: Vector3 | TransformNode, duration: number) {
   const root = new TransformNode("sorcerer-spell-ball", scene);
   const color = new Color3(0.72, 0.16, 1);
   const orb = MeshBuilder.CreateSphere("sorcerer-spell-core", { diameter: 0.62, segments: 18 }, scene);
@@ -2884,15 +2907,20 @@ function purpleSpellBall(from: Vector3, to: Vector3, duration: number) {
   trailMat.emissiveColor = color.scale(0.75);
   trail.material = trailMat;
   const start = from.add(new Vector3(0, 1.2, 0));
-  const end = to.add(new Vector3(0, 1.05, 0));
+  const target = to instanceof TransformNode ? to : null;
+  const fallback: Vector3 = target ? target.position : to as Vector3;
+  let end = projectileEnd(fallback, target, 1.05);
   const direction = end.subtract(start).normalize();
   root.position = start;
   root.rotation.y = Math.atan2(direction.x, direction.z);
   root.rotation.x = -Math.asin(Math.max(-1, Math.min(1, direction.y)));
   const started = performance.now();
+  const flightDuration = duration * 2;
   const observer = scene.onBeforeRenderObservable.add(() => {
-    const p = Math.min(1, (performance.now() - started) / duration);
+    const p = Math.min(1, (performance.now() - started) / flightDuration);
+    end = projectileEnd(fallback, target, 1.05);
     root.position = Vector3.Lerp(start, end, p);
+    orientProjectile(root, root.position, end);
     glow.scaling.setAll(1 + Math.sin(performance.now() * 0.025) * 0.16);
     root.rotation.z += 0.18;
     trailMat.alpha = Math.max(0, 0.38 * (1 - p * 0.35));
@@ -2902,6 +2930,19 @@ function purpleSpellBall(from: Vector3, to: Vector3, duration: number) {
       shadowRing(end, 1.25, 520);
     }
   });
+}
+
+function projectileEnd(fallback: Vector3, target: TransformNode | null | undefined, height: number) {
+  return (target && !target.isDisposed() ? target.position : fallback).add(new Vector3(0, height, 0));
+}
+
+function orientProjectile(root: TransformNode, from: Vector3, to: Vector3) {
+  const direction = to.subtract(from);
+  const length = direction.length();
+  if (length <= 0.001) return;
+  const normalized = direction.scale(1 / length);
+  root.rotation.y = Math.atan2(normalized.x, normalized.z);
+  root.rotation.x = -Math.asin(Math.max(-1, Math.min(1, normalized.y)));
 }
 
 function arrow(from: Vector3, to: Vector3, color: Color3, duration: number) {
@@ -3055,34 +3096,44 @@ function fireBurst(center: Vector3, duration: number) {
   }
 }
 
-function frostBolt(from: Vector3, to: Vector3) {
+function frostBolt(from: Vector3, target: TransformNode) {
   const root = new TransformNode("frostbolt", scene);
-  const cone = MeshBuilder.CreateCylinder("frostbolt-cone", { diameterTop: 0.75, diameterBottom: 0.18, height: 1.45, tessellation: 12 }, scene);
-  cone.parent = root;
-  cone.position.z = 0.72;
-  cone.rotation.x = Math.PI / 2;
-  const trail = MeshBuilder.CreateCylinder("frostbolt-trail", { diameterTop: 0.32, diameterBottom: 0.1, height: 1.1, tessellation: 10 }, scene);
+  const tip = MeshBuilder.CreateCylinder("frostbolt-tip", { diameterTop: 0, diameterBottom: 0.48, height: 1.25, tessellation: 14 }, scene);
+  tip.parent = root;
+  tip.position.z = 0.46;
+  tip.rotation.x = Math.PI / 2;
+  const core = MeshBuilder.CreateSphere("frostbolt-core", { diameter: 0.48, segments: 14 }, scene);
+  core.parent = root;
+  core.position.z = -0.1;
+  const trail = MeshBuilder.CreateCylinder("frostbolt-trail", { diameterTop: 0.16, diameterBottom: 0.54, height: 1.75, tessellation: 14 }, scene);
   trail.parent = root;
-  trail.position.z = -0.35;
+  trail.position.z = -0.86;
   trail.rotation.x = Math.PI / 2;
   const color = new Color3(0.22, 0.92, 1);
-  const coneMat = mat("frostbolt-cone-mat", color);
-  coneMat.emissiveColor = new Color3(0.1, 0.5, 0.8);
-  cone.material = coneMat;
-  const trailMat = transparentMat("frostbolt-trail-mat", color, 0.42);
-  trailMat.emissiveColor = new Color3(0.08, 0.42, 0.65);
+  const tipMat = mat("frostbolt-tip-mat", color);
+  tipMat.emissiveColor = new Color3(0.1, 0.5, 0.8);
+  tip.material = tipMat;
+  const coreMat = mat("frostbolt-core-mat", new Color3(0.72, 0.98, 1));
+  coreMat.emissiveColor = new Color3(0.2, 0.72, 0.95);
+  core.material = coreMat;
+  const trailMat = transparentMat("frostbolt-trail-mat", color, 0.5);
+  trailMat.emissiveColor = new Color3(0.08, 0.5, 0.78);
   trail.material = trailMat;
   const start = from.add(new Vector3(0, 1.1, 0));
-  const end = to.add(new Vector3(0, 1.0, 0));
+  let end = projectileEnd(target.position, target, 1.0);
   const direction = end.subtract(start).normalize();
   root.position = start;
   root.rotation.y = Math.atan2(direction.x, direction.z);
   root.rotation.x = -Math.asin(Math.max(-1, Math.min(1, direction.y)));
   const started = performance.now();
-  const duration = 450;
+  const duration = 900;
   const observer = scene.onBeforeRenderObservable.add(() => {
     const p = Math.min(1, (performance.now() - started) / duration);
+    end = projectileEnd(target.position, target, 1.0);
     root.position = Vector3.Lerp(start, end, p);
+    orientProjectile(root, root.position, end);
+    core.scaling.setAll(1 + Math.sin(performance.now() * 0.024) * 0.08);
+    trailMat.alpha = Math.max(0, 0.5 * (1 - p * 0.25));
     if (p >= 1) {
       scene.onBeforeRenderObservable.remove(observer);
       root.dispose();
