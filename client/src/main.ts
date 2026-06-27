@@ -11,7 +11,7 @@ type GroundEffect = { id: string; type: string; abilityId?: string; x: number; z
 type Upgrade = { id: string; name: string; choiceType?: string; abilityId?: string; description?: string; stat?: string; mode?: string; value?: number };
 type ClassData = { id: string; name: string; description: string; resourceType: string; startingResource: number; baseStats: Record<string, number>; statGrowth: Record<string, number>; startingAbilities: string[] };
 type Ability = { id: string; name: string; classId: string; slot: number; targetType: string; cooldown: number; resourceCost?: { type: string; amount: number }; castTime?: number; range?: number; requiredForm?: string; description?: string; effects?: Array<{ type: string; amount?: number; school?: string; scaling?: { stat: string; coefficient: number }; duration?: number; tickInterval?: number; slowPercent?: number; radius?: number; multiplier?: number; add?: number; stat?: string; center?: string; behindDistance?: number; stopDistance?: number; stunDuration?: number; form?: string; statMultipliers?: Record<string, number>; statAdds?: Record<string, number> }> };
-type CombatEvent = { id: number; type: string; sourceId?: string; targetId?: string; abilityId?: string; castTime?: number; duration?: number; amount?: number; school?: string; status?: string; critical?: boolean };
+type CombatEvent = { id: number; type: string; sourceId?: string; targetId?: string; abilityId?: string; castTime?: number; duration?: number; amount?: number; school?: string; status?: string; critical?: boolean; x?: number; z?: number; radius?: number };
 type MatchStats = { name: string; classId: string | null; spectator: boolean; level: number; damageDealt: number; healingDone: number; damageTaken: number; kills: number; deaths: number; biggestHit: number };
 type Snapshot = { type: string; you: string; reconnectToken?: string; matchState: string; countdown: number | null; players: Record<string, PlayerState>; enemies: Record<string, EnemyState>; mapObjects: MapObject[]; mapRevision?: number; groundEffects?: GroundEffect[]; wave: { number: number; state: string; aliveEnemies: number; nextWaveIn?: number }; abilities: Record<string, Ability>; classes: Record<string, ClassData>; upgrades: Upgrade[]; events: CombatEvent[]; matchStats: Record<string, MatchStats> };
 type IncomingSnapshot = Omit<Snapshot, "mapObjects" | "abilities" | "classes" | "upgrades" | "matchStats"> & { mapObjects?: MapObject[]; abilities?: Record<string, Ability>; classes?: Record<string, ClassData>; upgrades?: Upgrade[]; matchStats?: Record<string, MatchStats>; reconnectToken?: string };
@@ -1022,6 +1022,10 @@ function processEvents(events: CombatEvent[]) {
       if ((event.abilityId?.includes("whirlwind") || event.abilityId?.includes("blade_flurry")) && event.sourceId) spinVisuals.set(event.sourceId, performance.now() + (event.duration || 3) * 1000);
       playStatusEffect(event); playStatusSound(event);
     }
+    if (event.type === "ground_impact" && event.abilityId?.includes("boss_triple_meteor") && event.x !== undefined && event.z !== undefined) {
+      meteorStrike(new Vector3(event.x, 0, event.z), 850, 6);
+      expandingDisc("boss-meteor-impact", new Vector3(event.x, 0, event.z), event.radius || 3.5, new Color3(1, 0.16, 0.02), 700, 0.34);
+    }
     if (event.type === "damage") { if (event.abilityId?.includes("arcane_missiles")) playArcaneMissileTick(event); playImpactEffect(event, false); playHitSound(event); }
     if (event.type === "heal") { playImpactEffect(event, true); playHealSound(); }
   }
@@ -1499,6 +1503,34 @@ function createGroundEffect(effect: GroundEffect) {
     }
   } else if (effect.type === "totem") {
     buildTotemModel(root, effect.id, effect.totemType || "healing");
+  } else if (effect.type === "boss_meteor") {
+    const disc = MeshBuilder.CreateCylinder(`${effect.id}-disc`, { diameter: effect.radius * 2, height: 0.04, tessellation: 72 }, scene);
+    disc.parent = root;
+    disc.position.y = 0.055;
+    const discMat = transparentMat(`${effect.id}-disc-mat`, new Color3(1, 0.12, 0.02), 0.22);
+    discMat.emissiveColor = new Color3(0.75, 0.05, 0.01);
+    disc.material = discMat;
+    const ring = MeshBuilder.CreateTorus(`${effect.id}-ring`, { diameter: effect.radius * 2, thickness: 0.08, tessellation: 72 }, scene);
+    ring.parent = root;
+    ring.position.y = 0.12;
+    ring.rotation.x = Math.PI / 2;
+    const ringMat = mat(`${effect.id}-ring-mat`, new Color3(1, 0.34, 0.04));
+    ringMat.emissiveColor = new Color3(1, 0.12, 0.02);
+    ring.material = ringMat;
+    const started = performance.now();
+    const observer = scene.onBeforeRenderObservable.add(() => {
+      if (!groundEffectMeshes.has(effect.id)) {
+        scene.onBeforeRenderObservable.remove(observer);
+        return;
+      }
+      const elapsed = performance.now() - started;
+      const pulse = 0.5 + Math.sin(elapsed * 0.014) * 0.5;
+      const remaining = Number(root.metadata?.remaining ?? 0);
+      const urgency = remaining <= 0 ? 1 : Math.max(0, Math.min(1, 1 - remaining / 2));
+      discMat.alpha = 0.14 + pulse * 0.12 + urgency * 0.12;
+      ringMat.alpha = 0.55 + pulse * 0.35;
+      ring.scaling.setAll(1 + pulse * 0.04 + urgency * 0.08);
+    });
   }
   return root;
 }

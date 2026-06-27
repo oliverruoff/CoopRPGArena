@@ -767,6 +767,119 @@ async def _wave_clear_starts_twenty_second_prep_timer():
     assert 19 <= state["wave"]["nextWaveIn"] <= 20
 
 
+def test_wave_clear_heals_survivors_by_fifteen_percent():
+    asyncio.run(_wave_clear_heals_survivors_by_fifteen_percent())
+
+
+async def _wave_clear_heals_survivors_by_fifteen_percent():
+    game = Game()
+    p = await game.add_player()
+    await game.handle_message(p.id, {"type": "select_class", "classId": "mage"})
+    async with game._lock:
+        game._start_match_locked()
+        player = game.players[p.id]
+        max_health = player.stats["maxHealth"]
+        player.hp = max_health * 0.5
+        expected = player.hp + max_health * 0.15
+        for enemy in game.enemies.values():
+            enemy.xp = 0
+        for enemy_id in list(game.enemies):
+            game._kill_enemy_locked(enemy_id)
+        assert math.isclose(player.hp, expected, rel_tol=0.001)
+        assert any(event.get("type") == "heal" and event.get("abilityId") == "wave_clear_heal" for event in game.events)
+
+
+def test_boss_waves_continue_instead_of_victory():
+    asyncio.run(_boss_waves_continue_instead_of_victory())
+
+
+async def _boss_waves_continue_instead_of_victory():
+    game = Game()
+    p = await game.add_player()
+    await game.handle_message(p.id, {"type": "select_class", "classId": "mage"})
+    async with game._lock:
+        game._start_match_locked()
+        game.enemies.clear()
+        game._start_wave_locked(10)
+        assert len(game.enemies) == 1
+        boss = next(iter(game.enemies.values()))
+        assert boss.boss
+        assert game.wave["nextWaveAt"] is None
+        game._kill_enemy_locked(boss.id)
+        assert game.match_state == "running"
+        assert game.wave["state"] == "break"
+        game.wave["nextWaveAt"] = 0
+    await game.tick()
+    state = await game.snapshot(p.id)
+    assert state["wave"]["number"] == 11
+    assert state["matchState"] == "running"
+    assert all(not enemy["boss"] for enemy in state["enemies"].values())
+
+
+def test_every_tenth_wave_spawns_solo_boss():
+    asyncio.run(_every_tenth_wave_spawns_solo_boss())
+
+
+async def _every_tenth_wave_spawns_solo_boss():
+    game = Game()
+    p = await game.add_player()
+    await game.handle_message(p.id, {"type": "select_class", "classId": "mage"})
+    async with game._lock:
+        game._start_match_locked()
+        game.enemies.clear()
+        game._start_wave_locked(20)
+        assert len(game.enemies) == 1
+        assert next(iter(game.enemies.values())).boss
+
+
+def test_boss_wave_waits_for_previous_wave_clear():
+    asyncio.run(_boss_wave_waits_for_previous_wave_clear())
+
+
+async def _boss_wave_waits_for_previous_wave_clear():
+    game = Game()
+    p = await game.add_player()
+    await game.handle_message(p.id, {"type": "select_class", "classId": "mage"})
+    async with game._lock:
+        game._start_match_locked()
+        game.enemies.clear()
+        game._start_wave_locked(9)
+        game.wave["nextWaveAt"] = 0
+        existing = set(game.enemies)
+    await game.tick()
+    state = await game.snapshot(p.id)
+    assert state["wave"]["number"] == 9
+    assert set(state["enemies"]) == existing
+    assert all(not enemy["boss"] for enemy in state["enemies"].values())
+
+
+def test_boss_triple_meteor_warns_then_damages_players_in_area():
+    asyncio.run(_boss_triple_meteor_warns_then_damages_players_in_area())
+
+
+async def _boss_triple_meteor_warns_then_damages_players_in_area():
+    game = Game()
+    p = await game.add_player()
+    await game.handle_message(p.id, {"type": "select_class", "classId": "mage"})
+    async with game._lock:
+        game._start_match_locked()
+        game.enemies.clear()
+        game._start_wave_locked(10)
+        player = game.players[p.id]
+        boss = next(iter(game.enemies.values()))
+        boss.special_attack_at = 0
+        game._tick_boss_special_locked(boss, 1)
+        meteors = [effect for effect in game.ground_effects if effect.get("type") == "boss_meteor"]
+        assert len(meteors) == 3
+        meteor = meteors[0]
+        player.x = meteor["x"]
+        player.z = meteor["z"]
+        before = player.hp
+        game._tick_ground_effects_locked(meteor["impactAt"])
+        assert player.hp < before
+        assert any(event.get("type") == "ground_impact" and event.get("abilityId") == "boss_triple_meteor" for event in game.events)
+
+
 def test_arcane_missiles_deals_damage_during_channel():
     asyncio.run(_arcane_missiles_deals_damage_during_channel())
 
