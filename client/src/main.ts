@@ -540,10 +540,11 @@ function renderUi() {
     const isYou = p.id === you;
     const classes = currentState.classes;
     const className = p.spectator ? "spectator" : p.classId ? classes[p.classId]?.name || p.classId : "choosing class";
+    const classLabel = p.spectator ? "spectator" : p.classId || "none";
     const status = p.spectator ? "Spectator" : p.ready ? "Ready" : p.classId ? "Picking..." : "Choosing name/class";
     return `<div class="lobbyPlayer${p.ready ? " ready" : ""}${isYou ? " you" : ""}${p.spectator ? " spectator" : ""}" data-testid="lobby-player" data-id="${p.id}">
       <b>${p.name}${isYou ? " (you)" : ""}</b>
-      <span>${className}</span>
+      <span data-class-label="${classLabel}">${className}</span>
       <span class="lobbyStatus">${status}</span>
     </div>`;
   }).join("");
@@ -2384,7 +2385,7 @@ function createEnemy(e: EnemyState) {
 }
 
 function addEnemyIdentityDetails(root: TransformNode, e: EnemyState, size: number, color: Color3) {
-  const eyeColor = e.boss ? new Color3(1, 0.08, 0.02) : e.type === "shaman" ? new Color3(0.8, 0.28, 1) : e.type === "archer" ? new Color3(1, 0.78, 0.18) : new Color3(0.9, 1, 0.42);
+  const eyeColor = e.boss ? new Color3(1, 0.08, 0.02) : e.type === "sorcerer" ? new Color3(0.8, 0.28, 1) : e.type === "archer" ? new Color3(1, 0.78, 0.18) : new Color3(0.9, 1, 0.42);
   for (const side of [-1, 1]) {
     const eye = MeshBuilder.CreateBox(`${e.id}-eye-${side}`, { width: size * 0.1, height: size * 0.065, depth: size * 0.035 }, scene);
     eye.parent = root;
@@ -2421,7 +2422,7 @@ function addEnemyIdentityDetails(root: TransformNode, e: EnemyState, size: numbe
       const arrow = box(`${e.id}-enemy-quiver-arrow-${i}`, { width: size * 0.035, height: size * 0.48, depth: size * 0.035 }, new Color3(0.88, 0.78, 0.52));
       arrow.parent = root; arrow.position.set(-size * (0.38 - i * 0.06), size * 1.12, size * 0.54); arrow.rotation.z = 0.2;
     }
-  } else if (e.type === "shaman") {
+  } else if (e.type === "sorcerer") {
     const pendant = MeshBuilder.CreateSphere(`${e.id}-pendant`, { diameter: size * 0.18, segments: 7 }, scene);
     pendant.parent = root; pendant.position.set(0, size * 0.74, -size * 0.53);
     const pendantMat = mat(`${e.id}-pendant-mat`, eyeColor); pendantMat.emissiveColor = eyeColor.scale(0.55); pendant.material = pendantMat;
@@ -2468,9 +2469,9 @@ function addEnemyDetails(root: TransformNode, e: EnemyState, size: number, color
     const bow = MeshBuilder.CreateTorus(`${e.id}-enemy-bow`, { diameter: size * 0.78, thickness: size * 0.035, tessellation: 24 }, scene); bow.parent = root; bow.position.set(size * 0.7, size * 0.75, 0); bow.rotation.z = Math.PI / 2; bow.scaling.y = 1.6; bow.material = mat(`${e.id}-enemy-bow-mat`, new Color3(0.38, 0.22, 0.08));
     const arrow = box(`${e.id}-arrow`, { width: size * 0.05, height: size * 0.9, depth: size * 0.05 }, new Color3(0.9, 0.82, 0.55)); arrow.parent = root; arrow.position.set(-size * 0.34, size * 0.92, -size * 0.32); arrow.rotation.z = 0.35;
     const cloak = box(`${e.id}-cloak`, { width: size * 0.76, height: size * 0.78, depth: size * 0.08 }, new Color3(0.03, 0.11, 0.05)); cloak.parent = root; cloak.position.set(0, size * 0.68, size * 0.48); cloak.rotation.x = -0.12;
-  } else if (e.type === "shaman") {
+  } else if (e.type === "sorcerer") {
     const mask = box(`${e.id}-mask`, { width: size * 0.58, height: size * 0.42, depth: size * 0.12 }, new Color3(0.92, 0.86, 0.58)); mask.parent = root; mask.position.set(0, size * 1.15, -size * 0.34);
-    const staff = box(`${e.id}-shaman-staff`, { width: size * 0.08, height: size * 1.45, depth: size * 0.08 }, new Color3(0.24, 0.12, 0.05)); staff.parent = root; staff.position.set(size * 0.62, size * 0.72, 0); staff.rotation.z = -0.2;
+    const staff = box(`${e.id}-sorcerer-staff`, { width: size * 0.08, height: size * 1.45, depth: size * 0.08 }, new Color3(0.24, 0.12, 0.05)); staff.parent = root; staff.position.set(size * 0.62, size * 0.72, 0); staff.rotation.z = -0.2;
     const orb = MeshBuilder.CreateSphere(`${e.id}-orb`, { diameter: size * 0.24, segments: 8 }, scene); orb.parent = root; orb.position.set(size * 0.48, size * 1.45, 0); const orbMat = mat(`${e.id}-orb-mat`, new Color3(0.72, 0.2, 1)); orbMat.emissiveColor = new Color3(0.42, 0.05, 0.72); orb.material = orbMat;
     const charms = box(`${e.id}-charms`, { width: size * 0.52, height: size * 0.08, depth: size * 0.1 }, new Color3(0.94, 0.72, 0.24)); charms.parent = root; charms.position.set(0, size * 0.88, -size * 0.52);
   } else if (e.type === "brute") {
@@ -2706,9 +2707,12 @@ function playAutoAttackEffect(event: CombatEvent) {
     autoSwingHands.set(event.sourceId, autoSwingHands.get(event.sourceId) === "left" ? "right" : "left");
   }
   const isArrow = sourcePlayer?.classId === "hunter" || sourceEnemy?.type === "archer";
+  const isSorcerer = sourceEnemy?.type === "sorcerer";
   if (isArrow) {
     arrow(source.position, target.position, new Color3(0.95, 0.75, 0.22), 180);
     hunterTwang(0, 0.035);
+  } else if (isSorcerer) {
+    purpleSpellBall(source.position, target.position, 420);
   } else {
     slashArc(target.position, 260);
     if (sourcePlayer?.classId === "warrior") warriorClang(0.04);
@@ -2855,6 +2859,47 @@ function projectile(from: Vector3, to: Vector3, color: Color3, duration: number)
     if (p >= 1) {
       scene.onBeforeRenderObservable.remove(observer);
       orb.dispose();
+    }
+  });
+}
+
+function purpleSpellBall(from: Vector3, to: Vector3, duration: number) {
+  const root = new TransformNode("sorcerer-spell-ball", scene);
+  const color = new Color3(0.72, 0.16, 1);
+  const orb = MeshBuilder.CreateSphere("sorcerer-spell-core", { diameter: 0.62, segments: 18 }, scene);
+  orb.parent = root;
+  const orbMat = mat("sorcerer-spell-core-mat", color);
+  orbMat.emissiveColor = color;
+  orb.material = orbMat;
+  const glow = MeshBuilder.CreateSphere("sorcerer-spell-glow", { diameter: 1.05, segments: 18 }, scene);
+  glow.parent = root;
+  const glowMat = transparentMat("sorcerer-spell-glow-mat", color, 0.32);
+  glowMat.emissiveColor = color.scale(0.9);
+  glow.material = glowMat;
+  const trail = MeshBuilder.CreateCylinder("sorcerer-spell-trail", { diameterTop: 0.2, diameterBottom: 0.56, height: 1.1, tessellation: 16 }, scene);
+  trail.parent = root;
+  trail.rotation.x = Math.PI / 2;
+  trail.position.z = -0.62;
+  const trailMat = transparentMat("sorcerer-spell-trail-mat", color, 0.38);
+  trailMat.emissiveColor = color.scale(0.75);
+  trail.material = trailMat;
+  const start = from.add(new Vector3(0, 1.2, 0));
+  const end = to.add(new Vector3(0, 1.05, 0));
+  const direction = end.subtract(start).normalize();
+  root.position = start;
+  root.rotation.y = Math.atan2(direction.x, direction.z);
+  root.rotation.x = -Math.asin(Math.max(-1, Math.min(1, direction.y)));
+  const started = performance.now();
+  const observer = scene.onBeforeRenderObservable.add(() => {
+    const p = Math.min(1, (performance.now() - started) / duration);
+    root.position = Vector3.Lerp(start, end, p);
+    glow.scaling.setAll(1 + Math.sin(performance.now() * 0.025) * 0.16);
+    root.rotation.z += 0.18;
+    trailMat.alpha = Math.max(0, 0.38 * (1 - p * 0.35));
+    if (p >= 1) {
+      scene.onBeforeRenderObservable.remove(observer);
+      root.dispose();
+      shadowRing(end, 1.25, 520);
     }
   });
 }
@@ -3523,7 +3568,7 @@ function enemyGrowl(type: string, volume: number) {
   if (type === "runner") {
     gliss(210, 360, 0.1, "sawtooth", volume * 0.75);
     noise(0.08, volume * 0.45, 720, 0.03, "bandpass");
-  } else if (type === "shaman") {
+  } else if (type === "sorcerer") {
     tone(155, 0.22, "triangle", volume * 0.75);
     tone(311, 0.18, "sine", volume * 0.45, 0.04);
   } else if (type === "brute") {
@@ -3827,7 +3872,7 @@ function enemyColor(type: string, boss: boolean) {
   if (type === "goblin") return new Color3(0.15, 0.58, 0.18);
   if (type === "runner") return new Color3(0.85, 0.45, 0.08);
   if (type === "archer") return new Color3(0.12, 0.28, 0.14);
-  if (type === "shaman") return new Color3(0.42, 0.12, 0.62);
+  if (type === "sorcerer") return new Color3(0.42, 0.12, 0.62);
   if (type === "brute") return new Color3(0.43, 0.25, 0.16);
   return new Color3(0.25, 0.25, 0.25);
 }

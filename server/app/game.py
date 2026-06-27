@@ -666,7 +666,8 @@ class Game:
                 enemy.z += dz * speed * dt
                 self._push_out_of_map_objects_locked(enemy)
             elif now >= enemy.attack_at:
-                damage = self._mitigate(enemy.damage, target.stats.get("armor", 0))
+                mitigation_stat = "resistance" if enemy.type == "sorcerer" else "armor"
+                damage = self._mitigate(enemy.damage, target.stats.get(mitigation_stat, 0))
                 damage = self._damage_player_locked(target, damage)
                 target.damage_taken += damage
                 if target.hp <= 0 and not target.dead:
@@ -680,9 +681,10 @@ class Game:
                 elif target.casting:
                     target.casting["endAt"] += 0.18
                 enemy.attack_at = now + enemy.attack_interval
-                if enemy.type == "archer":
+                if enemy.type in ("archer", "sorcerer"):
                     self._emit_locked({"type": "auto_attack", "sourceId": enemy.id, "targetId": target.id})
-                self._emit_locked({"type": "damage", "sourceId": enemy.id, "targetId": target.id, "amount": round(damage, 1), "school": "physical"})
+                school = "arcane" if enemy.type == "sorcerer" else "physical"
+                self._emit_locked({"type": "damage", "sourceId": enemy.id, "targetId": target.id, "amount": round(damage, 1), "school": school})
 
     def _tick_boss_special_locked(self, enemy: Enemy, now: float) -> None:
         if now < enemy.special_attack_at:

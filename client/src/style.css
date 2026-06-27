@@ -11,10 +11,13 @@ html, body, #app { margin: 0; width: 100%; height: 100%; overflow: hidden; font-
 .classes { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin: 18px 0; }
 button { border: 0; border-radius: 14px; padding: 12px 14px; background: #202636; color: white; font-weight: 800; cursor: pointer; }
 button:hover { filter: brightness(1.12); }
-[data-testid="class-warrior"] { background: #9c3022; }
-[data-testid="class-hunter"] { background: #236a34; }
-[data-testid="class-priest"] { background: #d9b64f; color: #222; }
-[data-testid="class-mage"] { background: #313ca3; }
+[data-testid="class-warrior"] { background: #c79c6e; color: #1f140c; }
+[data-testid="class-hunter"] { background: #abd473; color: #16230d; }
+[data-testid="class-priest"] { background: #ffffff; color: #222; }
+[data-testid="class-mage"] { background: #69ccf0; color: #073041; }
+[data-testid="class-rogue"] { background: #fff569; color: #2a2400; }
+[data-testid="class-druid"] { background: #ff7d0a; color: #2d1200; }
+[data-testid="class-shaman"] { background: #0070de; }
 [data-class].selectedClass { outline: 3px solid #facc15; outline-offset: 2px; }
 #ready { width: 100%; background: #111827; }
 button:disabled { background: #9ca3af; color: rgba(255,255,255,0.72); cursor: not-allowed; filter: grayscale(0.35); }
@@ -55,6 +58,14 @@ button:disabled:hover { filter: grayscale(0.35); }
 .lobbyPlayer.ready { background: rgba(34,197,94,0.12); }
 .lobbyPlayer b { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .lobbyPlayer span { color: rgba(31,36,48,0.65); }
+[data-class-label] { font-weight: 900; }
+[data-class-label="warrior"] { color: #c79c6e !important; }
+[data-class-label="hunter"] { color: #6ea327 !important; }
+[data-class-label="priest"] { color: #f8fafc !important; text-shadow: 0 1px 3px rgba(0,0,0,0.55); }
+[data-class-label="mage"] { color: #69ccf0 !important; }
+[data-class-label="rogue"] { color: #d8ca00 !important; }
+[data-class-label="druid"] { color: #ff7d0a !important; }
+[data-class-label="shaman"] { color: #0070de !important; }
 .lobbyStatus { font-weight: 800; color: #9ca3af; }
 .lobbyPlayer.ready .lobbyStatus { color: #16a34a; }
 #hud { display: none; position: absolute; inset: 0; pointer-events: none; }

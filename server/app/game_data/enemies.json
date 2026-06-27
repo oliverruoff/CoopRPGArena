@@ -2,6 +2,6 @@
   "goblin":{"id":"goblin","name":"Goblin","role":"basic_melee","maxHealth":70,"damage":10,"attackInterval":1.5,"attackRange":1.6,"moveSpeed":3.8,"armor":5,"resistance":0,"xp":35,"budgetCost":1},
   "runner":{"id":"runner","name":"Runner","role":"fast_pressure","maxHealth":55,"damage":8,"attackInterval":1.2,"attackRange":1.5,"moveSpeed":5.8,"armor":2,"resistance":0,"xp":45,"budgetCost":2},
   "archer":{"id":"archer","name":"Archer","role":"ranged","maxHealth":60,"damage":12,"attackInterval":2.0,"attackRange":14,"moveSpeed":3.2,"armor":2,"resistance":5,"xp":60,"budgetCost":3},
-  "shaman":{"id":"shaman","name":"Shaman","role":"support","maxHealth":75,"damage":6,"attackInterval":2.2,"attackRange":12,"moveSpeed":3.0,"armor":2,"resistance":15,"xp":80,"budgetCost":4},
+  "sorcerer":{"id":"sorcerer","name":"Sorcerer","role":"support","maxHealth":75,"damage":6,"attackInterval":2.2,"attackRange":12,"moveSpeed":3.0,"armor":2,"resistance":15,"xp":80,"budgetCost":4},
   "brute":{"id":"brute","name":"Brute","role":"heavy_melee","maxHealth":180,"damage":24,"attackInterval":2.2,"attackRange":1.8,"moveSpeed":2.6,"armor":20,"resistance":5,"xp":120,"budgetCost":5}
 }

@@ -3,10 +3,10 @@
   {"number":2,"composition":{"goblin":5,"runner":1}},
   {"number":3,"composition":{"goblin":5,"runner":1,"archer":1}},
   {"number":4,"composition":{"goblin":6,"runner":2,"archer":1,"brute":1}},
-  {"number":5,"composition":{"goblin":7,"runner":2,"archer":2,"shaman":1}},
+  {"number":5,"composition":{"goblin":7,"runner":2,"archer":2,"sorcerer":1}},
   {"number":6,"composition":{"goblin":8,"runner":3,"archer":2,"brute":1}},
-  {"number":7,"composition":{"goblin":8,"runner":3,"archer":2,"brute":2,"shaman":1}},
-  {"number":8,"composition":{"goblin":9,"runner":4,"archer":3,"brute":2,"shaman":1}},
-  {"number":9,"composition":{"goblin":10,"runner":4,"archer":3,"brute":2,"shaman":2}},
+  {"number":7,"composition":{"goblin":8,"runner":3,"archer":2,"brute":2,"sorcerer":1}},
+  {"number":8,"composition":{"goblin":9,"runner":4,"archer":3,"brute":2,"sorcerer":1}},
+  {"number":9,"composition":{"goblin":10,"runner":4,"archer":3,"brute":2,"sorcerer":2}},
   {"number":10,"composition":{"boss":1}}
 ]
