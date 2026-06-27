@@ -68,6 +68,7 @@ button:disabled:hover { filter: grayscale(0.35); }
 .mini span, .bar span { display: block; height: 100%; background: #46d06f; }
 #target { position: absolute; top: 20px; left: 50%; transform: translateX(-50%); min-width: 260px; padding: 14px; border-radius: 18px; background: rgba(255,255,255,0.88); text-align: center; font-weight: 900; }
 #wave { position: absolute; top: 20px; right: 20px; padding: 14px; border-radius: 18px; background: rgba(255,255,255,0.88); font-weight: 900; }
+#endMatch { display: none; position: absolute; right: 20px; bottom: 24px; padding: 10px 12px; background: rgba(127,29,29,0.88); pointer-events: auto; white-space: nowrap; }
 #bars { position: absolute; bottom: 96px; left: 50%; transform: translateX(-50%); width: min(520px, 80vw); display: grid; gap: 7px; font-weight: 900; }
 .bar { position: relative; height: 20px; background: rgba(20,26,38,0.34); }
 .bar b { position: absolute; inset: 0; display: grid; place-items: center; color: #fff; font-size: 12px; font-weight: 1000; text-shadow: 0 1px 3px #000; letter-spacing: 0.02em; }

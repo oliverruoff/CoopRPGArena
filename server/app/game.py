@@ -14,6 +14,7 @@ from typing import Any
 DATA_DIR = Path(__file__).parent / "game_data"
 ACTIVE_WAVE_SECONDS = 75
 BREAK_SECONDS = 20
+NO_ACTIVE_PLAYERS_RESET_SECONDS = 30
 
 
 def load_json(name: str) -> Any:
@@ -129,6 +130,7 @@ class Game:
         self._last_tick = time.monotonic()
         self._lock = asyncio.Lock()
         self.match_stats: dict[str, dict[str, Any]] = {}
+        self.no_active_players_since: float | None = None
 
     async def reset(self) -> None:
         async with self._lock:
@@ -137,6 +139,7 @@ class Game:
             self.match_state = "lobby"
             self.match_end_at = None
             self.match_stats = {}
+            self.no_active_players_since = None
             self.wave = {"number": 0, "state": "lobby", "aliveEnemies": 0}
             self.countdown_until = None
             self.events.clear()
@@ -157,6 +160,7 @@ class Game:
                 existing.disconnected_at = None
                 if self.match_state != "lobby" and existing.was_active and existing.class_id is not None:
                     existing.spectator = False
+                    self.no_active_players_since = None
                 return existing
         if self.match_state == "lobby":
             active_count = sum(1 for p in self.players.values() if not p.spectator)
@@ -258,8 +262,8 @@ class Game:
                 self._choose_lobby_upgrade_locked(player, msg.get("upgradeId"))
             elif typ == "reset_lobby_upgrades" and self.match_state == "lobby" and self._is_present_locked(player):
                 self._reset_lobby_upgrades_locked(player)
-            elif typ == "restart_match" and self.match_state in {"defeat", "victory"} and self._is_present_locked(player):
-                self._restart_to_lobby_locked()
+            elif typ == "restart_match" and self.match_state in {"running", "defeat", "victory"} and self._is_present_locked(player):
+                self._restart_to_lobby_locked(keep_connected_spectators=self.match_state != "running")
 
     def _set_ability_slot_locked(self, player: Player, ability_id: str | None, slot: int) -> None:
         if not ability_id or ability_id not in player.abilities:
@@ -281,17 +285,22 @@ class Game:
         if other_ability_id:
             player.ability_slots[other_ability_id] = current_slot
 
-    def _restart_to_lobby_locked(self) -> None:
+    def _restart_to_lobby_locked(self, keep_connected_spectators: bool = True) -> None:
         self.enemies.clear()
         self.match_state = "lobby"
         self.wave = {"number": 0, "state": "lobby", "aliveEnemies": 0}
         self.countdown_until = None
+        self.no_active_players_since = None
         self.match_stats = {}
         self.events.clear()
         self.ground_effects.clear()
+        for player_id in [pid for pid, player in self.players.items() if player.disconnected_at is not None]:
+            self.players.pop(player_id, None)
         for player in self.players.values():
-            if player.spectator and player.disconnected_at is None:
+            if keep_connected_spectators and player.spectator and player.disconnected_at is None:
                 continue
+            player.spectator = False
+            player.was_active = True
             player.class_id = None
             player.ready = False
             player.x = 0
@@ -561,6 +570,8 @@ class Game:
                     self._start_match_locked()
                 else:
                     self.countdown_until = None
+            if self._check_abandoned_match_locked(now):
+                return
             self._check_end_states_locked()
             if self.match_state != "running":
                 return
@@ -1500,11 +1511,24 @@ class Game:
             self.match_state = "defeat"
             self.wave["state"] = "failed"
             self.match_stats = self._compute_match_stats_locked()
-            return
-        # If no active players are left in a finished match, return to lobby so new
-        # players don't get auto-spectated on a stale match.
-        if not active and self.match_state in {"running", "defeat", "victory"}:
-            self._restart_to_lobby_locked()
+        elif not active and self.match_state in {"defeat", "victory"}:
+            self._restart_to_lobby_locked(keep_connected_spectators=False)
+
+    def _check_abandoned_match_locked(self, now: float) -> bool:
+        if self.match_state != "running":
+            self.no_active_players_since = None
+            return False
+        active = [p for p in self.players.values() if self._is_present_locked(p)]
+        if active:
+            self.no_active_players_since = None
+            return False
+        if self.no_active_players_since is None:
+            self.no_active_players_since = now
+            return False
+        if now - self.no_active_players_since >= NO_ACTIVE_PLAYERS_RESET_SECONDS:
+            self._restart_to_lobby_locked(keep_connected_spectators=False)
+            return True
+        return False
 
     def _compute_match_stats_locked(self) -> dict[str, dict[str, Any]]:
         stats: dict[str, dict[str, Any]] = {}

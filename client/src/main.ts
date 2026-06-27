@@ -64,6 +64,7 @@ root.innerHTML = `
     <div id="party" data-testid="party"></div>
     <div id="target" data-testid="target-frame">No target</div>
     <div id="wave" data-testid="wave-counter">Wave 0</div>
+    <button id="endMatch" data-testid="end-match-button">End Game</button>
     <div id="bars">
       <div data-testid="player-level" id="level">Level 1</div>
       <div class="bar"><span id="hp" data-testid="player-health-bar"></span><b id="hpLabel" data-testid="hp-label">HP</b></div>
@@ -325,6 +326,12 @@ document.querySelector<HTMLButtonElement>("#ready")!.addEventListener("click", (
   send({ type: "ready", ready: true });
 });
 document.querySelector<HTMLButtonElement>("#restart")!.addEventListener("click", () => { unlockAudio(); playUiClickSound(); send({ type: "restart_match" }); });
+document.querySelector<HTMLButtonElement>("#endMatch")!.addEventListener("click", () => {
+  if (!window.confirm("End the current game and return everyone to the lobby?")) return;
+  unlockAudio();
+  playUiClickSound();
+  send({ type: "restart_match" });
+});
 document.querySelector<HTMLElement>("#party")!.addEventListener("pointerdown", (event) => {
   const frame = (event.target as HTMLElement).closest<HTMLElement>(".partyFrame");
   if (!frame?.dataset.id) return;
@@ -653,8 +660,10 @@ function renderUi() {
   const end = document.querySelector<HTMLElement>("#end")!;
   const endTitle = document.querySelector<HTMLElement>("#endTitle")!;
   const restartButton = document.querySelector<HTMLButtonElement>("#restart")!;
+  const endMatchButton = document.querySelector<HTMLButtonElement>("#endMatch")!;
   endTitle.textContent = state.matchState === "victory" ? "Victory" : state.matchState === "defeat" ? "Wipe" : "";
   restartButton.style.display = "inline-block";
+  endMatchButton.style.display = state.matchState === "running" && !isSpectator ? "inline-block" : "none";
   end.style.display = endTitle.textContent ? "grid" : "none";
   const scoreboard = document.querySelector<HTMLElement>("#endScoreboard")!;
   scoreboard.innerHTML = endTitle.textContent ? renderScoreboard(state.matchStats, state.players, state.you) : "";

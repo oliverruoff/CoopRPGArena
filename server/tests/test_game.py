@@ -1,5 +1,6 @@
 import asyncio
 import math
+import time
 
 from app.game import Game
 
@@ -853,6 +854,18 @@ def test_disconnected_player_is_not_counted_for_defeat():
     asyncio.run(_disconnected_player_is_not_counted_for_defeat())
 
 
+def test_no_active_players_resets_to_lobby_after_grace_period():
+    asyncio.run(_no_active_players_resets_to_lobby_after_grace_period())
+
+
+def test_reconnect_clears_no_active_players_reset_timer():
+    asyncio.run(_reconnect_clears_no_active_players_reset_timer())
+
+
+def test_running_match_can_be_ended_manually():
+    asyncio.run(_running_match_can_be_ended_manually())
+
+
 async def _disconnected_player_is_not_counted_for_defeat():
     game = Game()
     player = await game.add_player()
@@ -866,3 +879,60 @@ async def _disconnected_player_is_not_counted_for_defeat():
     async with game._lock:
         game._check_end_states_locked()
     assert game.match_state == "running"
+
+
+async def _no_active_players_resets_to_lobby_after_grace_period():
+    game = Game()
+    player = await game.add_player()
+    await game.handle_message(player.id, {"type": "select_class", "classId": "mage"})
+    await _spend_lobby_upgrades(game, player.id)
+    await game.handle_message(player.id, {"type": "ready", "ready": True})
+    async with game._lock:
+        game._start_match_locked()
+    spectator = await game.add_player()
+    await game.remove_player(player.id)
+    async with game._lock:
+        game.no_active_players_since = time.monotonic() - 31
+    await game.tick()
+    state = await game.snapshot(spectator.id)
+    assert state["matchState"] == "lobby"
+    assert player.id not in state["players"]
+    assert state["players"][spectator.id]["spectator"] is False
+    assert state["players"][spectator.id]["classId"] is None
+    assert state["enemies"] == {}
+
+
+async def _reconnect_clears_no_active_players_reset_timer():
+    game = Game()
+    player = await game.add_player()
+    await game.handle_message(player.id, {"type": "select_class", "classId": "mage"})
+    await _spend_lobby_upgrades(game, player.id)
+    await game.handle_message(player.id, {"type": "ready", "ready": True})
+    async with game._lock:
+        game._start_match_locked()
+    token = player.reconnect_token
+    await game.remove_player(player.id)
+    async with game._lock:
+        game.no_active_players_since = time.monotonic() - 31
+    reconnected = await game.add_player(token)
+    assert reconnected.id == player.id
+    await game.tick()
+    assert game.match_state == "running"
+    async with game._lock:
+        assert game.no_active_players_since is None
+
+
+async def _running_match_can_be_ended_manually():
+    game = Game()
+    player = await game.add_player()
+    await game.handle_message(player.id, {"type": "select_class", "classId": "mage"})
+    await _spend_lobby_upgrades(game, player.id)
+    await game.handle_message(player.id, {"type": "ready", "ready": True})
+    async with game._lock:
+        game._start_match_locked()
+    spectator = await game.add_player()
+    await game.handle_message(player.id, {"type": "restart_match"})
+    state = await game.snapshot(player.id)
+    assert state["matchState"] == "lobby"
+    assert state["players"][player.id]["classId"] is None
+    assert state["players"][spectator.id]["spectator"] is False
