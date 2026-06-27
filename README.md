@@ -9,14 +9,14 @@ A browser-based cooperative RPG arena — up to 5 players fight waves of enemies
 ## Gameplay
 
 - **Lobby** — Enter your name, pick a class, and mark ready. The match starts when all players are ready.
-- **Classes** — Warrior, Hunter, Mage, Priest, Rogue, Druid. Each begins with one or more signature abilities.
+- **Classes** — Warrior, Hunter, Mage, Priest, Rogue, Druid, Shaman. Each begins with one or more signature abilities.
 - **Level Up** — Earn XP by defeating enemies. On level-up, choose **one** reward: max out a stat (Strength, Agility, Intellect, Stamina, Spirit) or learn a new ability from your class tree.
 - **Abilities** — Each class has multiple learnable spells with unique effects: AoE damage, shields, stuns, traps, HoTs, cones, and more. Abilities are mapped to keys 1–4, Q, E, R.
 - **Combat** — Real-time action with a global cooldown (triggers on cast start, cancelled on interrupt). Enemy HP bars, damage numbers, and spell effects provide constant feedback.
 
 ## Classes
 
-The game ships with **six** classes. Each has its own resource (Rage, Focus, Mana, Energy) and a clearly defined role. Pick the one that fits your playstyle — or coordinate a comp with your team.
+The game ships with **seven** classes. Each has its own resource (Rage, Focus, Mana, Energy) and a clearly defined role. Pick the one that fits your playstyle — or coordinate a comp with your team.
 
 | Class | Role | Resource | HP | Range |
 |-------|------|----------|----|----|
@@ -26,6 +26,7 @@ The game ships with **six** classes. Each has its own resource (Rage, Focus, Man
 | [Mage](#mage)      | Burst / control caster | Mana | 94 | 18–20m |
 | [Rogue](#rogue)    | Dual-dagger assassin | Energy | 106 | Melee |
 | [Druid](#druid)    | Bear / Cat shapeshifter | Mana | 118 | Hybrid |
+| [Shaman](#shaman)  | Elemental caster / totems | Mana | 108 | 18m / melee |
 
 ### Warrior
 
@@ -170,6 +171,33 @@ A shapeshifting hybrid. Bear Form turns the druid into a durable bruiser, while 
 - Form change is on a 1 s GCD, so chaining Bear→Cat→Humanoid eats real time.
 - Bear form reduces move speed (×0.92) and Cat form loses armor (-4 base) — both forms trade survivability for output.
 - Heaviest "macro load" — you have to manage three modes, not one rotation.
+
+### Shaman
+
+<p align="left"><img src="media/classes/shaman.png" alt="Shaman 3D model" width="180" /></p>
+
+A spiritual caster bonded to the elements. Calls down lightning, heals allies with totems, and wades into melee with elemental strikes.
+
+- **Starter abilities:** *Lightning Bolt*, *Healing Wave*, *Primal Strike*.
+- **Tools:** Chain Lightning, Healing Stream Totem, Searing Totem, Earthbind Totem, Frost Shock.
+- **Tactics:** Stay in the backline and pelt enemies with Lightning Bolt, drop Healing Stream Totem before a wave hits, anchor a Searing Totem on the boss, and use Chain Lightning on clumps. Primal Strike covers the moments a mob gets into your face.
+
+**Strengths**
+
+- Hybrid damage: ranged Lightning Bolt (1.8 s cast), melee Primal Strike (instant), and the **Chain Lightning** AoE nuke (2.0 s cast, up to 3 jumps with 0.6 falloff per hop).
+- **Totem toolkit** — three different summoned totems you can have up at the same time:
+  - Healing Stream Totem (6 m, 15 s) — pulses heals onto the most-injured nearby ally.
+  - Searing Totem (6 m, 15 s) — fire-pulses the closest enemy every 1.2 s.
+  - Earthbind Totem (5 m, 12 s) — pulses a 40% slow on enemies that step inside.
+- Best mobility of any caster: 5.1 move speed and an instant Primal Strike when something closes the gap.
+- Frost Shock is a 0-cast-time 18 m range slow — great kiting tool.
+
+**Weaknesses**
+
+- Mana-hungry: Chain Lightning alone costs 55 mana and you have 120 max. Burn out and you're an auto-attack bot.
+- Every meaningful ranged spell has a cast time (1.5–2.0 s). Interrupts delete your turn.
+- 108 HP and 12 armor — squishier than Priest, no Resurrection, no Barrier.
+- Totems die if you move away from the area, and each totem has a 16–18 s cooldown if it goes down or expires — bad positioning is punished.
 
 ## Start Development Stack
 
