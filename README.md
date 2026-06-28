@@ -207,16 +207,18 @@ A spiritual caster bonded to the elements. Calls down lightning, heals allies wi
 A heavily armored holy bruiser with a two-handed mace. Calls down judgement, protects allies with blessings, and survives through divine miracles.
 
 - **Starter ability:** *Judgement* — calls down a massive holy hammer from above.
-- **Tools:** Crusader Strike, Consecration, Hammer of Justice, Divine Shield, Lay on Hands, Blessing of Might.
+- **Tools:** Flash of Light, Consecration, Hammer of Justice, Divine Shield, Lay on Hands, Blessing of Might.
 - **Tactics:** Open with Judgement, unlock melee and support tools as you level, save Divine Shield for lethal spikes, and keep Blessing of Might on the teammate who benefits most.
 
 **Strengths**
 
 - Durable melee hybrid: 132 HP, 22 armor, and 16 resistance.
-- Lay on Hands is a true full heal, but only every 90 seconds.
-- Blessing of Might gives an ally +12% Attack Power and +12% Spell Power for 60 seconds with a visible golden buff effect.
+- Flash of Light gives the Paladin a short-cast emergency heal, but it costs a lot of mana.
+- Lay on Hands is a true full heal, including self-casts, but only every 90 seconds.
+- Blessing of Might gives an ally +12% Attack Power and +12% Spell Power for 60 seconds with a strong visible golden buff effect.
 - Judgement has a clear visual payoff: a massive holy hammer strikes down from above.
 - Consecration leaves a molten holy ground effect visible for its full duration.
+- Hammer of Justice has a distinct stun visual and locks the target down for 2 seconds.
 
 **Weaknesses**
 

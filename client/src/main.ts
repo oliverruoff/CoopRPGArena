@@ -1147,9 +1147,9 @@ function abilityDescription(abilityId: string) {
     shaman_earthbind_totem: "Drop a stone totem that pulses slowing earth magic, dragging down nearby enemies.",
     shaman_frost_shock: "A freezing instant strike that chills the target and slows their movement.",
     paladin_judgement: "Call down a massive holy hammer from above, crushing the enemy and briefly slowing it.",
-    paladin_crusader_strike: "Smash the enemy with a two-handed mace, dealing physical and holy damage.",
+    paladin_flash_of_light: "A quick but costly flash of holy light that lightly heals an ally.",
     paladin_consecration: "Consecrate the ground around you, dealing holy damage to nearby enemies over time.",
-    paladin_hammer_of_justice: "Strike an enemy with holy force, dealing damage and briefly stunning it.",
+    paladin_hammer_of_justice: "Strike an enemy with holy force, dealing damage and stunning it for 2 seconds.",
     paladin_divine_shield: "Become protected by divine power, absorbing all incoming damage for 4 seconds.",
     paladin_lay_on_hands: "Instantly restore an ally to full health. Very long cooldown.",
     paladin_blessing_of_might: "Bless an ally for 1 minute, increasing Attack Power and Spell Power by 12%.",
@@ -1449,20 +1449,34 @@ function updateBlessingVisual(node: TransformNode, player: PlayerState) {
   if (existing) return;
   const root = new TransformNode(`${player.id}-blessing-might`, scene);
   root.parent = node;
-  const halo = MeshBuilder.CreateTorus(`${player.id}-blessing-might-halo`, { diameter: 0.82, thickness: 0.04, tessellation: 36 }, scene);
+  const halo = MeshBuilder.CreateTorus(`${player.id}-blessing-might-halo`, { diameter: 1.05, thickness: 0.055, tessellation: 48 }, scene);
   halo.parent = root;
   halo.position.y = 2.03;
   halo.rotation.x = Math.PI / 2;
   const haloMat = mat(`${player.id}-blessing-might-halo-mat`, new Color3(1, 0.82, 0.18));
   haloMat.emissiveColor = new Color3(0.85, 0.52, 0.05);
   halo.material = haloMat;
-  const rune = MeshBuilder.CreateTorus(`${player.id}-blessing-might-rune`, { diameter: 1.28, thickness: 0.035, tessellation: 48 }, scene);
+  const rune = MeshBuilder.CreateTorus(`${player.id}-blessing-might-rune`, { diameter: 1.55, thickness: 0.055, tessellation: 56 }, scene);
   rune.parent = root;
   rune.position.y = 0.08;
   rune.rotation.x = Math.PI / 2;
   const runeMat = transparentMat(`${player.id}-blessing-might-rune-mat`, new Color3(1, 0.78, 0.16), 0.5);
   runeMat.emissiveColor = new Color3(0.95, 0.55, 0.05);
   rune.material = runeMat;
+  const aura = MeshBuilder.CreateSphere(`${player.id}-blessing-might-aura`, { diameter: 2.15, segments: 18 }, scene);
+  aura.parent = root;
+  aura.position.y = 1.02;
+  const auraMat = transparentMat(`${player.id}-blessing-might-aura-mat`, new Color3(1, 0.62, 0.12), 0.14);
+  auraMat.emissiveColor = new Color3(1, 0.42, 0.02);
+  aura.material = auraMat;
+  for (const side of [-1, 1]) {
+    const spark = MeshBuilder.CreateSphere(`${player.id}-blessing-might-spark-${side}`, { diameter: 0.16, segments: 8 }, scene);
+    spark.parent = root;
+    spark.position.set(side * 0.7, 1.35, 0);
+    const sparkMat = mat(`${player.id}-blessing-might-spark-${side}-mat`, new Color3(1, 0.86, 0.22));
+    sparkMat.emissiveColor = new Color3(1, 0.62, 0.08);
+    spark.material = sparkMat;
+  }
   root.getChildMeshes().forEach((mesh) => mesh.isPickable = false);
 }
 
@@ -2199,6 +2213,20 @@ function animateWorld() {
       const material = blessingRune.material as StandardMaterial;
       material.alpha = 0.34 + Math.sin(t * 3.1) * 0.12;
     }
+    const blessingAura = node.getChildMeshes().find((mesh) => mesh.name.endsWith("-blessing-might-aura"));
+    if (blessingAura) {
+      const material = blessingAura.material as StandardMaterial;
+      const pulse = 0.5 + Math.sin(t * 4.8) * 0.5;
+      material.alpha = 0.1 + pulse * 0.12;
+      blessingAura.scaling.setAll(0.92 + pulse * 0.12);
+    }
+    for (const spark of node.getChildMeshes().filter((mesh) => mesh.name.includes("-blessing-might-spark-"))) {
+      const side = spark.name.includes("--1") ? -1 : 1;
+      const phase = t * 2.6 + side * Math.PI;
+      spark.position.x = Math.cos(phase) * 0.72;
+      spark.position.z = Math.sin(phase) * 0.72;
+      spark.position.y = 1.35 + Math.sin(t * 5.2) * 0.12;
+    }
     const staffGem = node.getChildMeshes().find((mesh) => mesh.name.endsWith("-staff-gem"));
     if (staffGem) {
       const material = staffGem.material as StandardMaterial;
@@ -2784,14 +2812,13 @@ function playCastEffect(event: CombatEvent) {
     expandingDisc("primal-strike", target.position, 1.3, new Color3(0.4, 0.95, 0.5), 460, 0.26);
   } else if (event.abilityId?.includes("paladin_judgement")) {
     holyHammerStrike(target.position, 760);
-  } else if (event.abilityId?.includes("paladin_crusader_strike")) {
-    slashArc(target.position, 360);
-    expandingDisc("crusader-strike", target.position, 1.35, new Color3(1, 0.78, 0.16), 480, 0.26);
+  } else if (event.abilityId?.includes("paladin_flash_of_light")) {
+    flashOfLightBurst(target.position, 760);
+    beam(source.position, target.position, new Color3(1, 0.86, 0.24), 460);
   } else if (event.abilityId?.includes("paladin_consecration")) {
     holyRing(source.position, 4.0, 1000);
   } else if (event.abilityId?.includes("paladin_hammer_of_justice")) {
-    holyHammerStrike(target.position, 560);
-    holyRing(target.position, 1.1, 520);
+    justiceStunVisual(target.position, 2100);
   } else if (event.abilityId?.includes("paladin_divine_shield")) {
     shieldBubble(target.position, new Color3(1, 0.82, 0.16), 1200);
     holyRing(target.position, 1.6, 900);
@@ -3663,6 +3690,78 @@ function layOnHandsBurst(center: Vector3, duration: number) {
   });
 }
 
+function flashOfLightBurst(center: Vector3, duration: number) {
+  const gold = new Color3(1, 0.88, 0.28);
+  const flash = MeshBuilder.CreateSphere("flash-of-light-core", { diameter: 1.25, segments: 16 }, scene);
+  flash.position = center.add(new Vector3(0, 1.1, 0));
+  const flashMat = transparentMat("flash-of-light-core-mat", gold, 0.46);
+  flashMat.emissiveColor = gold;
+  flash.material = flashMat;
+  holyRing(center, 1.1, duration);
+  for (let i = 0; i < 10; i++) {
+    const mote = MeshBuilder.CreateSphere("flash-of-light-mote", { diameter: 0.1 + Math.random() * 0.08, segments: 8 }, scene);
+    const angle = Math.random() * Math.PI * 2;
+    mote.position = center.add(new Vector3(Math.cos(angle) * 0.35, 0.7 + Math.random() * 0.8, Math.sin(angle) * 0.35));
+    const material = mat("flash-of-light-mote-mat", gold);
+    material.emissiveColor = gold;
+    mote.material = material;
+    animateParticle(mote, material, new Vector3(Math.cos(angle) * 0.35, 0.8, Math.sin(angle) * 0.35), duration);
+  }
+  const started = performance.now();
+  const observer = scene.onBeforeRenderObservable.add(() => {
+    const progress = (performance.now() - started) / duration;
+    flash.scaling.setAll(1 + progress * 1.2);
+    flashMat.alpha = Math.max(0, 0.46 * (1 - progress));
+    if (progress >= 1) {
+      scene.onBeforeRenderObservable.remove(observer);
+      flash.dispose();
+    }
+  });
+}
+
+function justiceStunVisual(center: Vector3, duration: number) {
+  const gold = new Color3(1, 0.82, 0.16);
+  const white = new Color3(1, 0.96, 0.72);
+  const ringA = MeshBuilder.CreateTorus("justice-stun-ring-a", { diameter: 1.35, thickness: 0.055, tessellation: 48 }, scene);
+  ringA.position = center.add(new Vector3(0, 1.25, 0));
+  ringA.rotation.x = Math.PI / 2;
+  const ringAMat = mat("justice-stun-ring-a-mat", gold);
+  ringAMat.emissiveColor = gold;
+  ringA.material = ringAMat;
+  const ringB = MeshBuilder.CreateTorus("justice-stun-ring-b", { diameter: 1.05, thickness: 0.045, tessellation: 40 }, scene);
+  ringB.position = center.add(new Vector3(0, 1.72, 0));
+  ringB.rotation.x = Math.PI / 2;
+  const ringBMat = mat("justice-stun-ring-b-mat", white);
+  ringBMat.emissiveColor = gold.scale(0.8);
+  ringB.material = ringBMat;
+  const mark = MeshBuilder.CreateBox("justice-stun-mark", { width: 0.26, height: 0.74, depth: 0.08 }, scene);
+  mark.position = center.add(new Vector3(0, 2.25, 0));
+  const markMat = mat("justice-stun-mark-mat", gold);
+  markMat.emissiveColor = gold;
+  mark.material = markMat;
+  const dot = MeshBuilder.CreateBox("justice-stun-dot", { width: 0.22, height: 0.16, depth: 0.08 }, scene);
+  dot.position = center.add(new Vector3(0, 1.78, 0));
+  dot.material = markMat;
+  const started = performance.now();
+  const observer = scene.onBeforeRenderObservable.add(() => {
+    const progress = (performance.now() - started) / duration;
+    const pulse = 0.5 + Math.sin(progress * Math.PI * 12) * 0.5;
+    ringA.rotation.z += 0.12;
+    ringB.rotation.z -= 0.16;
+    ringAMat.alpha = 0.55 + pulse * 0.35;
+    ringBMat.alpha = 0.45 + pulse * 0.35;
+    mark.position.y = center.y + 2.25 + Math.sin(progress * Math.PI * 8) * 0.08;
+    markMat.alpha = Math.max(0, 1 - Math.max(0, progress - 0.82) / 0.18);
+    if (progress >= 1) {
+      scene.onBeforeRenderObservable.remove(observer);
+      ringA.dispose();
+      ringB.dispose();
+      mark.dispose();
+      dot.dispose();
+    }
+  });
+}
+
 function blessingPulse(center: Vector3, duration: number) {
   const gold = new Color3(1, 0.78, 0.16);
   expandingDisc("blessing-pulse", center, 1.55, gold, duration, 0.28);
@@ -3985,9 +4084,8 @@ function playCastReleaseSound(event: CombatEvent) {
   } else if (abilityId.includes("paladin_judgement")) {
     lightningSnap();
     warriorClang(0.05);
-  } else if (abilityId.includes("paladin_crusader_strike")) {
-    warriorClang(0.055);
-    priestChoir(0.025);
+  } else if (abilityId.includes("paladin_flash_of_light")) {
+    priestChoir(0.045);
   } else if (abilityId.includes("heal") || event.school === "holy") {
     [740, 988, 1318].forEach((frequency, index) => tone(frequency, 0.16, "sine", 0.035, index * 0.045));
   } else if (abilityId.includes("shot")) {

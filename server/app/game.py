@@ -874,6 +874,8 @@ class Game:
         # Friendly spells that require an ally target fall back to self if no valid ally is selected.
         if ability["targetType"] == "ally" and (not target or target.id not in self.players):
             target = player
+        if ability_id == "paladin_lay_on_hands" and (not target or target is not player and (getattr(target, "dead", False) or self._distance(player, target) > ability.get("range", 0) or self._line_of_sight_blocked_locked(player.x, player.z, target.x, target.z))):
+            target = player
         if not target or self._distance(player, target) > ability.get("range", 0):
             return
         if target is not player and self._line_of_sight_blocked_locked(player.x, player.z, target.x, target.z):
@@ -914,6 +916,8 @@ class Game:
             return
         target = player if ability["targetType"] == "self" else self.enemies.get(target_id or "") if ability["targetType"] == "enemy" else self.players.get(target_id or player.id)
         if ability["targetType"] == "ally" and (not target or getattr(target, "id", None) not in self.players):
+            target = player
+        if ability_id == "paladin_lay_on_hands" and (not target or target is not player and (getattr(target, "dead", False) or self._distance(player, target) > ability.get("range", 0) or self._line_of_sight_blocked_locked(player.x, player.z, target.x, target.z))):
             target = player
         if not target or self._distance(player, target) > ability.get("range", 0):
             return
