@@ -15,6 +15,7 @@ button:hover { filter: brightness(1.12); }
 [data-testid="class-rogue"] { background: #fff569; color: #2a2400; }
 [data-testid="class-druid"] { background: #ff7d0a; color: #2d1200; }
 [data-testid="class-shaman"] { background: #0070de; }
+[data-testid="class-paladin"] { background: #f58cba; color: #2a0717; }
 [data-class].selectedClass { outline: 3px solid #facc15; outline-offset: 2px; }
 #ready { width: 100%; background: #111827; }
 button:disabled { background: #9ca3af; color: rgba(255,255,255,0.72); cursor: not-allowed; filter: grayscale(0.35); }
@@ -63,6 +64,7 @@ button:disabled:hover { filter: grayscale(0.35); }
 [data-class-label="rogue"] { color: #d8ca00 !important; }
 [data-class-label="druid"] { color: #ff7d0a !important; }
 [data-class-label="shaman"] { color: #0070de !important; }
+[data-class-label="paladin"] { color: #f58cba !important; }
 .lobbyStatus { font-weight: 800; color: #9ca3af; }
 .lobbyPlayer.ready .lobbyStatus { color: #16a34a; }
 #hud { display: none; position: absolute; inset: 0; pointer-events: none; }

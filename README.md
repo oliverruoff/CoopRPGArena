@@ -9,14 +9,14 @@ A browser-based cooperative RPG arena — up to 5 players fight waves of enemies
 ## Gameplay
 
 - **Lobby** — Enter your name, pick a class, and mark ready. The match starts when all players are ready.
-- **Classes** — Warrior, Hunter, Mage, Priest, Rogue, Druid, Shaman. Each begins with one or more signature abilities.
-- **Level Up** — Earn XP by defeating enemies. On level-up, choose **one** reward: max out a stat (Strength, Agility, Intellect, Stamina, Spirit) or learn a new ability from your class tree.
+- **Classes** — Warrior, Hunter, Priest, Mage, Rogue, Druid, Shaman, and Paladin. Each begins with one or more signature abilities.
+- **Level Up** — Earn XP by defeating enemies. On level-up, choose **one** reward: improve a stat or learn a new ability from your class tree.
 - **Abilities** — Each class has multiple learnable spells with unique effects: AoE damage, shields, stuns, traps, HoTs, cones, and more. Abilities are mapped to keys 1–4, Q, E, R.
 - **Combat** — Real-time action with a global cooldown (triggers on cast start, cancelled on interrupt). Enemy HP bars, damage numbers, and spell effects provide constant feedback.
 
 ## Classes
 
-The game ships with **seven** classes. Each has its own resource (Rage, Focus, Mana, Energy) and a clearly defined role. Pick the one that fits your playstyle — or coordinate a comp with your team.
+The game ships with **eight** classes. Each has its own resource (Rage, Focus, Mana, Energy) and a clearly defined role. Pick the one that fits your playstyle — or coordinate a comp with your team.
 
 | Class | Role | Resource | HP | Range |
 |-------|------|----------|----|----|
@@ -27,6 +27,7 @@ The game ships with **seven** classes. Each has its own resource (Rage, Focus, M
 | [Rogue](#rogue)    | Dual-dagger assassin | Energy | 106 | Melee |
 | [Druid](#druid)    | Bear / Cat shapeshifter | Mana | 118 | Hybrid |
 | [Shaman](#shaman)  | Elemental caster / totems | Mana | 108 | 18m / melee |
+| [Paladin](#paladin) | Two-handed holy bruiser | Mana | 132 | Melee / 14m |
 
 ### Warrior
 
@@ -198,6 +199,31 @@ A spiritual caster bonded to the elements. Calls down lightning, heals allies wi
 - Every meaningful ranged spell has a cast time (1.5–2.0 s). Interrupts delete your turn.
 - 108 HP and 12 armor — squishier than Priest, no Resurrection, no Barrier.
 - Totems die if you move away from the area, and each totem has a 16–18 s cooldown if it goes down or expires — bad positioning is punished.
+
+### Paladin
+
+<p align="left"><img src="media/classes/paladin.svg" alt="Paladin class model" width="180" /></p>
+
+A heavily armored holy bruiser with a two-handed mace. Calls down judgement, protects allies with blessings, and survives through divine miracles.
+
+- **Starter ability:** *Judgement* — calls down a massive holy hammer from above.
+- **Tools:** Crusader Strike, Consecration, Hammer of Justice, Divine Shield, Lay on Hands, Blessing of Might.
+- **Tactics:** Open with Judgement, unlock melee and support tools as you level, save Divine Shield for lethal spikes, and keep Blessing of Might on the teammate who benefits most.
+
+**Strengths**
+
+- Durable melee hybrid: 132 HP, 22 armor, and 16 resistance.
+- Lay on Hands is a true full heal, but only every 90 seconds.
+- Blessing of Might gives an ally +12% Attack Power and +12% Spell Power for 60 seconds with a visible golden buff effect.
+- Judgement has a clear visual payoff: a massive holy hammer strikes down from above.
+- Consecration leaves a molten holy ground effect visible for its full duration.
+
+**Weaknesses**
+
+- Slow movement and slow auto-attacks; the Paladin commits hard once in melee.
+- Mana can run dry if you spam support tools and damage together.
+- Less raw tanking than Warrior and less healing throughput than Priest or Shaman.
+- Long cooldowns punish panic usage.
 
 ## Start Development Stack
 

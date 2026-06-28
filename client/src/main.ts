@@ -4,13 +4,13 @@ import "./style.css";
 type Vec = { x: number; z: number };
 type CastState = { abilityId: string; targetId: string | null; duration: number; remaining: number; progress: number };
 type AutoAttackState = { remaining: number; interval: number; progress: number };
-type PlayerState = { id: string; name: string; classId: string | null; ready: boolean; spectator?: boolean; hp: number; maxHealth: number; resource: number; maxResource: number; resourceType: string | null; level: number; xp: number; dead: boolean; targetId: string | null; allyTargetId: string | null; position: Vec; facing: number; jumping: boolean; jumpProgress: number; abilities: string[]; abilitySlots?: Record<string, number>; cooldowns: Record<string, number>; globalCooldown: number; autoAttack: AutoAttackState; pendingUpgrades: Upgrade[]; stats: Record<string, number>; baseStats?: Record<string, number>; shield?: number; shieldRemaining?: number; casting: CastState | null; stealthed?: boolean; stealthRemaining?: number; iceBlocked?: boolean; sprinting?: boolean; form?: string | null; lobbyUpgradePoints?: number; lobbyUpgrades?: Upgrade[] };
+type PlayerState = { id: string; name: string; classId: string | null; ready: boolean; spectator?: boolean; hp: number; maxHealth: number; resource: number; maxResource: number; resourceType: string | null; level: number; xp: number; dead: boolean; targetId: string | null; allyTargetId: string | null; position: Vec; facing: number; jumping: boolean; jumpProgress: number; abilities: string[]; abilitySlots?: Record<string, number>; cooldowns: Record<string, number>; globalCooldown: number; autoAttack: AutoAttackState; pendingUpgrades: Upgrade[]; stats: Record<string, number>; baseStats?: Record<string, number>; shield?: number; shieldRemaining?: number; casting: CastState | null; stealthed?: boolean; stealthRemaining?: number; iceBlocked?: boolean; sprinting?: boolean; activeBuffs?: Array<{ abilityId: string; remaining: number }>; form?: string | null; lobbyUpgradePoints?: number; lobbyUpgrades?: Upgrade[] };
 type EnemyState = { id: string; type: string; name: string; hp: number; maxHealth: number; position: Vec; boss: boolean; alerted?: boolean; facing?: number };
 type MapObject = { id: string; type: string; x: number; z: number; radius?: number; width?: number; depth?: number; blocksSight?: boolean; variant?: number; rotation?: number };
 type GroundEffect = { id: string; type: string; abilityId?: string; x: number; z: number; radius: number; remaining?: number; totemType?: string };
 type Upgrade = { id: string; name: string; choiceType?: string; abilityId?: string; description?: string; stat?: string; mode?: string; value?: number };
 type ClassData = { id: string; name: string; description: string; resourceType: string; startingResource: number; baseStats: Record<string, number>; statGrowth: Record<string, number>; startingAbilities: string[] };
-type Ability = { id: string; name: string; classId: string; slot: number; targetType: string; cooldown: number; resourceCost?: { type: string; amount: number }; castTime?: number; range?: number; requiredForm?: string; description?: string; effects?: Array<{ type: string; amount?: number; school?: string; scaling?: { stat: string; coefficient: number }; duration?: number; tickInterval?: number; slowPercent?: number; radius?: number; multiplier?: number; add?: number; stat?: string; center?: string; behindDistance?: number; stopDistance?: number; stunDuration?: number; form?: string; statMultipliers?: Record<string, number>; statAdds?: Record<string, number> }> };
+type Ability = { id: string; name: string; classId: string; slot: number; targetType: string; cooldown: number; resourceCost?: { type: string; amount: number }; castTime?: number; range?: number; requiredForm?: string; description?: string; effects?: Array<{ type: string; amount?: number; percent?: number; school?: string; scaling?: { stat: string; coefficient: number }; duration?: number; tickInterval?: number; slowPercent?: number; radius?: number; multiplier?: number; add?: number; stat?: string; center?: string; behindDistance?: number; stopDistance?: number; stunDuration?: number; form?: string; statMultipliers?: Record<string, number>; statAdds?: Record<string, number> }> };
 type CombatEvent = { id: number; type: string; sourceId?: string; targetId?: string; abilityId?: string; castTime?: number; duration?: number; amount?: number; school?: string; status?: string; critical?: boolean; x?: number; z?: number; radius?: number };
 type MatchStats = { name: string; classId: string | null; spectator: boolean; level: number; damageDealt: number; healingDone: number; damageTaken: number; kills: number; deaths: number; biggestHit: number };
 type Snapshot = { type: string; you: string; reconnectToken?: string; matchState: string; countdown: number | null; players: Record<string, PlayerState>; enemies: Record<string, EnemyState>; mapObjects: MapObject[]; mapRevision?: number; groundEffects?: GroundEffect[]; wave: { number: number; state: string; aliveEnemies: number; nextWaveIn?: number }; abilities: Record<string, Ability>; classes: Record<string, ClassData>; upgrades: Upgrade[]; events: CombatEvent[]; matchStats: Record<string, MatchStats> };
@@ -23,7 +23,8 @@ const classInfo: Record<string, { name: string; description: string; stats: stri
   mage: { name: "Mage", description: "A fragile elemental nuker. Firebolt burns enemies over time; Frostbolt can be learned later to help the team kite.", stats: ["HP 94", "Mana 130", "Spell Power 23", "Burst / control caster"] },
   rogue: { name: "Rogue", description: "A fast dual-dagger assassin. Backstep blinks behind a target for a brutal strike, while Vanish drops enemy attention for a short window.", stats: ["HP 106", "Energy", "Attack Power 22", "Dual-dagger assassin"] },
   druid: { name: "Druid", description: "A shapeshifting hybrid. Bear Form turns the druid into a durable bruiser, while Cat Form becomes a fast melee predator.", stats: ["HP 118", "Mana 115", "Hybrid scaling", "Bear / Cat shapeshifter"] },
-  shaman: { name: "Shaman", description: "A spiritual caster bonded to the elements. Calls down lightning, heals allies with totems, and wades into melee with elemental strikes.", stats: ["HP 108", "Mana 120", "Spell Power 19 / Attack Power 9", "Lightning + Totem caster"] }
+  shaman: { name: "Shaman", description: "A spiritual caster bonded to the elements. Calls down lightning, heals allies with totems, and wades into melee with elemental strikes.", stats: ["HP 108", "Mana 120", "Spell Power 19 / Attack Power 9", "Lightning + Totem caster"] },
+  paladin: { name: "Paladin", description: "A heavily armored holy bruiser with a two-handed mace. Calls down judgement, protects allies with blessings, and survives through divine miracles.", stats: ["HP 132", "Mana 110", "Attack Power 18 / Spell Power 14", "Two-handed holy bruiser"] }
 };
 const SNAPSHOT_INTERVAL_MS = 1000 / 15;
 const JUMP_DURATION_SECONDS = 0.36;
@@ -46,6 +47,7 @@ root.innerHTML = `
       <button data-testid="class-rogue" data-class="rogue">Rogue</button>
       <button data-testid="class-druid" data-class="druid">Druid</button>
       <button data-testid="class-shaman" data-class="shaman">Shaman</button>
+      <button data-testid="class-paladin" data-class="paladin">Paladin</button>
     </div>
     <div id="lobbyUpgrades" data-testid="lobby-upgrades">
       <h3>Stat Upgrades <span id="lobbyUpgradePoints" data-testid="lobby-upgrade-points">3</span></h3>
@@ -1031,6 +1033,7 @@ function showAbilityTooltip(button: HTMLButtonElement) {
     if (effect.type === "dot") return `DoT: ${total} ${effect.school || ""} over ${effect.duration || 0}s${effect.radius ? ` in ${effect.radius}m` : ""}`;
     if (effect.type === "channel_damage") return `Channel: ${total} ${effect.school || ""} every ${effect.tickInterval || 0}s while casting`;
     if (effect.type === "heal") return `Heal: ${total}${effect.radius ? ` in ${effect.radius}m` : ""}`;
+    if (effect.type === "heal_percent") return `Heal: ${Math.round((effect.percent || 1) * 100)}% max HP`;
     if (effect.type === "hot") return `Heal over time: ${total}/tick for ${effect.duration || 0}s`;
     if (effect.type === "shield") return `Shield: ${total}`;
     if (effect.type === "stun") return `Freeze/Stun: ${effect.duration || 0}s${effect.radius ? ` in ${effect.radius}m` : ""}`;
@@ -1143,6 +1146,13 @@ function abilityDescription(abilityId: string) {
     shaman_searing_totem: "Summon a fire totem that hurls flame at the nearest enemy every 1.2s.",
     shaman_earthbind_totem: "Drop a stone totem that pulses slowing earth magic, dragging down nearby enemies.",
     shaman_frost_shock: "A freezing instant strike that chills the target and slows their movement.",
+    paladin_judgement: "Call down a massive holy hammer from above, crushing the enemy and briefly slowing it.",
+    paladin_crusader_strike: "Smash the enemy with a two-handed mace, dealing physical and holy damage.",
+    paladin_consecration: "Consecrate the ground around you, dealing holy damage to nearby enemies over time.",
+    paladin_hammer_of_justice: "Strike an enemy with holy force, dealing damage and briefly stunning it.",
+    paladin_divine_shield: "Become protected by divine power, absorbing all incoming damage for 4 seconds.",
+    paladin_lay_on_hands: "Instantly restore an ally to full health. Very long cooldown.",
+    paladin_blessing_of_might: "Bless an ally for 1 minute, increasing Attack Power and Spell Power by 12%.",
     warrior_charge: "Rush into melee, slam the enemy, and briefly stun them.",
     warrior_thunder_clap: "Stomp the ground with a thunderous shockwave, damaging and slowing nearby enemies.",
     hunter_arrow_barrage: "Rain a hail of arrows over the target area.",
@@ -1223,6 +1233,7 @@ function formatAbilityEffectSummary(effect: NonNullable<Ability["effects"]>[numb
   if (effect.type === "dot") return `${effect.amount || 0} ${effect.school || ""} DoT over ${effect.duration || 0}s`;
   if (effect.type === "channel_damage") return `${effect.amount || 0} ${effect.school || ""} every ${effect.tickInterval || 0}s while casting`;
   if (effect.type === "heal") return `${effect.amount || 0} heal${effect.radius ? ` in ${effect.radius}m` : ""}`;
+  if (effect.type === "heal_percent") return `${Math.round((effect.percent || 1) * 100)}% max HP heal`;
   if (effect.type === "hot") return `${effect.amount || 0} HoT over ${effect.duration || 0}s`;
   if (effect.type === "shield") return `${effect.amount || 0} shield for ${effect.duration || 0}s`;
   if (effect.type === "stun") return `stun ${effect.duration || 0}s${effect.radius ? ` in ${effect.radius}m` : ""}`;
@@ -1355,6 +1366,7 @@ function renderWorld() {
     updateActiveShield(node, p);
     updateIceBlockVisual(node, p);
     updateSprintTrail(node, p, moving);
+    updateBlessingVisual(node, p);
     updateStealthVisual(node, p);
   }
   for (const e of Object.values(state.enemies)) {
@@ -1427,6 +1439,33 @@ function updateSprintTrail(node: TransformNode, player: PlayerState, moving: boo
   });
 }
 
+function updateBlessingVisual(node: TransformNode, player: PlayerState) {
+  const existing = node.getChildTransformNodes().find((child) => child.name.endsWith("-blessing-might"));
+  const active = Boolean(player.activeBuffs?.some((buff) => buff.abilityId === "paladin_blessing_of_might" && buff.remaining > 0));
+  if (!active) {
+    existing?.dispose();
+    return;
+  }
+  if (existing) return;
+  const root = new TransformNode(`${player.id}-blessing-might`, scene);
+  root.parent = node;
+  const halo = MeshBuilder.CreateTorus(`${player.id}-blessing-might-halo`, { diameter: 0.82, thickness: 0.04, tessellation: 36 }, scene);
+  halo.parent = root;
+  halo.position.y = 2.03;
+  halo.rotation.x = Math.PI / 2;
+  const haloMat = mat(`${player.id}-blessing-might-halo-mat`, new Color3(1, 0.82, 0.18));
+  haloMat.emissiveColor = new Color3(0.85, 0.52, 0.05);
+  halo.material = haloMat;
+  const rune = MeshBuilder.CreateTorus(`${player.id}-blessing-might-rune`, { diameter: 1.28, thickness: 0.035, tessellation: 48 }, scene);
+  rune.parent = root;
+  rune.position.y = 0.08;
+  rune.rotation.x = Math.PI / 2;
+  const runeMat = transparentMat(`${player.id}-blessing-might-rune-mat`, new Color3(1, 0.78, 0.16), 0.5);
+  runeMat.emissiveColor = new Color3(0.95, 0.55, 0.05);
+  rune.material = runeMat;
+  root.getChildMeshes().forEach((mesh) => mesh.isPickable = false);
+}
+
 function updateStealthVisual(node: TransformNode, player: PlayerState) {
   const multiplier = player.stealthed ? 0.32 : 1;
   for (const mesh of node.getChildMeshes()) {
@@ -1483,6 +1522,42 @@ function createGroundEffect(effect: GroundEffect) {
     }
   } else if (effect.type === "totem") {
     buildTotemModel(root, effect.id, effect.totemType || "healing");
+  } else if (effect.type === "consecration") {
+    const lavaGold = new Color3(1, 0.62, 0.05);
+    const hotCore = new Color3(1, 0.88, 0.18);
+    const ember = new Color3(1, 0.18, 0.02);
+    const disc = MeshBuilder.CreateCylinder(`${effect.id}-disc`, { diameter: effect.radius * 2, height: 0.035, tessellation: 72 }, scene);
+    disc.parent = root;
+    disc.position.y = 0.045;
+    const discMat = transparentMat(`${effect.id}-disc-mat`, lavaGold, 0.34);
+    discMat.emissiveColor = lavaGold.scale(0.85);
+    disc.material = discMat;
+    const core = MeshBuilder.CreateCylinder(`${effect.id}-core`, { diameter: effect.radius * 1.45, height: 0.04, tessellation: 48 }, scene);
+    core.parent = root;
+    core.position.y = 0.06;
+    const coreMat = transparentMat(`${effect.id}-core-mat`, hotCore, 0.24);
+    coreMat.emissiveColor = hotCore.scale(0.95);
+    core.material = coreMat;
+    const cracks: Mesh[] = [];
+    for (let i = 0; i < 11; i++) {
+      const angle = (Math.PI * 2 * i) / 11 + Math.sin(i * 4.17) * 0.22;
+      const length = effect.radius * (0.55 + (i % 4) * 0.1);
+      const crack = box(`${effect.id}-crack-${i}`, { width: 0.08 + (i % 3) * 0.025, height: 0.028, depth: length }, ember);
+      crack.parent = root;
+      crack.position.set(Math.sin(angle) * effect.radius * 0.2, 0.085, Math.cos(angle) * effect.radius * 0.2);
+      crack.rotation.y = angle;
+      const crackMat = crack.material as StandardMaterial;
+      crackMat.emissiveColor = ember.scale(0.9);
+      cracks.push(crack);
+    }
+    const rim = MeshBuilder.CreateTorus(`${effect.id}-rim`, { diameter: effect.radius * 2, thickness: 0.08, tessellation: 72 }, scene);
+    rim.parent = root;
+    rim.position.y = 0.12;
+    rim.rotation.x = Math.PI / 2;
+    const rimMat = transparentMat(`${effect.id}-rim-mat`, hotCore, 0.58);
+    rimMat.emissiveColor = hotCore;
+    rim.material = rimMat;
+    root.metadata = { ...(root.metadata || {}), consecration: { discMat, coreMat, rimMat, cracks } };
   } else if (effect.type === "boss_meteor") {
     const disc = MeshBuilder.CreateCylinder(`${effect.id}-disc`, { diameter: effect.radius * 2, height: 0.04, tessellation: 72 }, scene);
     disc.parent = root;
@@ -2112,6 +2187,18 @@ function animateWorld() {
       const material = halo.material as StandardMaterial;
       material.emissiveColor = new Color3(0.58, 0.44, 0.08).scale(0.8 + Math.sin(t * 3.2) * 0.18);
     }
+    const blessing = node.getChildMeshes().find((mesh) => mesh.name.endsWith("-blessing-might-halo"));
+    if (blessing) {
+      blessing.rotation.z += dt * 1.15;
+      const material = blessing.material as StandardMaterial;
+      material.emissiveColor = new Color3(1, 0.62, 0.08).scale(0.72 + Math.sin(t * 4.5) * 0.24);
+    }
+    const blessingRune = node.getChildMeshes().find((mesh) => mesh.name.endsWith("-blessing-might-rune"));
+    if (blessingRune) {
+      blessingRune.rotation.z -= dt * 0.65;
+      const material = blessingRune.material as StandardMaterial;
+      material.alpha = 0.34 + Math.sin(t * 3.1) * 0.12;
+    }
     const staffGem = node.getChildMeshes().find((mesh) => mesh.name.endsWith("-staff-gem"));
     if (staffGem) {
       const material = staffGem.material as StandardMaterial;
@@ -2178,6 +2265,18 @@ function animateWorld() {
         mat.alpha = base + Math.sin(t * 1.8 + node.position.z) * 0.08;
       }
     }
+    const consecration = node.metadata?.consecration as { discMat: StandardMaterial; coreMat: StandardMaterial; rimMat: StandardMaterial; cracks: Mesh[] } | undefined;
+    if (consecration) {
+      const pulse = 0.5 + Math.sin(t * 6.2 + node.position.x) * 0.5;
+      consecration.discMat.alpha = 0.26 + pulse * 0.14;
+      consecration.coreMat.alpha = 0.18 + pulse * 0.16;
+      consecration.rimMat.alpha = 0.42 + pulse * 0.18;
+      consecration.cracks.forEach((crack, index) => {
+        const material = crack.material as StandardMaterial;
+        material.alpha = 0.48 + Math.sin(t * 7.5 + index) * 0.22;
+        material.emissiveColor = new Color3(1, 0.18, 0.02).scale(0.75 + pulse * 0.45);
+      });
+    }
   }
 }
 
@@ -2192,7 +2291,7 @@ function createPlayer(p: PlayerState) {
     markEntityMeshes(root, p.id);
     return root;
   }
-  const color = p.classId === "warrior" ? new Color3(0.7, 0.15, 0.1) : p.classId === "hunter" ? new Color3(0.1, 0.45, 0.18) : p.classId === "priest" ? new Color3(0.95, 0.9, 0.72) : p.classId === "rogue" ? new Color3(0.16, 0.12, 0.2) : p.classId === "druid" ? new Color3(0.22, 0.43, 0.18) : p.classId === "shaman" ? new Color3(0.16, 0.42, 0.6) : new Color3(0.15, 0.2, 0.85);
+  const color = p.classId === "warrior" ? new Color3(0.7, 0.15, 0.1) : p.classId === "hunter" ? new Color3(0.1, 0.45, 0.18) : p.classId === "priest" ? new Color3(0.95, 0.9, 0.72) : p.classId === "rogue" ? new Color3(0.16, 0.12, 0.2) : p.classId === "druid" ? new Color3(0.22, 0.43, 0.18) : p.classId === "shaman" ? new Color3(0.16, 0.42, 0.6) : p.classId === "paladin" ? new Color3(0.72, 0.62, 0.38) : new Color3(0.15, 0.2, 0.85);
   const build = playerBuild(p.classId);
   addContactShadow(root, `${p.id}-contact-shadow`, 1.25, 0.2, 0.78);
   const body = box(`${p.id}-body`, { width: build.bodyWidth, height: build.bodyHeight, depth: build.bodyDepth }, color); body.parent = root; body.position.y = 0.7;
@@ -2241,6 +2340,7 @@ function playerBuild(classId: string | null) {
   if (classId === "rogue") return { bodyWidth: 0.66, bodyHeight: 0.92, bodyDepth: 0.38, headWidth: 0.46, headDepth: 0.46, armWidth: 0.16, armHeight: 0.72, armDepth: 0.18, armX: 0.5, skin: new Color3(0.78, 0.56, 0.42) };
   if (classId === "druid") return { bodyWidth: 0.76, bodyHeight: 1.0, bodyDepth: 0.46, headWidth: 0.5, headDepth: 0.5, armWidth: 0.2, armHeight: 0.74, armDepth: 0.22, armX: 0.56, skin: new Color3(0.76, 0.56, 0.38) };
   if (classId === "shaman") return { bodyWidth: 0.78, bodyHeight: 1.02, bodyDepth: 0.48, headWidth: 0.5, headDepth: 0.5, armWidth: 0.2, armHeight: 0.78, armDepth: 0.22, armX: 0.58, skin: new Color3(0.74, 0.56, 0.4) };
+  if (classId === "paladin") return { bodyWidth: 0.9, bodyHeight: 1.04, bodyDepth: 0.54, headWidth: 0.54, headDepth: 0.52, armWidth: 0.24, armHeight: 0.78, armDepth: 0.24, armX: 0.66, skin: new Color3(0.82, 0.62, 0.44) };
   return { bodyWidth: 0.74, bodyHeight: 0.98, bodyDepth: 0.44, headWidth: 0.5, headDepth: 0.5, armWidth: 0.18, armHeight: 0.74, armDepth: 0.2, armX: 0.54, skin: new Color3(0.84, 0.64, 0.48) };
 }
 
@@ -2375,6 +2475,25 @@ function addClassDetails(root: TransformNode, id: string, classId: string | null
     aura.parent = root; aura.position.y = 0.025;
     const auraMat = transparentMat(`${id}-shaman-aura-mat`, new Color3(0.32, 0.78, 0.88), 0.18);
     aura.material = auraMat;
+  } else if (classId === "paladin") {
+    const gold = new Color3(0.95, 0.72, 0.18);
+    const steel = new Color3(0.58, 0.58, 0.56);
+    const darkSteel = new Color3(0.28, 0.29, 0.31);
+    const leftShoulder = box(`${id}-paladin-left-shoulder`, { width: 0.5, height: 0.24, depth: 0.5 }, steel); leftShoulder.parent = root; leftShoulder.position.set(-0.66, 1.24, 0); leftShoulder.rotation.z = -0.12;
+    const rightShoulder = box(`${id}-paladin-right-shoulder`, { width: 0.5, height: 0.24, depth: 0.5 }, steel); rightShoulder.parent = root; rightShoulder.position.set(0.66, 1.24, 0); rightShoulder.rotation.z = 0.12;
+    const chestPlate = box(`${id}-paladin-chest-plate`, { width: 0.76, height: 0.56, depth: 0.58 }, darkSteel); chestPlate.parent = root; chestPlate.position.y = 0.92;
+    const crest = box(`${id}-paladin-crest`, { width: 0.18, height: 0.62, depth: 0.6 }, gold); crest.parent = root; crest.position.set(0, 0.92, -0.03);
+    const belt = box(`${id}-paladin-belt`, { width: 0.92, height: 0.14, depth: 0.58 }, new Color3(0.16, 0.1, 0.05)); belt.parent = root; belt.position.y = 0.46;
+    const helmBand = MeshBuilder.CreateCylinder(`${id}-paladin-crown`, { diameterTop: 0.46, diameterBottom: 0.58, height: 0.16, tessellation: 8 }, scene); helmBand.parent = root; helmBand.position.y = 1.68; helmBand.material = mat(`${id}-paladin-crown-mat`, steel);
+    const halo = MeshBuilder.CreateTorus(`${id}-paladin-halo`, { diameter: 0.72, thickness: 0.035, tessellation: 36 }, scene); halo.parent = root; halo.position.y = 1.9; halo.rotation.x = Math.PI / 2; halo.material = mat(`${id}-paladin-halo-mat`, gold); (halo.material as StandardMaterial).emissiveColor = gold.scale(0.75);
+    const mace = new TransformNode(`${id}-twohand-mace`, scene);
+    mace.parent = rightArm || root;
+    mace.position.set(0.12, -0.44, -0.18);
+    mace.rotation.z = -0.34;
+    const handle = box(`${id}-mace-handle`, { width: 0.09, height: 1.45, depth: 0.09 }, new Color3(0.2, 0.12, 0.06)); handle.parent = mace;
+    const head = MeshBuilder.CreateCylinder(`${id}-mace-head`, { diameterTop: 0.48, diameterBottom: 0.38, height: 0.42, tessellation: 6 }, scene); head.parent = mace; head.position.y = 0.78; head.rotation.y = Math.PI / 6; head.material = mat(`${id}-mace-head-mat`, steel);
+    const headBand = box(`${id}-mace-gold-band`, { width: 0.58, height: 0.1, depth: 0.58 }, gold); headBand.parent = head; headBand.position.y = 0;
+    const glow = MeshBuilder.CreateCylinder(`${id}-paladin-ground-glow`, { diameter: 1.25, height: 0.02, tessellation: 48 }, scene); glow.parent = root; glow.position.y = 0.04; glow.material = transparentMat(`${id}-paladin-ground-glow-mat`, gold, 0.16);
   }
 }
 
@@ -2663,6 +2782,25 @@ function playCastEffect(event: CombatEvent) {
   } else if (event.abilityId?.includes("shaman_primal_strike")) {
     slashRing(target.position, 420);
     expandingDisc("primal-strike", target.position, 1.3, new Color3(0.4, 0.95, 0.5), 460, 0.26);
+  } else if (event.abilityId?.includes("paladin_judgement")) {
+    holyHammerStrike(target.position, 760);
+  } else if (event.abilityId?.includes("paladin_crusader_strike")) {
+    slashArc(target.position, 360);
+    expandingDisc("crusader-strike", target.position, 1.35, new Color3(1, 0.78, 0.16), 480, 0.26);
+  } else if (event.abilityId?.includes("paladin_consecration")) {
+    holyRing(source.position, 4.0, 1000);
+  } else if (event.abilityId?.includes("paladin_hammer_of_justice")) {
+    holyHammerStrike(target.position, 560);
+    holyRing(target.position, 1.1, 520);
+  } else if (event.abilityId?.includes("paladin_divine_shield")) {
+    shieldBubble(target.position, new Color3(1, 0.82, 0.16), 1200);
+    holyRing(target.position, 1.6, 900);
+  } else if (event.abilityId?.includes("paladin_lay_on_hands")) {
+    layOnHandsBurst(target.position, 1100);
+    beam(source.position, target.position, new Color3(1, 0.88, 0.28), 650);
+  } else if (event.abilityId?.includes("paladin_blessing_of_might")) {
+    holyRing(target.position, 1.45, 850);
+    blessingPulse(target.position, 900);
   } else if (event.abilityId?.includes("sanctify")) {
     holyRing(source.position, 5.0, 1000);
   } else if (event.abilityId?.includes("arcane_blast")) {
@@ -2702,6 +2840,8 @@ function playStatusEffect(event: CombatEvent) {
   if (event.abilityId?.includes("fireball")) fireBurst(target.position, 900);
   if (event.abilityId?.includes("frost")) frostSpikes(target.position, 900);
   if (event.abilityId?.includes("renew") || event.abilityId?.includes("barrier") || event.abilityId?.includes("resurrection")) holyRing(target.position, 1.2, 700);
+  if (event.abilityId?.includes("paladin_blessing_of_might")) blessingPulse(target.position, 900);
+  if (event.abilityId?.includes("paladin_divine_shield")) holyRing(target.position, 1.6, 900);
   if (event.abilityId?.includes("rejuvenation")) natureRing(target.position, 1.25, 700);
   if (event.abilityId?.includes("sprint")) shadowRing(target.position, 1.7, 650);
   if (event.abilityId?.includes("vanish")) shadowRing(target.position, 1.7, 650);
@@ -2727,6 +2867,7 @@ function playAutoAttackEffect(event: CombatEvent) {
   } else {
     slashArc(target.position, 260);
     if (sourcePlayer?.classId === "warrior") warriorClang(0.04);
+    else if (sourcePlayer?.classId === "paladin") warriorClang(0.045);
     else if (sourcePlayer?.classId === "rogue") rogueSlice(0.04);
     else if (sourcePlayer?.classId === "priest") priestChoir(0.025);
     else if (sourcePlayer?.classId === "mage") mageSparkle();
@@ -3455,6 +3596,95 @@ function holyRing(center: Vector3, radius: number, duration: number) {
   expandingDisc("holy-ring", center, radius, new Color3(1, 0.86, 0.24), duration, 0.32);
 }
 
+function holyHammerStrike(center: Vector3, duration: number) {
+  const root = new TransformNode("holy-hammer-strike", scene);
+  const gold = new Color3(1, 0.78, 0.16);
+  const steel = new Color3(0.95, 0.92, 0.74);
+  const handle = box("holy-hammer-handle", { width: 0.16, height: 1.5, depth: 0.16 }, new Color3(0.32, 0.2, 0.08));
+  handle.parent = root;
+  const head = MeshBuilder.CreateCylinder("holy-hammer-head", { diameterTop: 0.72, diameterBottom: 0.54, height: 0.48, tessellation: 6 }, scene);
+  head.parent = root;
+  head.position.y = -0.52;
+  head.rotation.y = Math.PI / 6;
+  const headMat = mat("holy-hammer-head-mat", steel);
+  headMat.emissiveColor = gold.scale(0.55);
+  head.material = headMat;
+  const glow = MeshBuilder.CreateSphere("holy-hammer-glow", { diameter: 1.25, segments: 14 }, scene);
+  glow.parent = root;
+  glow.position.y = -0.5;
+  const glowMat = transparentMat("holy-hammer-glow-mat", gold, 0.28);
+  glowMat.emissiveColor = gold;
+  glow.material = glowMat;
+  root.position = center.add(new Vector3(0, 7.2, 0));
+  root.rotation.x = 0;
+  const started = performance.now();
+  const observer = scene.onBeforeRenderObservable.add(() => {
+    const progress = Math.min(1, (performance.now() - started) / (duration * 0.62));
+    const impact = center.add(new Vector3(0, 1.05, 0));
+    root.position = Vector3.Lerp(center.add(new Vector3(0, 7.2, 0)), impact, progress * progress);
+    root.rotation.y += 0.12;
+    glowMat.alpha = Math.max(0, 0.28 * (1 - Math.max(0, progress - 0.72) / 0.28));
+    if (progress >= 1) {
+      scene.onBeforeRenderObservable.remove(observer);
+      root.dispose();
+      expandingDisc("judgement-impact", center, 2.0, gold, 700, 0.4);
+      holyRing(center, 1.6, 620);
+    }
+  });
+}
+
+function layOnHandsBurst(center: Vector3, duration: number) {
+  const gold = new Color3(1, 0.84, 0.22);
+  const column = MeshBuilder.CreateCylinder("lay-on-hands-column", { diameterTop: 0.75, diameterBottom: 1.25, height: 7.5, tessellation: 32 }, scene);
+  column.position = center.add(new Vector3(0, 3.8, 0));
+  const columnMat = transparentMat("lay-on-hands-column-mat", gold, 0.42);
+  columnMat.emissiveColor = gold;
+  column.material = columnMat;
+  holyRing(center, 1.75, duration);
+  for (let i = 0; i < 14; i++) {
+    const mote = MeshBuilder.CreateSphere("lay-on-hands-mote", { diameter: 0.12 + Math.random() * 0.12, segments: 8 }, scene);
+    const angle = Math.random() * Math.PI * 2;
+    mote.position = center.add(new Vector3(Math.cos(angle) * (0.4 + Math.random() * 0.8), 0.3 + Math.random() * 1.3, Math.sin(angle) * (0.4 + Math.random() * 0.8)));
+    const material = mat("lay-on-hands-mote-mat", gold);
+    material.emissiveColor = gold;
+    mote.material = material;
+    animateParticle(mote, material, new Vector3(0, 1.2 + Math.random() * 0.9, 0), duration);
+  }
+  const started = performance.now();
+  const observer = scene.onBeforeRenderObservable.add(() => {
+    const progress = (performance.now() - started) / duration;
+    column.scaling.x = 1 + Math.sin(progress * Math.PI) * 0.12;
+    column.scaling.z = column.scaling.x;
+    columnMat.alpha = Math.max(0, 0.42 * (1 - progress));
+    if (progress >= 1) {
+      scene.onBeforeRenderObservable.remove(observer);
+      column.dispose();
+    }
+  });
+}
+
+function blessingPulse(center: Vector3, duration: number) {
+  const gold = new Color3(1, 0.78, 0.16);
+  expandingDisc("blessing-pulse", center, 1.55, gold, duration, 0.28);
+  const rune = MeshBuilder.CreateTorus("blessing-rune-pop", { diameter: 0.9, thickness: 0.04, tessellation: 36 }, scene);
+  rune.position = center.add(new Vector3(0, 1.85, 0));
+  rune.rotation.x = Math.PI / 2;
+  const material = transparentMat("blessing-rune-pop-mat", gold, 0.7);
+  material.emissiveColor = gold;
+  rune.material = material;
+  const started = performance.now();
+  const observer = scene.onBeforeRenderObservable.add(() => {
+    const progress = (performance.now() - started) / duration;
+    rune.rotation.z += 0.08;
+    rune.position.y = center.y + 1.85 + progress * 0.35;
+    material.alpha = Math.max(0, 0.7 * (1 - progress));
+    if (progress >= 1) {
+      scene.onBeforeRenderObservable.remove(observer);
+      rune.dispose();
+    }
+  });
+}
+
 function natureRing(center: Vector3, radius: number, duration: number) {
   expandingDisc("nature-ring", center, radius, new Color3(0.38, 0.95, 0.28), duration, 0.28);
   for (let i = 0; i < 7; i++) {
@@ -3726,7 +3956,7 @@ function playCastStartSound(event: CombatEvent) {
     gliss(900, 1600, 0.22, "sine", 0.03);
   } else if (abilityId.includes("heal")) {
     priestChoir(0.04);
-  } else if (abilityId.includes("smite")) {
+  } else if (abilityId.includes("smite") || abilityId.includes("paladin_judgement") || sourceClass === "paladin") {
     holyCharge();
   } else if (abilityId.includes("shot")) {
     hunterTwang(0, 0.035);
@@ -3752,6 +3982,12 @@ function playCastReleaseSound(event: CombatEvent) {
     tone(2110, 0.11, "triangle", 0.035, 0.035);
   } else if (abilityId.includes("smite")) {
     lightningSnap();
+  } else if (abilityId.includes("paladin_judgement")) {
+    lightningSnap();
+    warriorClang(0.05);
+  } else if (abilityId.includes("paladin_crusader_strike")) {
+    warriorClang(0.055);
+    priestChoir(0.025);
   } else if (abilityId.includes("heal") || event.school === "holy") {
     [740, 988, 1318].forEach((frequency, index) => tone(frequency, 0.16, "sine", 0.035, index * 0.045));
   } else if (abilityId.includes("shot")) {
@@ -3814,6 +4050,7 @@ function playStatusSound(event: CombatEvent) {
   if (event.abilityId?.includes("fire") || event.abilityId?.includes("meteor")) fireWhoosh(0);
   if (event.abilityId?.includes("frost")) frostCrackle(0);
   if (event.abilityId?.includes("renew") || event.abilityId?.includes("barrier")) priestChoir(0.03);
+  if (event.abilityId?.includes("paladin")) priestChoir(0.035);
   if (event.abilityId?.includes("vanish")) rogueSlice(0.028);
 }
 

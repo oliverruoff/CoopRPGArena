@@ -1055,6 +1055,19 @@ class Game:
                     "endAt": now + effect.get("duration", 3),
                     "tickInterval": effect.get("tickInterval", 0.5),
                 })
+                ground_effect_type = effect.get("groundEffectType")
+                if ground_effect_type:
+                    self._ground_effect_seq += 1
+                    self.ground_effects.append({
+                        "id": f"ground_{self._ground_effect_seq}",
+                        "type": ground_effect_type,
+                        "sourceId": player.id,
+                        "abilityId": ability_id,
+                        "x": player.x,
+                        "z": player.z,
+                        "radius": effect.get("radius", 2.6),
+                        "expiresAt": now + effect.get("duration", 3),
+                    })
                 self._emit_locked({"type": "status", "sourceId": player.id, "targetId": player.id, "abilityId": ability_id, "status": "spinning", "duration": effect.get("duration", 3)})
             elif effect["type"] == "totem":
                 self._summon_totem_locked(player, ability_id, effect)
@@ -1683,6 +1696,11 @@ class Game:
             "stealthRemaining": max(0, round(p.stealth_until - now, 1)),
             "iceBlocked": self._is_ice_blocked_locked(p, now),
             "sprinting": any(buff.get("abilityId") == "rogue_sprint" and now < buff.get("endAt", 0) for buff in p.stat_buffs),
+            "activeBuffs": [
+                {"abilityId": buff.get("abilityId"), "remaining": max(0, round(buff.get("endAt", now) - now, 1))}
+                for buff in p.stat_buffs
+                if buff.get("abilityId") and now < buff.get("endAt", 0)
+            ],
             "form": p.shapeshift_form,
             "lobbyUpgradePoints": p.lobby_upgrade_points,
             "lobbyUpgrades": p.lobby_upgrades,
