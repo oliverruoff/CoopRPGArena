@@ -202,7 +202,7 @@ A spiritual caster bonded to the elements. Calls down lightning, heals allies wi
 
 ### Paladin
 
-<p align="left"><img src="media/classes/paladin.svg" alt="Paladin class model" width="180" /></p>
+<p align="left"><img src="media/classes/paladin.png" alt="Paladin 3D model" width="180" /></p>
 
 A heavily armored holy bruiser with a two-handed mace. Calls down judgement, protects allies with blessings, and survives through divine miracles.
 
