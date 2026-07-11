@@ -114,9 +114,16 @@ const scene = new Scene(engine);
 (canvas as any).engine = engine;
 (canvas as any).scene = scene;
 scene.clearColor = new Color4(0.13, 0.16, 0.17, 1);
-const camera = new ArcRotateCamera("camera", -Math.PI / 2, 0.9, 42, Vector3.Zero(), scene);
-camera.attachControl(canvas, false);
+const CAMERA_ALPHA = -Math.PI / 2;
+const CAMERA_BETA = 0.9;
+const DESKTOP_CAMERA_RADIUS = 42;
+const PORTRAIT_CAMERA_RADIUS = 48;
+const camera = new ArcRotateCamera("camera", CAMERA_ALPHA, CAMERA_BETA, DESKTOP_CAMERA_RADIUS, Vector3.Zero(), scene);
 camera.inputs.clear();
+camera.lowerAlphaLimit = CAMERA_ALPHA;
+camera.upperAlphaLimit = CAMERA_ALPHA;
+camera.lowerBetaLimit = CAMERA_BETA;
+camera.upperBetaLimit = CAMERA_BETA;
 new HemisphericLight("light", new Vector3(0.3, 1, 0.2), scene).intensity = 0.5;
 const dirLight = new DirectionalLight("dirLight", new Vector3(-0.45, -1, -0.35), scene);
 dirLight.position = new Vector3(18, 32, 18);
@@ -547,13 +554,13 @@ engine.runRenderLoop(() => {
   const me = currentState?.players[currentState.you];
   if (me && !me.spectator) {
     const position = interpolatedPosition(currentState.you, me.position, "player");
-    camera.setTarget(new Vector3(position.x, 0, position.z));
+    followCamera(position.x, position.z);
   } else if (me?.spectator && currentState?.matchState === "running") {
     const active = Object.values(currentState.players).filter((p) => !p.spectator);
     if (active.length) {
       const avgX = active.reduce((sum, p) => sum + p.position.x, 0) / active.length;
       const avgZ = active.reduce((sum, p) => sum + p.position.z, 0) / active.length;
-      camera.setTarget(new Vector3(avgX, 0, avgZ));
+      followCamera(avgX, avgZ);
     }
   }
   canvas.style.filter = me?.dead ? "grayscale(1) contrast(0.9) brightness(0.72)" : "";
@@ -568,17 +575,35 @@ engine.runRenderLoop(() => {
   scene.render();
 });
 document.querySelector("#classPreviewInfo")!.innerHTML = `<h2>Choose a class</h2><p>Select a class to preview it and enable Ready.</p>`;
+function followCamera(x: number, z: number) {
+  camera.alpha = CAMERA_ALPHA;
+  camera.beta = CAMERA_BETA;
+  camera.target.copyFromFloats(x, 0, z);
+}
+
+function syncResponsiveMode() {
+  const viewportWidth = window.visualViewport?.width || window.innerWidth;
+  const viewportHeight = window.visualViewport?.height || window.innerHeight;
+  const touchDevice = navigator.maxTouchPoints > 0 || window.matchMedia("(pointer: coarse)").matches;
+  const physicalPortrait = window.screen.height >= window.screen.width;
+  const mobilePortrait = (viewportWidth <= 900 && viewportHeight >= viewportWidth) || (touchDevice && physicalPortrait);
+  document.body.classList.toggle("mobilePortrait", mobilePortrait);
+  return mobilePortrait;
+}
+
 function resizeGame() {
   engine.resize();
-  const touchPortrait = window.matchMedia("(max-width: 600px) and (orientation: portrait)").matches;
-  camera.radius = touchPortrait ? 48 : 42;
+  const touchPortrait = syncResponsiveMode();
+  camera.radius = touchPortrait ? PORTRAIT_CAMERA_RADIUS : DESKTOP_CAMERA_RADIUS;
 }
 window.addEventListener("resize", resizeGame);
 window.addEventListener("orientationchange", resizeGame);
+window.visualViewport?.addEventListener("resize", resizeGame);
 resizeGame();
 
 function renderUi() {
   if (!state) return;
+  const mobilePortrait = syncResponsiveMode();
   const me = state.players[state.you];
   const you = state.you;
   const isSpectator = me?.spectator === true;
@@ -649,6 +674,7 @@ function renderUi() {
   const action = document.querySelector<HTMLElement>("#action")!;
   const cast = document.querySelector<HTMLElement>("#cast")!;
   const statsPanel = document.querySelector<HTMLElement>("#statsPanel")!;
+  const mobileControls = document.querySelector<HTMLElement>("#mobileControls")!;
   const levelPanel = document.querySelector<HTMLElement>("#levelPanel")!;
   const targetFrame = document.querySelector<HTMLElement>("#target")!;
   const party = document.querySelector<HTMLElement>("#party")!;
@@ -659,12 +685,14 @@ function renderUi() {
     statsPanel.style.display = "none";
     levelPanel.style.display = "none";
     targetFrame.style.display = "none";
+    mobileControls.style.display = "none";
     party.style.pointerEvents = "none";
   } else {
     bars.style.display = "grid";
-    action.style.display = "flex";
-    statsPanel.style.display = "block";
+    action.style.display = mobilePortrait ? "grid" : "flex";
+    statsPanel.style.display = mobilePortrait ? "none" : "block";
     targetFrame.style.display = "block";
+    mobileControls.style.display = mobilePortrait ? "block" : "none";
     party.style.pointerEvents = "auto";
   }
   text("level", `Level ${me.level}`);

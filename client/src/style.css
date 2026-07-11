@@ -172,7 +172,7 @@ body[data-mode="defeat"] #end { color: #a32020; }
   #classPreviewInfo { left: 12px; right: 12px; top: auto; bottom: 12px; width: auto; min-width: 0; max-width: none; max-height: 46vh; }
 }
 
-@media (max-width: 600px) and (orientation: portrait) {
+@media (max-width: 900px) and (orientation: portrait), (pointer: coarse) and (max-width: 1100px) {
   html, body, #app { height: 100dvh; overscroll-behavior: none; }
   button { min-height: 44px; -webkit-tap-highlight-color: transparent; }
   button:hover { filter: none; }
@@ -279,3 +279,8 @@ body[data-mode="defeat"] #end { color: #a32020; }
   .scoreboardTable { min-width: 720px; font-size: 12px; }
   .scoreboardTable th, .scoreboardTable td { padding: 8px; }
 }
+
+body.mobilePortrait #statsPanel,
+body.mobilePortrait #endMatch { display: none !important; }
+body.mobilePortrait:not([data-spectator="true"]) #mobileControls { display: block !important; }
+body.mobilePortrait #action { display: grid !important; }
