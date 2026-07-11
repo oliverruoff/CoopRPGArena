@@ -198,15 +198,23 @@ test("druid can shift into bear and cat forms", async ({ page, request }) => {
   const started = await (await request.get("http://127.0.0.1:8000/debug/state")).json();
   const playerId = Object.values<any>(started.players).find((p) => p.classId === "druid").id;
   const base = started.players[playerId];
-  await page.getByTestId("ability-slot-1").click();
+  expect(base.abilities).toEqual(["druid_moonfire"]);
+  expect(base.abilitySlots.druid_moonfire).toBe(1);
+
+  await request.post("http://127.0.0.1:8000/debug/action", { data: { action: "give_xp", payload: { playerId, amount: 120 } } });
+  await request.post("http://127.0.0.1:8000/debug/action", { data: { action: "choose_upgrade", payload: { playerId, upgradeId: "learn:druid_bear_form" } } });
+  await page.waitForTimeout(250);
+  await page.getByTestId("ability-slot-2").click();
   await page.waitForTimeout(250);
   const bear = await (await request.get("http://127.0.0.1:8000/debug/state")).json();
   expect(bear.players[playerId].form).toBe("bear");
   expect(bear.players[playerId].stats.armor).toBeGreaterThan(base.stats.armor);
   expect(bear.players[playerId].maxHealth).toBeGreaterThan(base.maxHealth);
 
+  await request.post("http://127.0.0.1:8000/debug/action", { data: { action: "give_xp", payload: { playerId, amount: 180 } } });
+  await request.post("http://127.0.0.1:8000/debug/action", { data: { action: "choose_upgrade", payload: { playerId, upgradeId: "learn:druid_cat_form" } } });
   await page.waitForTimeout(1000);
-  await page.getByTestId("ability-slot-2").click();
+  await page.getByTestId("ability-slot-3").click();
   await page.waitForTimeout(250);
   const cat = await (await request.get("http://127.0.0.1:8000/debug/state")).json();
   expect(cat.players[playerId].form).toBe("cat");
@@ -214,7 +222,7 @@ test("druid can shift into bear and cat forms", async ({ page, request }) => {
   expect(cat.players[playerId].stats.autoAttackInterval).toBeLessThan(base.stats.autoAttackInterval);
 
   await page.waitForTimeout(1000);
-  await page.getByTestId("ability-slot-4").click();
+  await page.getByTestId("ability-slot-3").click();
   await page.waitForTimeout(250);
   const humanoid = await (await request.get("http://127.0.0.1:8000/debug/state")).json();
   expect(humanoid.players[playerId].form).toBeNull();

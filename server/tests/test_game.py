@@ -20,6 +20,32 @@ def test_trees_and_tubes_block_line_of_sight():
     assert not game._line_of_sight_blocked_locked(0, 4, 4, 4)
 
 
+def test_every_class_starts_with_exactly_one_ability():
+    game = Game()
+    assert all(len(class_data["startingAbilities"]) == 1 for class_data in game.classes.values())
+
+
+def test_shaman_learned_spell_is_assigned_to_next_free_slot_and_snapshotted():
+    asyncio.run(_shaman_learned_spell_is_assigned_to_next_free_slot_and_snapshotted())
+
+
+async def _shaman_learned_spell_is_assigned_to_next_free_slot_and_snapshotted():
+    game = Game()
+    shaman = await game.add_player()
+    await game.handle_message(shaman.id, {"type": "select_class", "classId": "shaman"})
+    async with game._lock:
+        game._start_match_locked()
+        player = game.players[shaman.id]
+        assert player.abilities == ["shaman_lightning_bolt"]
+        assert player.ability_slots == {"shaman_lightning_bolt": 1}
+        player.pending_upgrades = game._level_choices_locked(player)
+        game._choose_upgrade_locked(player, "learn:shaman_healing_wave")
+        assert player.ability_slots["shaman_healing_wave"] == 2
+    snapshot = await game.snapshot(shaman.id)
+    assert snapshot["players"][shaman.id]["abilities"] == ["shaman_lightning_bolt", "shaman_healing_wave"]
+    assert snapshot["players"][shaman.id]["abilitySlots"]["shaman_healing_wave"] == 2
+
+
 def test_lobby_start_and_spawn_enemy():
     asyncio.run(_lobby_start_and_spawn_enemy())
 
@@ -600,6 +626,29 @@ async def _walls_block_player_movement():
         for _ in range(60):
             game._tick_players_locked(0, 0.05)
         assert player.x < 3.0
+
+
+def test_archer_cannot_attack_through_wall_after_acquiring_target():
+    game = Game()
+    player = game.add_player_locked()
+    player.class_id = "warrior"
+    player.base_stats = dict(game.classes["warrior"]["baseStats"])
+    player.stats = dict(player.base_stats)
+    player.x = 0
+    player.z = 0
+    game.match_state = "running"
+    game.enemies.clear()
+    archer = game.spawn_enemy_locked("archer", {"x": 0, "z": 6})
+    archer.alerted = True
+    archer.target_id = player.id
+    archer.attack_at = 0
+    game.map_objects = [{"id": "cover", "type": "wall", "x": 0, "z": 3, "width": 4.0, "depth": 1.2, "blocksMovement": True, "blocksSight": True}]
+    before = player.hp
+
+    game._tick_enemies_locked(time.monotonic(), 0.05)
+
+    assert player.hp == before
+    assert archer.z < 6
 
 
 def test_set_name_in_lobby():

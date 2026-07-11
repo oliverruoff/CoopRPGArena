@@ -404,14 +404,14 @@ class Game:
                     extra["variant"] = variant
                 add(type_name, spot[0], spot[1], **extra)
 
-        # Walls (stone hedges)
+        # Slim ruined stone barriers: readable cover without dominating the arena.
         wall_count = random.randint(2, 4)
         for _ in range(wall_count):
-            spot = place_spot(4.5, arena - 2.0, max(2.5, 3.5))
+            spot = place_spot(4.5, arena - 2.0, 2.8)
             if not spot:
                 continue
-            width = round(random.uniform(4.0, 9.0), 2)
-            depth = round(random.uniform(2.5, 2.8), 2)
+            width = round(random.uniform(3.8, 6.8), 2)
+            depth = round(random.uniform(1.15, 1.55), 2)
             if random.random() > 0.5:
                 width, depth = depth, width
             add("wall", spot[0], spot[1], width=width, depth=depth, radius=max(width, depth) * 0.7, blocksSight=True)
@@ -486,7 +486,7 @@ class Game:
                 else:
                     player.stats[stat] = player.stats.get(stat, 0) + upgrade["value"]
             player.abilities = list(data["startingAbilities"])
-            player.ability_slots = {ability_id: self.abilities[ability_id]["slot"] for ability_id in player.abilities}
+            player.ability_slots = {ability_id: slot for slot, ability_id in enumerate(player.abilities, start=1)}
             player.hp = player.stats["maxHealth"]
             player.resource = data["startingResource"]
             player.level = 1
@@ -657,10 +657,13 @@ class Game:
                 continue
             enemy.target_id = target.id
             dist = self._distance(enemy, target)
-            if dist > enemy.attack_range:
+            is_ranged = enemy.type in ("archer", "sorcerer")
+            sight_blocked = is_ranged and self._line_of_sight_blocked_locked(enemy.x, enemy.z, target.x, target.z)
+            if dist > enemy.attack_range or sight_blocked:
                 speed = enemy.move_speed * (1 - enemy.slow_percent if now < enemy.slow_until else 1)
-                dx = (target.x - enemy.x) / dist
-                dz = (target.z - enemy.z) / dist
+                safe_dist = dist or 1
+                dx = (target.x - enemy.x) / safe_dist
+                dz = (target.z - enemy.z) / safe_dist
                 enemy.facing = math.atan2(dx, dz)
                 enemy.x += dx * speed * dt
                 enemy.z += dz * speed * dt
@@ -1131,8 +1134,13 @@ class Game:
     def _apply_shapeshift_locked(self, player: Player, effect: dict[str, Any]) -> None:
         old_max = max(1, player.stats.get("maxHealth", 1))
         hp_ratio = min(1, player.hp / old_max)
+        previous_form = player.shapeshift_form
         self._clear_shapeshift_locked(player)
         form = effect.get("form")
+        if form and previous_form == form:
+            player.hp = min(player.stats.get("maxHealth", old_max), max(1, player.stats.get("maxHealth", old_max) * hp_ratio))
+            player.auto_attack_at = min(player.auto_attack_at, time.monotonic() + player.stats.get("autoAttackInterval", 1.4))
+            return
         if not form:
             player.hp = min(player.stats.get("maxHealth", old_max), max(1, player.stats.get("maxHealth", old_max) * hp_ratio))
             player.auto_attack_at = min(player.auto_attack_at, time.monotonic() + player.stats.get("autoAttackInterval", 1.4))
@@ -1544,8 +1552,16 @@ class Game:
             ability_id = upgrade.get("abilityId")
             if ability_id in self.abilities and ability_id not in player.abilities:
                 player.abilities.append(ability_id)
-                used_slots = set(player.ability_slots.values())
-                player.ability_slots[ability_id] = next(slot for slot in [1, 2, 3, 4, 5, 6, 7] if slot not in used_slots)
+                used_slots = {
+                    player.ability_slots.get(known_id, self.abilities[known_id]["slot"])
+                    for known_id in player.abilities
+                    if known_id != ability_id
+                }
+                free_slot = next((slot for slot in range(1, 8) if slot not in used_slots), None)
+                if free_slot is not None:
+                    player.ability_slots[ability_id] = free_slot
+                else:
+                    player.abilities.remove(ability_id)
         else:
             stat = upgrade["stat"]
             if upgrade["mode"] == "mult":

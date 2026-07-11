@@ -75,13 +75,23 @@ root.innerHTML = `
     </div>
     <aside id="statsPanel" data-testid="stats-panel"></aside>
     <div id="action" data-testid="action-bar">
-      <button data-testid="ability-slot-1" data-slot="1">1<span class="cooldownOverlay"></span><span class="cooldownText"></span></button>
-      <button data-testid="ability-slot-2" data-slot="2">2<span class="cooldownOverlay"></span><span class="cooldownText"></span></button>
-      <button data-testid="ability-slot-3" data-slot="3">3<span class="cooldownOverlay"></span><span class="cooldownText"></span></button>
-      <button data-testid="ability-slot-4" data-slot="4">4<span class="cooldownOverlay"></span><span class="cooldownText"></span></button>
-      <button data-testid="ability-slot-q" data-slot="q">Q<span class="cooldownOverlay"></span><span class="cooldownText"></span></button>
-      <button data-testid="ability-slot-e" data-slot="e">E<span class="cooldownOverlay"></span><span class="cooldownText"></span></button>
-      <button data-testid="ability-slot-r" data-slot="r">R<span class="cooldownOverlay"></span><span class="cooldownText"></span></button>
+      <button data-testid="ability-slot-1" data-slot="1"><span class="abilityKey">1</span><span class="abilityName"></span><span class="cooldownOverlay"></span><span class="cooldownText"></span></button>
+      <button data-testid="ability-slot-2" data-slot="2"><span class="abilityKey">2</span><span class="abilityName"></span><span class="cooldownOverlay"></span><span class="cooldownText"></span></button>
+      <button data-testid="ability-slot-3" data-slot="3"><span class="abilityKey">3</span><span class="abilityName"></span><span class="cooldownOverlay"></span><span class="cooldownText"></span></button>
+      <button data-testid="ability-slot-4" data-slot="4"><span class="abilityKey">4</span><span class="abilityName"></span><span class="cooldownOverlay"></span><span class="cooldownText"></span></button>
+      <button data-testid="ability-slot-q" data-slot="q"><span class="abilityKey">Q</span><span class="abilityName"></span><span class="cooldownOverlay"></span><span class="cooldownText"></span></button>
+      <button data-testid="ability-slot-e" data-slot="e"><span class="abilityKey">E</span><span class="abilityName"></span><span class="cooldownOverlay"></span><span class="cooldownText"></span></button>
+      <button data-testid="ability-slot-r" data-slot="r"><span class="abilityKey">R</span><span class="abilityName"></span><span class="cooldownOverlay"></span><span class="cooldownText"></span></button>
+    </div>
+    <div id="mobileControls" data-testid="mobile-controls" aria-label="Touch controls">
+      <div id="moveStick" data-testid="move-stick" aria-label="Move character">
+        <span id="moveStickKnob"></span>
+      </div>
+      <div id="mobileActions">
+        <button id="cycleAlly" data-testid="cycle-ally-button" aria-label="Select next ally">Ally</button>
+        <button id="jump" data-testid="jump-button" aria-label="Jump">Jump</button>
+        <button id="cycleEnemy" data-testid="cycle-enemy-button" aria-label="Select next enemy">Target</button>
+      </div>
     </div>
     <div id="cast" data-testid="cast-bar"><span id="castFill"></span><b id="castName"></b></div>
     <div id="overhead"></div>
@@ -418,6 +428,67 @@ document.querySelectorAll<HTMLButtonElement>("[data-slot]").forEach((button) => 
   });
 });
 
+const moveStick = document.querySelector<HTMLElement>("#moveStick")!;
+const moveStickKnob = document.querySelector<HTMLElement>("#moveStickKnob")!;
+let movePointerId: number | null = null;
+
+function updateTouchMovement(event: PointerEvent) {
+  const rect = moveStick.getBoundingClientRect();
+  const radius = rect.width * 0.34;
+  let dx = event.clientX - (rect.left + rect.width / 2);
+  let dy = event.clientY - (rect.top + rect.height / 2);
+  const distance = Math.hypot(dx, dy);
+  if (distance > radius) {
+    dx = dx / distance * radius;
+    dy = dy / distance * radius;
+  }
+  moveStickKnob.style.transform = `translate(${dx}px, ${dy}px)`;
+  const deadZone = radius * 0.22;
+  input.left = dx < -deadZone;
+  input.right = dx > deadZone;
+  input.up = dy < -deadZone;
+  input.down = dy > deadZone;
+  send({ type: "input", movement: input });
+}
+
+function stopTouchMovement(pointerId?: number) {
+  if (pointerId !== undefined && movePointerId !== pointerId) return;
+  movePointerId = null;
+  input.up = input.down = input.left = input.right = false;
+  moveStickKnob.style.transform = "translate(0, 0)";
+  send({ type: "input", movement: input });
+}
+
+moveStick.addEventListener("pointerdown", (event) => {
+  if (state?.matchState !== "running" || state.players[state.you]?.spectator) return;
+  event.preventDefault();
+  unlockAudio();
+  movePointerId = event.pointerId;
+  moveStick.setPointerCapture(event.pointerId);
+  updateTouchMovement(event);
+});
+moveStick.addEventListener("pointermove", (event) => {
+  if (event.pointerId === movePointerId) updateTouchMovement(event);
+});
+moveStick.addEventListener("pointerup", (event) => stopTouchMovement(event.pointerId));
+moveStick.addEventListener("pointercancel", (event) => stopTouchMovement(event.pointerId));
+moveStick.addEventListener("lostpointercapture", () => stopTouchMovement());
+window.addEventListener("blur", () => {
+  if (movePointerId !== null) stopTouchMovement();
+});
+document.querySelector<HTMLButtonElement>("#jump")!.addEventListener("click", () => {
+  unlockAudio();
+  send({ type: "jump" });
+});
+document.querySelector<HTMLButtonElement>("#cycleEnemy")!.addEventListener("click", () => {
+  unlockAudio();
+  send({ type: "cycle_target", ally: false });
+});
+document.querySelector<HTMLButtonElement>("#cycleAlly")!.addEventListener("click", () => {
+  unlockAudio();
+  send({ type: "cycle_target", ally: true });
+});
+
 function isTypingInTextField(): boolean {
   const el = document.activeElement;
   if (!el) return false;
@@ -497,7 +568,14 @@ engine.runRenderLoop(() => {
   scene.render();
 });
 document.querySelector("#classPreviewInfo")!.innerHTML = `<h2>Choose a class</h2><p>Select a class to preview it and enable Ready.</p>`;
-window.addEventListener("resize", () => engine.resize());
+function resizeGame() {
+  engine.resize();
+  const touchPortrait = window.matchMedia("(max-width: 600px) and (orientation: portrait)").matches;
+  camera.radius = touchPortrait ? 48 : 42;
+}
+window.addEventListener("resize", resizeGame);
+window.addEventListener("orientationchange", resizeGame);
+resizeGame();
 
 function renderUi() {
   if (!state) return;
@@ -619,7 +697,8 @@ function renderUi() {
     btn.dataset.abilityId = abilityId || "";
     btn.classList.toggle("onCooldown", shownCooldown > 0);
     btn.classList.toggle("globalCooldown", globalCooldown > 0 && cooldown <= globalCooldown);
-    btn.firstChild!.textContent = abilityId ? `${key.toUpperCase()} ${state.abilities[abilityId].name}` : `${key.toUpperCase()}`;
+    btn.querySelector<HTMLElement>(".abilityKey")!.textContent = key.toUpperCase();
+    btn.querySelector<HTMLElement>(".abilityName")!.textContent = abilityId ? state.abilities[abilityId].name : "Empty";
     btn.querySelector<HTMLElement>(".cooldownText")!.textContent = shownCooldown > 0 ? formatCooldown(shownCooldown, globalCooldown > 0 && cooldown <= globalCooldown) : "";
     btn.querySelector<HTMLElement>(".cooldownOverlay")!.style.display = shownCooldown > 0 ? "block" : "none";
   }
@@ -1781,7 +1860,7 @@ function createMapObject(object: MapObject) {
   const root = new TransformNode(object.id, scene);
   root.rotation.y = object.type === "wall" ? 0 : object.rotation || 0;
   if (object.type === "wall") {
-    const wallHeight = 3.2;
+    const wallHeight = 2.15;
     const width = object.width || 1;
     const depth = object.depth || 1;
     const longAxis = width >= depth ? "x" : "z";
@@ -1797,27 +1876,22 @@ function createMapObject(object: MapObject) {
     const band = box(`${object.id}-band`, { width: width + 0.06, height: 0.18, depth: depth + 0.06 }, palette.stone.scale(0.62));
     band.parent = root;
     band.position.y = wallHeight * 0.55;
-    const moss = box(`${object.id}-moss`, longAxis === "x"
-      ? { width: width * 0.84, height: 0.08, depth: depth + 0.1 }
-      : { width: width + 0.1, height: 0.08, depth: depth * 0.84 }, palette.leafDark);
-    moss.parent = root;
-    moss.position.y = wallHeight + 0.25;
-    const merlonCount = Math.max(4, Math.floor(length / 1.05));
+    const merlonCount = Math.max(3, Math.floor(length / 1.2));
     const merlonStep = length / merlonCount;
     for (const edge of [-1, 1]) {
       for (let i = 0; i < merlonCount; i++) {
-        if (i % 2 === 1 && merlonCount > 5) continue;
+        if ((i + edge) % 3 === 1) continue;
         const offset = -length / 2 + merlonStep * (i + 0.5);
         const merlon = box(`${object.id}-merlon-${edge}-${i}`, longAxis === "x"
-          ? { width: merlonStep * 0.48, height: 0.62, depth: 0.42 }
-          : { width: 0.42, height: 0.62, depth: merlonStep * 0.48 }, palette.stoneLight.scale(0.95));
+          ? { width: merlonStep * 0.56, height: 0.34 + (i % 2) * 0.12, depth: Math.min(0.34, thickness * 0.36) }
+          : { width: Math.min(0.34, thickness * 0.36), height: 0.34 + (i % 2) * 0.12, depth: merlonStep * 0.56 }, palette.stoneLight.scale(0.88 + (i % 2) * 0.08));
         merlon.parent = root;
-        merlon.position.y = wallHeight + 0.52;
+        merlon.position.y = wallHeight + 0.25;
         if (longAxis === "x") {
           merlon.position.x = offset;
-          merlon.position.z = edge * (thickness / 2 + 0.16);
+          merlon.position.z = edge * (thickness / 2 - 0.08);
         } else {
-          merlon.position.x = edge * (thickness / 2 + 0.16);
+          merlon.position.x = edge * (thickness / 2 - 0.08);
           merlon.position.z = offset;
         }
       }
@@ -1847,15 +1921,15 @@ function createMapObject(object: MapObject) {
     }
     for (const side of [-1, 1]) {
       const tower = box(`${object.id}-end-tower-${side}`, longAxis === "x"
-        ? { width: 0.75, height: wallHeight + 0.35, depth: thickness + 0.55 }
-        : { width: thickness + 0.55, height: wallHeight + 0.35, depth: 0.75 }, palette.stone.scale(1.04));
+        ? { width: 0.62, height: wallHeight + 0.22, depth: thickness + 0.3 }
+        : { width: thickness + 0.3, height: wallHeight + 0.22, depth: 0.62 }, palette.stone.scale(1.04));
       tower.parent = root;
-      tower.position.y = (wallHeight + 0.35) / 2;
+      tower.position.y = (wallHeight + 0.22) / 2;
       if (longAxis === "x") tower.position.x = side * length / 2;
       else tower.position.z = side * length / 2;
       const towerCap = box(`${object.id}-end-cap-${side}`, longAxis === "x"
-        ? { width: 0.95, height: 0.2, depth: thickness + 0.78 }
-        : { width: thickness + 0.78, height: 0.2, depth: 0.95 }, palette.stoneLight);
+        ? { width: 0.78, height: 0.16, depth: thickness + 0.44 }
+        : { width: thickness + 0.44, height: 0.16, depth: 0.78 }, palette.stoneLight);
       towerCap.parent = root;
       towerCap.position.y = wallHeight + 0.5;
       if (longAxis === "x") towerCap.position.x = side * length / 2;
@@ -1884,20 +1958,19 @@ function createMapObject(object: MapObject) {
     rootA.parent = root; rootA.position.set(0.28, 0.1, 0.24); rootA.rotation.y = 0.55;
     const rootB = box(`${object.id}-root-b`, { width: 0.82, height: 0.14, depth: 0.16 }, palette.bark.scale(0.72));
     rootB.parent = root; rootB.position.set(-0.26, 0.09, -0.18); rootB.rotation.y = -0.85;
-    const crownColor = variant === 2 ? palette.leafDark : variant === 3 ? palette.leafGold : palette.leaf;
-    if (variant === 4) {
-      const lower = MeshBuilder.CreateCylinder(`${object.id}-crown-lower`, { diameterTop: 1.8, diameterBottom: 3.4, height: 1.6, tessellation: 8 }, scene);
-      lower.parent = root; lower.position.y = 2.4; lower.material = mat(`${object.id}-crown-lower-mat`, crownColor);
-      const upper = MeshBuilder.CreateCylinder(`${object.id}-crown-upper`, { diameterTop: 0.9, diameterBottom: 2.2, height: 1.4, tessellation: 8 }, scene);
-      upper.parent = root; upper.position.y = 3.6; upper.material = mat(`${object.id}-crown-upper-mat`, crownColor);
-    } else if (variant === 0) {
-      const crown = MeshBuilder.CreateCylinder(`${object.id}-crown`, { diameterTop: 0.75, diameterBottom: 2.35, height: 2.35, tessellation: 7 }, scene);
-      crown.parent = root; crown.position.y = 2.7; crown.material = mat(`${object.id}-crown-mat`, crownColor);
-    } else {
-      const lower = MeshBuilder.CreateSphere(`${object.id}-crown-lower`, { diameter: 2.0 + variant * 0.14, segments: 7 }, scene);
-      lower.parent = root; lower.position.set(-0.18, 2.35, 0.04); lower.scaling.y = 0.82; lower.material = mat(`${object.id}-crown-lower-mat`, crownColor);
-      const upper = MeshBuilder.CreateSphere(`${object.id}-crown-upper`, { diameter: 1.55 + variant * 0.1, segments: 7 }, scene);
-      upper.parent = root; upper.position.set(0.26, 3.05, -0.12); upper.scaling.y = 0.95; upper.material = mat(`${object.id}-crown-upper-mat`, crownColor.scale(1.08));
+    const crownColor = variant === 2 ? palette.leafDark : variant === 3 ? palette.leafGold.scale(0.86) : palette.leaf.scale(0.88 + variant * 0.025);
+    const crownLayers = variant === 4 ? 3 : 2;
+    for (let i = 0; i < crownLayers; i++) {
+      const layer = MeshBuilder.CreateCylinder(`${object.id}-crown-${i}`, {
+        diameterTop: 0.34 + i * 0.18,
+        diameterBottom: 2.45 - i * 0.42 + variant * 0.06,
+        height: 1.38 - i * 0.08,
+        tessellation: 6
+      }, scene);
+      layer.parent = root;
+      layer.position.set((i % 2 ? 0.14 : -0.1) * (variant % 2), 2.18 + i * 0.86, (i % 2 ? -0.08 : 0.1));
+      layer.rotation.y = variant * 0.21 + i * 0.38;
+      layer.material = mat(`${object.id}-crown-${i}-mat`, crownColor.scale(0.88 + i * 0.07));
     }
     root.scaling.setAll(scale);
     addPropGrass(root, object, 2.2, 10);
@@ -2852,6 +2925,8 @@ function playCastEffect(event: CombatEvent) {
     bigArrow(source.position, target.position, new Color3(0.95, 0.12, 0.12), 380);
   } else if (event.abilityId?.includes("quick_shot")) {
     bigArrow(source.position, target.position, new Color3(0.62, 0.18, 0.95), 300);
+  } else if (event.abilityId?.includes("fireball")) {
+    fireballProjectile(source.position, target);
   } else if (event.abilityId?.includes("frostbolt")) {
     frostBolt(source.position, target);
   } else {
@@ -2908,6 +2983,9 @@ function playImpactEffect(event: CombatEvent, healing: boolean) {
   const critical = !healing && Boolean(event.critical);
   if (event.amount) spawnFloatingNumber(target, event, healing);
   if (critical) spawnCriticalBurst(target, event, color);
+  impactFlash(target.position, color, critical ? 1.65 : healing ? 1.1 : 1.25, critical ? 520 : 360);
+  voxelBurst(target.position.add(new Vector3(0, 0.85, 0)), color, critical ? 18 : healing ? 7 : 10, critical ? 1.45 : 0.9, healing ? "rise" : "burst");
+  if (critical || (event.amount || 0) >= 50) cameraImpact(critical ? 0.22 : 0.1, critical ? 260 : 180);
   const pieces = Array.from({ length: critical ? 26 : healing ? 8 : 14 }, (_, index) => {
     const piece = MeshBuilder.CreateBox(`pixel-shard-${event.id}-${index}`, { size: critical ? 0.2 : healing ? 0.18 : 0.14 }, scene);
     piece.position = target.position.add(new Vector3((Math.random() - 0.5) * (critical ? 1.05 : 0.7), 1 + Math.random() * (critical ? 0.85 : 0.5), (Math.random() - 0.5) * (critical ? 1.05 : 0.7)));
@@ -3009,6 +3087,7 @@ function playChargeEffect(event: CombatEvent) {
   const material = mat(`charge-${event.id}-mat`, color);
   material.emissiveColor = color.scale(0.5);
   ring.material = material;
+  voxelBurst(source.position.add(new Vector3(0, 0.35, 0)), color, 8, 0.45, "rise");
   const started = performance.now();
   const duration = Math.max(250, (event.castTime || 0.5) * 1000);
   const observer = scene.onBeforeRenderObservable.add(() => {
@@ -3020,6 +3099,135 @@ function playChargeEffect(event: CombatEvent) {
     if (progress >= 1) {
       scene.onBeforeRenderObservable.remove(observer);
       ring.dispose();
+    }
+  });
+}
+
+function impactFlash(center: Vector3, color: Color3, size: number, duration: number) {
+  const flash = MeshBuilder.CreateSphere("impact-flash", { diameter: size, segments: 6 }, scene);
+  flash.position = center.add(new Vector3(0, 0.9, 0));
+  const flashMat = transparentMat("impact-flash-mat", color.scale(1.35), 0.62);
+  flashMat.emissiveColor = color.scale(1.6);
+  flash.material = flashMat;
+  const ring = MeshBuilder.CreateTorus("impact-ring", { diameter: size * 0.75, thickness: 0.075, tessellation: 20 }, scene);
+  ring.position = center.add(new Vector3(0, 0.12, 0));
+  ring.rotation.x = Math.PI / 2;
+  const ringMat = mat("impact-ring-mat", color);
+  ringMat.emissiveColor = color.scale(1.15);
+  ring.material = ringMat;
+  const started = performance.now();
+  const observer = scene.onBeforeRenderObservable.add(() => {
+    const progress = Math.min(1, (performance.now() - started) / duration);
+    const eased = 1 - Math.pow(1 - progress, 3);
+    flash.scaling.setAll(0.35 + eased * 1.35);
+    ring.scaling.setAll(0.4 + eased * 2.5);
+    flashMat.alpha = Math.max(0, 0.62 * (1 - progress));
+    ringMat.alpha = Math.max(0, 1 - progress);
+    if (progress >= 1) {
+      scene.onBeforeRenderObservable.remove(observer);
+      flash.dispose();
+      ring.dispose();
+    }
+  });
+}
+
+function voxelBurst(center: Vector3, color: Color3, count: number, force: number, mode: "burst" | "rise" | "smoke" = "burst") {
+  const actualCount = lowSpecMode ? Math.ceil(count * 0.5) : count;
+  for (let i = 0; i < actualCount; i++) {
+    const size = mode === "smoke" ? 0.18 + Math.random() * 0.3 : 0.09 + Math.random() * 0.18;
+    const voxel = MeshBuilder.CreateBox(`vfx-voxel-${i}`, { size }, scene);
+    voxel.position = center.add(new Vector3((Math.random() - 0.5) * 0.45, (Math.random() - 0.5) * 0.28, (Math.random() - 0.5) * 0.45));
+    const smokeColor = Color3.Lerp(color, new Color3(0.16, 0.13, 0.14), 0.68 + Math.random() * 0.25);
+    const voxelColor = mode === "smoke" ? smokeColor : Color3.Lerp(color, Color3.White(), Math.random() * 0.35);
+    const voxelMat = mode === "smoke"
+      ? mat(`vfx-voxel-${i}-mat`, voxelColor)
+      : transparentMat(`vfx-voxel-${i}-mat`, voxelColor, 0.95);
+    voxelMat.emissiveColor = mode === "smoke" ? color.scale(0.08) : voxelColor.scale(0.9);
+    voxel.material = voxelMat;
+    const angle = Math.random() * Math.PI * 2;
+    const horizontal = mode === "rise" ? 0.28 : force * (0.45 + Math.random() * 0.7);
+    const velocity = mode === "smoke"
+      ? new Vector3((Math.random() - 0.5) * 0.45, 0.6 + Math.random() * 0.75, (Math.random() - 0.5) * 0.45)
+      : new Vector3(Math.cos(angle) * horizontal, (mode === "rise" ? 0.8 : 0.45) + Math.random() * force, Math.sin(angle) * horizontal);
+    const duration = mode === "smoke" ? 620 + Math.random() * 420 : 420 + Math.random() * 260;
+    const started = performance.now();
+    const observer = scene.onBeforeRenderObservable.add(() => {
+      const dt = scene.getEngine().getDeltaTime() / 1000;
+      const progress = Math.min(1, (performance.now() - started) / duration);
+      voxel.position.addInPlace(velocity.scale(dt));
+      if (mode === "burst") velocity.y -= 2.8 * dt;
+      voxel.rotation.x += dt * 4;
+      voxel.rotation.y += dt * 3;
+      const scale = mode === "smoke" ? Math.max(0.08, 0.72 + Math.sin(progress * Math.PI) * 0.72 - progress * 0.6) : 1 - progress * 0.45;
+      voxel.scaling.setAll(scale);
+      if (mode !== "smoke") voxelMat.alpha = Math.max(0, 0.95 * (1 - progress));
+      if (progress >= 1) {
+        scene.onBeforeRenderObservable.remove(observer);
+        voxel.dispose();
+      }
+    });
+  }
+}
+
+function cameraImpact(strength: number, duration: number) {
+  if (lowSpecMode) return;
+  const baseRadius = camera.radius;
+  const started = performance.now();
+  const observer = scene.onBeforeRenderObservable.add(() => {
+    const progress = Math.min(1, (performance.now() - started) / duration);
+    camera.radius = baseRadius - Math.sin(progress * Math.PI) * strength;
+    if (progress >= 1) {
+      scene.onBeforeRenderObservable.remove(observer);
+      camera.radius = baseRadius;
+    }
+  });
+}
+
+function fireballProjectile(from: Vector3, target: TransformNode) {
+  const root = new TransformNode("voxel-fireball", scene);
+  const hot = new Color3(1, 0.82, 0.12);
+  const flame = new Color3(1, 0.22, 0.015);
+  const core = MeshBuilder.CreateSphere("fireball-core", { diameter: 0.62, segments: 6 }, scene);
+  core.parent = root;
+  const coreMat = mat("fireball-core-mat", hot);
+  coreMat.emissiveColor = new Color3(1, 0.48, 0.04);
+  core.material = coreMat;
+  for (let i = 0; i < 7; i++) {
+    const ember = MeshBuilder.CreateBox(`fireball-ember-${i}`, { size: 0.16 + (i % 3) * 0.045 }, scene);
+    ember.parent = root;
+    const angle = i * Math.PI * 2 / 7;
+    ember.position.set(Math.cos(angle) * 0.39, (i % 2 - 0.5) * 0.26, Math.sin(angle) * 0.39);
+    const emberMat = mat(`fireball-ember-${i}-mat`, i % 2 ? flame : hot);
+    emberMat.emissiveColor = i % 2 ? flame : hot;
+    ember.material = emberMat;
+  }
+  const start = from.add(new Vector3(0, 1.12, 0));
+  let end = projectileEnd(target.position, target, 1.0);
+  root.position = start;
+  const started = performance.now();
+  const duration = 760;
+  let lastTrailAt = 0;
+  const observer = scene.onBeforeRenderObservable.add(() => {
+    const now = performance.now();
+    const progress = Math.min(1, (now - started) / duration);
+    end = projectileEnd(target.position, target, 1.0);
+    const arc = Math.sin(progress * Math.PI) * 0.65;
+    root.position = Vector3.Lerp(start, end, progress).add(new Vector3(0, arc, 0));
+    orientProjectile(root, root.position, end);
+    root.rotation.z += 0.12;
+    core.scaling.setAll(0.94 + Math.sin(now * 0.03) * 0.12);
+    if (now - lastTrailAt > (lowSpecMode ? 100 : 55)) {
+      lastTrailAt = now;
+      voxelBurst(root.position.subtract(new Vector3(0, 0.04, 0)), flame, lowSpecMode ? 1 : 2, 0.3, Math.random() > 0.42 ? "smoke" : "rise");
+    }
+    if (progress >= 1) {
+      scene.onBeforeRenderObservable.remove(observer);
+      root.dispose();
+      impactFlash(end.subtract(new Vector3(0, 0.8, 0)), flame, 1.8, 520);
+      voxelBurst(end, flame, 22, 1.5, "burst");
+      voxelBurst(end, flame, 12, 0.8, "smoke");
+      fireBurst(end, 820);
+      cameraImpact(0.14, 220);
     }
   });
 }
@@ -3205,11 +3413,27 @@ function bigArrow(from: Vector3, to: Vector3, color: Color3, duration: number) {
 
 function beam(from: Vector3, to: Vector3, color: Color3, duration: number) {
   const points = [from.add(new Vector3(0, 1.1, 0)), to.add(new Vector3(0, 1.1, 0))];
-  const line = MeshBuilder.CreateTube("beam", { path: points, radius: 0.06 }, scene);
+  const line = MeshBuilder.CreateTube("beam", { path: points, radius: 0.075, tessellation: 8 }, scene);
   const material = mat("beam-mat", color);
   material.emissiveColor = color;
   line.material = material;
-  setTimeout(() => line.dispose(), duration);
+  const halo = MeshBuilder.CreateTube("beam-halo", { path: points, radius: 0.18, tessellation: 8 }, scene);
+  const haloMat = transparentMat("beam-halo-mat", color, 0.18);
+  haloMat.emissiveColor = color.scale(0.55);
+  halo.material = haloMat;
+  voxelBurst(points[1], color, 9, 0.7, "rise");
+  const started = performance.now();
+  const observer = scene.onBeforeRenderObservable.add(() => {
+    const progress = Math.min(1, (performance.now() - started) / duration);
+    line.scaling.y = 0.82 + Math.sin(performance.now() * 0.035) * 0.16;
+    haloMat.alpha = Math.max(0, 0.18 * (1 - progress));
+    material.alpha = Math.max(0, 1 - progress);
+    if (progress >= 1) {
+      scene.onBeforeRenderObservable.remove(observer);
+      line.dispose();
+      halo.dispose();
+    }
+  });
 }
 
 function lightningStrike(center: Vector3, duration: number) {
@@ -3264,6 +3488,7 @@ function slashArc(center: Vector3, duration: number) {
 }
 
 function fireBurst(center: Vector3, duration: number) {
+  voxelBurst(center.add(new Vector3(0, 0.45, 0)), new Color3(1, 0.22, 0.02), 6, 0.55, "smoke");
   for (let i = 0; i < 12; i++) {
     const flame = MeshBuilder.CreateBox("fire-pixel", { size: 0.18 + Math.random() * 0.16 }, scene);
     flame.position = center.add(new Vector3((Math.random() - 0.5) * 1.2, 0.6 + Math.random() * 0.9, (Math.random() - 0.5) * 1.2));
@@ -4283,6 +4508,8 @@ function box(name: string, opts: { width: number; height: number; depth: number 
 function mat(name: string, color: Color3) {
   const material = new StandardMaterial(name, scene);
   material.diffuseColor = color;
+  material.specularColor = new Color3(0.025, 0.025, 0.025);
+  material.specularPower = 8;
   material.alpha = 1;
   return material;
 }
