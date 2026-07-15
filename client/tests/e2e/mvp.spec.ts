@@ -51,7 +51,7 @@ test("lobby waits for every player to select a class and ready", async ({ browse
   }
 });
 
-test("single player can start, move, target, level, and win", async ({ page, request }) => {
+test("single player can start, move, target, level, and reach the boss wave", async ({ page, request }) => {
   await startMage(page);
   await expect(page.getByTestId("hp-label")).toContainText("HP");
   await expect(page.getByTestId("resource-label")).toContainText("Mana");
@@ -101,7 +101,9 @@ test("single player can start, move, target, level, and win", async ({ page, req
   const bossState = await (await request.get("http://127.0.0.1:8000/debug/state")).json();
   const bossId = Object.values<any>(bossState.enemies).find((enemy) => enemy.boss).id;
   await request.post("http://127.0.0.1:8000/debug/action", { data: { action: "kill_enemy", payload: { enemyId: bossId } } });
-  await expect(page.getByTestId("end-screen")).toContainText("Victory");
+  const afterBoss = await (await request.get("http://127.0.0.1:8000/debug/state")).json();
+  expect(afterBoss.enemies[bossId]).toBeUndefined();
+  expect(afterBoss.matchState).toBe("running");
 });
 
 test("priest can heal ally and create threat", async ({ browser, request }) => {
@@ -188,7 +190,7 @@ test("druid can shift into bear and cat forms", async ({ page, request }) => {
   await expect(page.getByTestId("class-preview-info")).toContainText("Druid");
   await expect(page.getByTestId("class-preview-info")).toContainText("Bear Form");
   await expect(page.getByTestId("class-preview-info")).toContainText("Cat Form");
-  await expect(page.getByTestId("class-preview-info")).toContainText("Humanoid Form");
+  await expect(page.getByTestId("class-preview-info")).not.toContainText("Humanoid Form");
   for (let i = 0; i < 3; i++) {
     await page.getByTestId("lobby-upgrade-max_health").click();
   }
@@ -227,6 +229,69 @@ test("druid can shift into bear and cat forms", async ({ page, request }) => {
   const humanoid = await (await request.get("http://127.0.0.1:8000/debug/state")).json();
   expect(humanoid.players[playerId].form).toBeNull();
   expect(humanoid.players[playerId].stats.moveSpeed).toBeCloseTo(base.stats.moveSpeed, 4);
+});
+
+test("desktop stats panel stays expanded across live updates", async ({ page }) => {
+  await startMage(page);
+  const panel = page.getByTestId("stats-panel");
+  const toggle = page.locator("#statsToggle");
+  const content = page.locator("#statsContent");
+
+  await expect(toggle).toHaveAttribute("aria-expanded", "false");
+  await toggle.click();
+  await expect(toggle).toHaveAttribute("aria-expanded", "true");
+  await expect(panel).toHaveClass(/expanded/);
+  await expect(content).toBeVisible();
+  await expect(content).toContainText("Max HP");
+
+  await page.waitForTimeout(500);
+  await expect(toggle).toHaveAttribute("aria-expanded", "true");
+  await expect(content).toBeVisible();
+});
+
+test("mobile actions work with a second pointer while joystick movement continues", async ({ page, request }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await startMage(page);
+  const initial = await (await request.get("http://127.0.0.1:8000/debug/state")).json();
+  const playerId = Object.values<any>(initial.players).find((player) => player.classId === "mage").id;
+
+  await page.evaluate(() => {
+    const stick = document.querySelector<HTMLElement>("#moveStick")!;
+    const rect = stick.getBoundingClientRect();
+    stick.dispatchEvent(new PointerEvent("pointerdown", {
+      pointerId: 11, pointerType: "touch", isPrimary: true, bubbles: true,
+      clientX: rect.left + rect.width / 2, clientY: rect.top + 8,
+    }));
+  });
+  await page.waitForTimeout(220);
+  const moving = await (await request.get("http://127.0.0.1:8000/debug/state")).json();
+
+  await page.evaluate(() => {
+    document.querySelector<HTMLElement>("#cycleEnemy")!.dispatchEvent(new PointerEvent("pointerdown", {
+      pointerId: 22, pointerType: "touch", isPrimary: false, bubbles: true,
+    }));
+  });
+  await page.waitForTimeout(260);
+  const afterTarget = await (await request.get("http://127.0.0.1:8000/debug/state")).json();
+  expect(afterTarget.players[playerId].targetId).toBeTruthy();
+  expect(afterTarget.players[playerId].position.z).toBeGreaterThan(moving.players[playerId].position.z);
+  const targetMarker = page.getByTestId("enemy-hp-bar").filter({ hasText: "TARGET" });
+  await expect(targetMarker).toHaveClass(/targetedEnemy/);
+  await expect(targetMarker).toContainText("TARGET");
+
+  await page.evaluate(() => {
+    document.querySelector<HTMLElement>("#jump")!.dispatchEvent(new PointerEvent("pointerdown", {
+      pointerId: 23, pointerType: "touch", isPrimary: false, bubbles: true,
+    }));
+  });
+  await page.waitForTimeout(80);
+  const jumping = await (await request.get("http://127.0.0.1:8000/debug/state")).json();
+  expect(jumping.players[playerId].jumping).toBe(true);
+  await page.evaluate(() => {
+    document.querySelector<HTMLElement>("#moveStick")!.dispatchEvent(new PointerEvent("pointerup", {
+      pointerId: 11, pointerType: "touch", isPrimary: true, bubbles: true,
+    }));
+  });
 });
 
 test("players can set a name and see it in lobby and world", async ({ page }) => {

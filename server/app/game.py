@@ -492,7 +492,9 @@ class Game:
             player.abilities = list(data["startingAbilities"])
             player.ability_slots = {ability_id: slot for slot, ability_id in enumerate(player.abilities, start=1)}
             player.hp = player.stats["maxHealth"]
-            player.resource = data["startingResource"]
+            # Classes that normally start full should also start full after a
+            # max-resource lobby upgrade. Rage intentionally still starts at 0.
+            player.resource = player.stats["maxResource"] if data["startingResource"] > 0 else 0
             player.level = 1
             player.xp = 0
             player.dead = False
@@ -1743,12 +1745,16 @@ class Game:
         else:
             stat = upgrade["stat"]
             old_auto_interval = player.stats.get("autoAttackInterval", 1.0)
+            old_max_resource = player.stats.get("maxResource", 0)
             if upgrade["mode"] == "mult":
                 player.stats[stat] = player.stats.get(stat, 0) * upgrade["value"]
             else:
                 player.stats[stat] = player.stats.get(stat, 0) + upgrade["value"]
             if stat == "maxHealth":
                 player.hp = min(player.stats["maxHealth"], player.hp + 20)
+            elif stat == "maxResource":
+                gained_capacity = max(0, player.stats["maxResource"] - old_max_resource)
+                player.resource = min(player.stats["maxResource"], player.resource + gained_capacity)
             elif stat == "autoAttackInterval" and old_auto_interval > 0:
                 now = time.monotonic()
                 remaining = max(0, player.auto_attack_at - now)

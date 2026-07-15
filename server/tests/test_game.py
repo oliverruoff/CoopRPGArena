@@ -25,6 +25,44 @@ def test_every_class_starts_with_exactly_one_ability():
     assert all(len(class_data["startingAbilities"]) == 1 for class_data in game.classes.values())
 
 
+def test_arcane_blast_only_uses_global_cooldown():
+    ability = Game().abilities["mage_arcane_blast"]
+    assert ability["cooldown"] == 0
+    assert ability["globalCooldown"] is True
+
+
+def test_every_class_has_a_resource_cost_baseline():
+    game = Game()
+    assert all(class_data["baseStats"]["resourceCostMultiplier"] == 1 for class_data in game.classes.values())
+
+
+def test_druid_forms_toggle_back_to_humanoid_and_can_switch_directly():
+    game = Game()
+    player = Player(id="druid", name="Druid", class_id="druid")
+    player.base_stats = dict(game.classes["druid"]["baseStats"])
+    player.stats = dict(player.base_stats)
+    player.hp = player.stats["maxHealth"]
+
+    bear = game.abilities["druid_bear_form"]["effects"][0]
+    cat = game.abilities["druid_cat_form"]["effects"][0]
+
+    game._apply_shapeshift_locked(player, bear)
+    assert player.shapeshift_form == "bear"
+    assert player.stats["armor"] > player.base_stats["armor"]
+    game._apply_shapeshift_locked(player, bear)
+    assert player.shapeshift_form is None
+    assert all(math.isclose(player.stats[stat], value) for stat, value in player.base_stats.items())
+
+    game._apply_shapeshift_locked(player, cat)
+    assert player.shapeshift_form == "cat"
+    assert player.stats["moveSpeed"] > player.base_stats["moveSpeed"]
+    game._apply_shapeshift_locked(player, bear)
+    assert player.shapeshift_form == "bear"
+    game._apply_shapeshift_locked(player, bear)
+    assert player.shapeshift_form is None
+    assert all(math.isclose(player.stats[stat], value) for stat, value in player.base_stats.items())
+
+
 def test_shaman_learned_spell_is_assigned_to_next_free_slot_and_snapshotted():
     asyncio.run(_shaman_learned_spell_is_assigned_to_next_free_slot_and_snapshotted())
 
@@ -428,6 +466,49 @@ async def _mana_cost_and_regen_upgrades_apply():
         before_regen = player.stats["resourceRegen"]
         game._choose_upgrade_locked(player, "regen")
         assert player.stats["resourceRegen"] == before_regen * 1.25
+
+
+def test_max_resource_and_regen_share_the_new_cap():
+    asyncio.run(_max_resource_and_regen_share_the_new_cap())
+
+
+async def _max_resource_and_regen_share_the_new_cap():
+    game = Game()
+    mage = await game.add_player()
+    await game.handle_message(mage.id, {"type": "select_class", "classId": "mage"})
+    async with game._lock:
+        game._start_match_locked()
+        player = game.players[mage.id]
+        old_max = player.stats["maxResource"]
+        player.resource = old_max - 10
+        player.pending_upgrades = [u for u in game.upgrades if u["id"] == "max_resource"]
+        game._choose_upgrade_locked(player, "max_resource")
+
+        gained_capacity = player.stats["maxResource"] - old_max
+        assert player.resource == old_max - 10 + gained_capacity
+        player.resource -= 5
+        game._tick_players_locked(time.monotonic(), 1.0)
+        assert player.resource == old_max - 15 + gained_capacity + player.stats["resourceRegen"]
+
+        player.resource = player.stats["maxResource"] - 0.5
+        game._tick_players_locked(time.monotonic(), 1.0)
+        assert player.resource == player.stats["maxResource"]
+
+
+def test_lobby_max_resource_upgrade_starts_match_full():
+    asyncio.run(_lobby_max_resource_upgrade_starts_match_full())
+
+
+async def _lobby_max_resource_upgrade_starts_match_full():
+    game = Game()
+    mage = await game.add_player()
+    await game.handle_message(mage.id, {"type": "select_class", "classId": "mage"})
+    async with game._lock:
+        game._choose_lobby_upgrade_locked(game.players[mage.id], "max_resource")
+        game._start_match_locked()
+        player = game.players[mage.id]
+        assert player.stats["maxResource"] > game.classes["mage"]["startingResource"]
+        assert player.resource == player.stats["maxResource"]
 
 
 def test_mage_fireball_dot_and_frostbolt_slow():
