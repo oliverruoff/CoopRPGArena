@@ -265,6 +265,7 @@ async def _learning_spell_uses_next_free_slot_and_frost_nova_freezes_area():
     async with game._lock:
         game._start_match_locked()
         game.enemies.clear()
+        game.map_objects.clear()
         player = game.players[mage.id]
         player.pending_upgrades = game._level_choices_locked(player)
         game._choose_upgrade_locked(player, "learn:mage_frost_nova")
@@ -967,6 +968,7 @@ async def _paladin_lay_on_hands_fully_heals_selected_ally():
     await game.handle_message(ally.id, {"type": "select_class", "classId": "warrior"})
     async with game._lock:
         game._start_match_locked()
+        game.map_objects.clear()
         caster = game.players[paladin.id]
         target = game.players[ally.id]
         caster.abilities.append("paladin_lay_on_hands")
@@ -996,6 +998,26 @@ def test_cone_of_cold_only_hits_enemies_in_front_of_mage():
     assert front.hp < front_hp
     assert front.slow_until > 0
     assert behind.hp == behind_hp
+
+
+def test_movement_updates_facing_used_by_cone_of_cold():
+    game = Game()
+    game.map_objects.clear()
+    mage = Player(id="mage", name="Mage", class_id="mage")
+    mage.stats = dict(game.classes["mage"]["baseStats"])
+    mage.resource = mage.stats["maxResource"]
+    mage.abilities = ["mage_cone_of_cold"]
+    mage.ability_slots = {"mage_cone_of_cold": 2}
+    mage.input = {"right": True}
+    game.players[mage.id] = mage
+    game._tick_players_locked(time.monotonic(), 0.1)
+    right = game.spawn_enemy_locked("goblin", {"x": 5, "z": 0})
+    left = game.spawn_enemy_locked("goblin", {"x": -5, "z": 0})
+    right_hp, left_hp = right.hp, left.hp
+    game._cast_ability_locked(mage, 2)
+    assert math.isclose(mage.facing, math.pi / 2)
+    assert right.hp < right_hp
+    assert left.hp == left_hp
 
 
 def test_blizzard_can_be_placed_and_ticks_aoe_damage():
@@ -1031,6 +1053,23 @@ def test_every_class_has_two_new_signature_spells():
     }
     for class_id, ability_ids in expected.items():
         assert ability_ids <= {ability_id for ability_id, ability in game.abilities.items() if ability["classId"] == class_id}
+
+
+def test_mage_can_learn_every_spell_with_a_unique_action_slot():
+    game = Game()
+    mage = Player(id="mage", name="Mage", class_id="mage")
+    mage.stats = dict(game.classes["mage"]["baseStats"])
+    mage.abilities = list(game.classes["mage"]["startingAbilities"])
+    mage.ability_slots = {ability_id: game.abilities[ability_id]["slot"] for ability_id in mage.abilities}
+    for ability_id, ability in game.abilities.items():
+        if ability["classId"] != "mage" or ability_id in mage.abilities:
+            continue
+        mage.pending_upgrades = game._level_choices_locked(mage)
+        game._choose_upgrade_locked(mage, f"learn:{ability_id}")
+    assigned_slots = [mage.ability_slots.get(ability_id, game.abilities[ability_id]["slot"]) for ability_id in mage.abilities]
+    assert len(mage.abilities) == 11
+    assert len(set(assigned_slots)) == 11
+    assert max(assigned_slots) == 11
 
 
 def test_execute_bonus_and_heroic_leap_mechanics():

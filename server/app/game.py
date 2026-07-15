@@ -21,6 +21,7 @@ BOSS_METEOR_COUNT = 3
 BOSS_METEOR_RADIUS = 3.5
 ENEMY_METEOR_WARNING_SECONDS = 1.65
 ENEMY_CHARGE_WARNING_SECONDS = 1.1
+MAX_ABILITY_SLOTS = 11
 
 
 def load_json(name: str) -> Any:
@@ -276,7 +277,7 @@ class Game:
     def _set_ability_slot_locked(self, player: Player, ability_id: str | None, slot: int) -> None:
         if not ability_id or ability_id not in player.abilities:
             return
-        if slot < 1 or slot > 7:
+        if slot < 1 or slot > MAX_ABILITY_SLOTS:
             return
         current_slot = player.ability_slots.get(ability_id, self.abilities[ability_id]["slot"])
         if current_slot == slot:
@@ -425,7 +426,7 @@ class Game:
             spot = place_spot(2.5, arena, 1.0)
             if not spot:
                 continue
-            add("tree", spot[0], spot[1], radius=round(random.uniform(0.85, 1.45), 2), variant=random.randint(0, 4), blocksSight=True)
+            add("tree", spot[0], spot[1], radius=round(random.uniform(0.85, 1.45), 2), variant=random.randint(0, 7), blocksSight=True)
 
         # Tubes provide compact sight blockers without adding more wall-like barriers.
         tube_count = random.randint(4, 7)
@@ -625,6 +626,8 @@ class Game:
                 dz = 0
                 player.input = {}
             length = math.hypot(dx, dz) or 1
+            if dx or dz:
+                player.facing = math.atan2(dx, dz)
             player.x += dx / length * player.stats.get("moveSpeed", 5) * dt
             player.z += dz / length * player.stats.get("moveSpeed", 5) * dt
             self._push_out_of_map_objects_locked(player)
@@ -1732,7 +1735,7 @@ class Game:
                     for known_id in player.abilities
                     if known_id != ability_id
                 }
-                free_slot = next((slot for slot in range(1, 8) if slot not in used_slots), None)
+                free_slot = next((slot for slot in range(1, MAX_ABILITY_SLOTS + 1) if slot not in used_slots), None)
                 if free_slot is not None:
                     player.ability_slots[ability_id] = free_slot
                 else:

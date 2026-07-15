@@ -76,7 +76,14 @@ button:disabled:hover { filter: grayscale(0.35); }
 .partyFrame.dead { opacity: 0.72; }
 .partyState { display: block; margin-top: 4px; color: #fca5a5; }
 .mini, .bar { height: 12px; background: rgba(0,0,0,0.22); border-radius: 999px; overflow: hidden; }
-.mini span, .bar span { display: block; height: 100%; background: #46d06f; }
+.mini { position: relative; margin-top: 4px; }
+.mini > span, .bar > span { display: block; height: 100%; background: #46d06f; }
+.partyResource.mana > span { background: #3288e6; }
+.partyResource.rage > span { background: #d73b36; }
+.partyResource.energy > span { background: #e4c832; }
+.partyResource.focus > span { background: #d98232; }
+.partyResource.resource > span { background: #8b5cf6; }
+.partyMeterLabel { position: absolute; inset: 0; display: grid; place-items: center; color: white; font-size: 8px; line-height: 1; text-shadow: 0 1px 2px #000; }
 #target { position: absolute; top: 20px; left: 50%; transform: translateX(-50%); min-width: 260px; padding: 14px; border-radius: 18px; background: linear-gradient(145deg, rgba(255,255,255,0.94), rgba(224,232,243,0.82)); border: 1px solid rgba(255,255,255,0.72); box-shadow: 0 10px 28px rgba(8,15,28,0.2), inset 0 1px #fff; text-align: center; font-weight: 900; backdrop-filter: blur(10px); }
 #wave { position: absolute; top: 20px; right: 20px; padding: 14px; border-radius: 18px; background: linear-gradient(145deg, rgba(255,255,255,0.94), rgba(224,232,243,0.82)); border: 1px solid rgba(255,255,255,0.72); box-shadow: 0 10px 28px rgba(8,15,28,0.18), inset 0 1px #fff; font-weight: 900; backdrop-filter: blur(10px); }
 #endMatch { display: none; position: absolute; right: 20px; bottom: 24px; padding: 10px 12px; background: rgba(127,29,29,0.88); pointer-events: auto; white-space: nowrap; }
@@ -87,7 +94,7 @@ button:disabled:hover { filter: grayscale(0.35); }
 #res { background: linear-gradient(180deg, #68b6ff, #2563eb); box-shadow: inset 0 2px rgba(255,255,255,0.3), 0 0 10px rgba(59,130,246,0.3); }
 #xp { background: linear-gradient(180deg, #f9d65c, #b88310); box-shadow: inset 0 2px rgba(255,255,255,0.3); }
 #swing { background: linear-gradient(90deg, #64748b, #f8fafc); }
-#action { position: absolute; bottom: 24px; left: 50%; transform: translateX(-50%); display: flex; gap: 8px; pointer-events: auto; }
+#action { position: absolute; bottom: 24px; left: 50%; width: min(1030px, calc(100vw - 24px)); transform: translateX(-50%); display: flex; justify-content: center; gap: 8px; pointer-events: auto; }
 #action button { position: relative; min-width: 76px; height: 58px; background: linear-gradient(145deg, rgba(42,52,75,0.97), rgba(12,17,29,0.97)); border: 1px solid rgba(147,197,253,0.24); box-shadow: inset 0 1px rgba(255,255,255,0.13), 0 7px 20px rgba(0,0,0,0.34); overflow: hidden; cursor: grab; text-shadow: 0 1px 3px #000; }
 .abilityKey { display: block; color: #fde68a; font-size: 11px; line-height: 1; }
 .abilityName { display: block; margin-top: 4px; font-size: 11px; line-height: 1.08; }
@@ -117,7 +124,7 @@ button:disabled:hover { filter: grayscale(0.35); }
 .critNumber { font-size: 42px; letter-spacing: 0.03em; color: #fff3a3; text-shadow: -2px -2px 0 #5f120c, 2px -2px 0 #5f120c, -2px 2px 0 #5f120c, 2px 2px 0 #5f120c, 0 0 12px rgba(250,204,21,0.95), 0 0 28px rgba(249,115,22,0.85); animation: critPop 260ms cubic-bezier(.15,1.35,.28,1) both; }
 .healNumber { color: #65f28a; text-shadow: -1px -1px 0 #083817, 1px -1px 0 #083817, -1px 1px 0 #083817, 1px 1px 0 #083817, 0 2px 4px rgba(0,0,0,0.45); }
 @keyframes critPop { 0% { filter: brightness(1.8); } 55% { filter: brightness(1.25); } 100% { filter: brightness(1); } }
-#statsPanel { position: absolute; top: 88px; right: 22px; width: 78px; padding: 6px; border-radius: 16px; background: rgba(17,24,39,0.46); color: #fff; box-shadow: 0 18px 50px rgba(0,0,0,0.14); backdrop-filter: blur(8px); transition: width 180ms ease, padding 180ms ease; overflow: hidden; }
+#statsPanel { position: absolute; z-index: 8; top: 88px; right: 22px; width: 78px; padding: 6px; border-radius: 16px; background: rgba(17,24,39,0.46); color: #fff; box-shadow: 0 18px 50px rgba(0,0,0,0.14); backdrop-filter: blur(8px); transition: width 180ms ease, padding 180ms ease; overflow: hidden; pointer-events: auto; }
 #statsPanel.expanded { width: 260px; padding: 10px 16px 16px; border-radius: 20px; }
 #statsToggle { width: 100%; min-height: 36px; padding: 6px 8px; display: flex; align-items: center; justify-content: space-between; gap: 8px; border: 0; border-radius: 11px; background: rgba(255,255,255,0.1); color: #fff; font: inherit; font-weight: 800; cursor: pointer; }
 #statsToggle:hover { background: rgba(255,255,255,0.17); }
@@ -219,22 +226,22 @@ body[data-mode="defeat"] #end { color: #a32020; }
   #wave { top: max(8px, env(safe-area-inset-top)); right: 8px; max-width: 112px; padding: 8px; border-radius: 12px; font-size: 10px; text-align: center; }
   #statsPanel, #endMatch { display: none !important; }
 
-  #bars { bottom: calc(190px + env(safe-area-inset-bottom)); width: calc(100vw - 24px); gap: 3px; }
+  #bars { bottom: calc(222px + env(safe-area-inset-bottom)); width: calc(100vw - 24px); gap: 3px; }
   #bars #level { font-size: 11px; text-align: center; color: white; text-shadow: 0 1px 3px #000; }
   .bar { height: 14px; }
   .bar b { font-size: 9px; }
   #action {
-    bottom: calc(114px + env(safe-area-inset-bottom));
+    bottom: calc(108px + env(safe-area-inset-bottom));
     width: calc(100vw - 16px);
     display: grid !important;
-    grid-template-columns: repeat(7, minmax(0, 1fr));
+    grid-template-columns: repeat(6, minmax(0, 1fr));
     gap: 4px;
   }
-  #action button { min-width: 0; width: 100%; height: 58px; min-height: 58px; padding: 4px 2px; border-radius: 10px; cursor: pointer; }
+  #action button { min-width: 0; width: 100%; height: 48px; min-height: 48px; padding: 3px 2px; border-radius: 10px; cursor: pointer; }
   #action .abilityKey { font-size: 12px; }
   #action .abilityName { display: -webkit-box; margin-top: 3px; overflow: hidden; font-size: 8px; line-height: 1.05; overflow-wrap: anywhere; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
   #action button .cooldownText { font-size: 18px; }
-  #cast { bottom: calc(264px + env(safe-area-inset-bottom)); width: min(260px, 72vw); }
+  #cast { bottom: calc(296px + env(safe-area-inset-bottom)); width: min(260px, 72vw); }
 
   #mobileControls { display: block; position: absolute; inset: 0; pointer-events: none; }
   #moveStick {

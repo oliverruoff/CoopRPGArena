@@ -82,6 +82,10 @@ root.innerHTML = `
       <button data-testid="ability-slot-q" data-slot="q"><span class="abilityKey">Q</span><span class="abilityName"></span><span class="cooldownOverlay"></span><span class="cooldownText"></span></button>
       <button data-testid="ability-slot-e" data-slot="e"><span class="abilityKey">E</span><span class="abilityName"></span><span class="cooldownOverlay"></span><span class="cooldownText"></span></button>
       <button data-testid="ability-slot-r" data-slot="r"><span class="abilityKey">R</span><span class="abilityName"></span><span class="cooldownOverlay"></span><span class="cooldownText"></span></button>
+      <button data-testid="ability-slot-f" data-slot="f"><span class="abilityKey">F</span><span class="abilityName"></span><span class="cooldownOverlay"></span><span class="cooldownText"></span></button>
+      <button data-testid="ability-slot-g" data-slot="g"><span class="abilityKey">G</span><span class="abilityName"></span><span class="cooldownOverlay"></span><span class="cooldownText"></span></button>
+      <button data-testid="ability-slot-c" data-slot="c"><span class="abilityKey">C</span><span class="abilityName"></span><span class="cooldownOverlay"></span><span class="cooldownText"></span></button>
+      <button data-testid="ability-slot-v" data-slot="v"><span class="abilityKey">V</span><span class="abilityName"></span><span class="cooldownOverlay"></span><span class="cooldownText"></span></button>
     </div>
     <div id="mobileControls" data-testid="mobile-controls" aria-label="Touch controls">
       <div id="moveStick" data-testid="move-stick" aria-label="Move character">
@@ -287,8 +291,9 @@ function connect() {
 
 connect();
 
-const slotKeys: Record<number, string> = { 1: "1", 2: "2", 3: "3", 4: "4", 5: "q", 6: "e", 7: "r" };
-const keySlots: Record<string, number> = { Digit1: 1, Digit2: 2, Digit3: 3, Digit4: 4, KeyQ: 5, KeyE: 6, KeyR: 7 };
+const MAX_ABILITY_SLOTS = 11;
+const slotKeys: Record<number, string> = { 1: "1", 2: "2", 3: "3", 4: "4", 5: "q", 6: "e", 7: "r", 8: "f", 9: "g", 10: "c", 11: "v" };
+const keySlots: Record<string, number> = { Digit1: 1, Digit2: 2, Digit3: 3, Digit4: 4, KeyQ: 5, KeyE: 6, KeyR: 7, KeyF: 8, KeyG: 9, KeyC: 10, KeyV: 11 };
 
 function setPlayerName(name: string) {
   const input = document.querySelector<HTMLInputElement>("#playerName")!;
@@ -524,6 +529,11 @@ window.addEventListener("keydown", (event) => {
   if (isTypingInTextField()) return;
   if (state?.matchState !== "running") return;
   unlockAudio();
+  if (event.code === "Escape" && pendingGroundAbilitySlot !== null) {
+    event.preventDefault();
+    cancelGroundTargeting();
+    return;
+  }
   let movementChanged = false;
   if (event.code === "KeyW") input.up = true;
   if (event.code === "KeyS") input.down = true;
@@ -553,12 +563,25 @@ scene.onPointerObservable.add((pointerInfo) => {
   if (pendingGroundAbilitySlot !== null && (pointerInfo.type === PointerEventTypes.POINTERMOVE || pointerInfo.type === PointerEventTypes.POINTERDOWN)) {
     const groundPick = scene.pick(scene.pointerX, scene.pointerY, (mesh) => mesh === arena);
     if (groundPick?.hit && groundPick.pickedPoint) {
-      groundTargetMarker.position.set(groundPick.pickedPoint.x, 0, groundPick.pickedPoint.z);
+      const me = state?.players[state.you];
+      const abilityId = me?.abilities.find((id) => abilitySlot(me, id) === pendingGroundAbilitySlot);
+      const maxRange = abilityId ? state?.abilities[abilityId]?.range || 0 : 0;
+      let targetX = groundPick.pickedPoint.x;
+      let targetZ = groundPick.pickedPoint.z;
+      if (me && maxRange > 0) {
+        const dx = targetX - me.position.x;
+        const dz = targetZ - me.position.z;
+        const distance = Math.hypot(dx, dz);
+        if (distance > maxRange) {
+          targetX = me.position.x + dx / distance * maxRange;
+          targetZ = me.position.z + dz / distance * maxRange;
+        }
+      }
+      groundTargetMarker.position.set(targetX, 0, targetZ);
       groundTargetMarker.setEnabled(true);
       if (pointerInfo.type === PointerEventTypes.POINTERDOWN) {
-        send({ type: "cast_ability", abilitySlot: pendingGroundAbilitySlot, groundPosition: { x: groundPick.pickedPoint.x, z: groundPick.pickedPoint.z } });
-        pendingGroundAbilitySlot = null;
-        groundTargetMarker.setEnabled(false);
+        send({ type: "cast_ability", abilitySlot: pendingGroundAbilitySlot, groundPosition: { x: targetX, z: targetZ } });
+        cancelGroundTargeting();
       }
     }
     return;
@@ -742,8 +765,9 @@ function renderUi() {
   const selectedAllyId = me.allyTargetId || optimisticAllyTargetId;
   document.querySelector("#party")!.innerHTML = Object.values(state.players).filter((p) => !p.spectator).map((p) => renderPartyFrame(p, selectedAllyId)).join("");
   const target = me.targetId ? state.enemies[me.targetId] : me.allyTargetId ? state.players[me.allyTargetId] : null;
-  text("target", target ? `${target.name} ${Math.round(target.hp)}/${Math.round(target.maxHealth)}` : "No target");
-  for (let slot = 1; slot <= 7; slot++) {
+  const pendingGroundAbility = pendingGroundAbilitySlot === null ? null : me.abilities.find((id) => abilitySlot(me, id) === pendingGroundAbilitySlot);
+  text("target", pendingGroundAbility ? `Tap arena to place ${state.abilities[pendingGroundAbility]?.name || "spell"} • tap ability again to cancel` : target ? `${target.name} ${Math.round(target.hp)}/${Math.round(target.maxHealth)}` : "No target");
+  for (let slot = 1; slot <= MAX_ABILITY_SLOTS; slot++) {
     const abilityId = me.abilities.find((id) => abilitySlot(me, id) === slot);
     const key = slotKeys[slot];
     const btn = document.querySelector<HTMLButtonElement>(`[data-testid="ability-slot-${key}"]`)!;
@@ -934,10 +958,14 @@ function renderLevelChoice(choice: Upgrade) {
 function renderPartyFrame(player: PlayerState, selectedAllyId: string | null) {
   const selected = selectedAllyId === player.id;
   const hpPercent = Math.max(0, player.hp / player.maxHealth * 100);
+  const resourcePercent = player.maxResource > 0 ? Math.max(0, Math.min(100, player.resource / player.maxResource * 100)) : 0;
+  const resourceType = player.resourceType || "resource";
+  const resourceClass = ["mana", "rage", "energy", "focus"].includes(resourceType) ? resourceType : "resource";
   return `<div class="partyFrame${selected ? " selectedTarget" : ""}${player.dead ? " dead" : ""}" role="button" tabindex="0" aria-pressed="${selected}" data-testid="party-frame" data-id="${player.id}">
     <b>${player.name}</b><br>
     <span>${player.classId || "No class"}</span>
-    <div class="mini"><span style="width:${hpPercent}%"></span></div>
+    <div class="mini partyHealth"><span style="width:${hpPercent}%"></span><div class="partyMeterLabel">HP ${Math.round(player.hp)}/${Math.round(player.maxHealth)}</div></div>
+    <div class="mini partyResource ${resourceClass}" data-testid="party-resource-bar"><span style="width:${resourcePercent}%"></span><div class="partyMeterLabel">${resourceLabel(player.resourceType)} ${Math.round(player.resource)}/${Math.round(player.maxResource)}</div></div>
     ${player.dead ? `<span class="partyState">Down</span>` : ""}
   </div>`;
 }
@@ -956,9 +984,8 @@ function abilitySlot(player: PlayerState, abilityId: string) {
 
 function slotNumber(slot: string | undefined) {
   if (!slot) return NaN;
-  if (slot === "q") return 5;
-  if (slot === "e") return 6;
-  if (slot === "r") return 7;
+  const namedSlots: Record<string, number> = { q: 5, e: 6, r: 7, f: 8, g: 9, c: 10, v: 11 };
+  if (namedSlots[slot]) return namedSlots[slot];
   return Number(slot);
 }
 
@@ -1739,14 +1766,53 @@ function createGroundEffect(effect: GroundEffect) {
     ring.position.y = 0.12;
     ring.rotation.x = Math.PI / 2;
     ring.material = transparentMat(`${effect.id}-ring-mat`, new Color3(0.65, 0.9, 1), 0.65);
-    for (let i = 0; i < 18; i++) {
-      const shard = MeshBuilder.CreateCylinder(`${effect.id}-ice-${i}`, { diameterTop: 0, diameterBottom: 0.16, height: 0.7, tessellation: 5 }, scene);
-      shard.parent = root;
-      const angle = i * Math.PI * 2 / 18;
-      const distance = effect.radius * (0.2 + (i % 4) * 0.2);
-      shard.position.set(Math.sin(angle) * distance, 0.35, Math.cos(angle) * distance);
-      shard.material = transparentMat(`${effect.id}-ice-${i}-mat`, ice, 0.65);
-    }
+    const hail = Array.from({ length: 34 }, (_, i) => {
+      const size = 0.18 + (i % 5) * 0.075;
+      const block = MeshBuilder.CreatePolyhedron(`${effect.id}-hail-${i}`, { type: i % 2 ? 1 : 2, size }, scene);
+      block.parent = root;
+      const angle = i * 2.399;
+      const distance = effect.radius * (0.15 + ((i * 37) % 80) / 100);
+      block.position.set(Math.sin(angle) * distance, 2 + ((i * 53) % 100) / 100 * 8, Math.cos(angle) * distance);
+      block.rotation.set(i * 0.41, i * 0.73, i * 0.29);
+      const blockMat = transparentMat(`${effect.id}-hail-${i}-mat`, i % 3 ? ice : new Color3(0.72, 0.95, 1), 0.9);
+      blockMat.emissiveColor = ice.scale(0.75);
+      block.material = blockMat;
+      return { block, speed: 7 + (i % 7) * 0.75, spin: 1.5 + (i % 5) * 0.45, seed: i };
+    });
+    const mist = Array.from({ length: 16 }, (_, i) => {
+      const puff = MeshBuilder.CreateSphere(`${effect.id}-mist-${i}`, { diameter: 0.7 + (i % 4) * 0.25, segments: 6 }, scene);
+      puff.parent = root;
+      const angle = i * 2.17;
+      const distance = effect.radius * (0.15 + (i % 5) * 0.17);
+      puff.position.set(Math.sin(angle) * distance, 0.18 + (i % 3) * 0.13, Math.cos(angle) * distance);
+      puff.material = transparentMat(`${effect.id}-mist-${i}-mat`, new Color3(0.72, 0.9, 1), 0.12);
+      return puff;
+    });
+    const observer = scene.onBeforeRenderObservable.add(() => {
+      if (!groundEffectMeshes.has(effect.id)) {
+        scene.onBeforeRenderObservable.remove(observer);
+        return;
+      }
+      const dt = scene.getEngine().getDeltaTime() / 1000;
+      const now = performance.now() / 1000;
+      for (const particle of hail) {
+        particle.block.position.y -= particle.speed * dt;
+        particle.block.rotation.x += particle.spin * dt;
+        particle.block.rotation.z += particle.spin * 0.7 * dt;
+        if (particle.block.position.y <= 0.12) {
+          particle.block.position.y = 8 + (particle.seed % 5) * 0.55;
+          particle.block.position.x += Math.sin(now + particle.seed) * 0.25;
+          particle.block.position.z += Math.cos(now * 0.8 + particle.seed) * 0.25;
+        }
+      }
+      mist.forEach((puff, i) => {
+        const pulse = 0.82 + Math.sin(now * 2.4 + i) * 0.18;
+        puff.scaling.setAll(pulse);
+        puff.rotation.y += dt * (i % 2 ? 0.5 : -0.5);
+      });
+      ring.rotation.z += dt * 0.35;
+      discMat.alpha = 0.16 + Math.sin(now * 4) * 0.05;
+    });
   } else if (effect.type === "volley" || effect.type === "flamestrike" || effect.type === "starfall") {
     const isFire = effect.type === "flamestrike";
     const isStar = effect.type === "starfall";
@@ -1891,9 +1957,9 @@ function createGroundDressing() {
     stone.isPickable = false;
   }
 
-  // Grass disabled
-  // createGrassMesh("arena-field-grass", null, 52, lowSpecMode ? 160 : 360, palette.leafDark.scale(1.02), false);
-  // createGrassMesh("arena-edge-grass", null, 26.2, lowSpecMode ? 58 : 118, palette.leafDark.scale(1.08), true);
+  // Both batches are single static meshes, so the extra dressing costs only two draw calls.
+  createGrassMesh("arena-field-grass", null, 48, lowSpecMode ? 36 : 78, palette.leafDark.scale(1.02), false);
+  createGrassMesh("arena-edge-grass", null, 25.6, lowSpecMode ? 24 : 52, palette.leafDark.scale(1.08), true);
 }
 
 function addContactShadow(parent: TransformNode, name: string, diameter: number, alpha = 0.16, flatten = 1) {
@@ -2067,30 +2133,47 @@ function createMapObject(object: MapObject) {
     }
     addPropGrass(root, object, Math.max(width, depth) * 0.95, 14);
   } else if (object.type === "tree") {
-    const variant = object.variant || 0;
+    const variant = (object.variant || 0) % 8;
     const scale = (object.radius || 1.0) / 1.0;
     addContactShadow(root, `${object.id}-shadow`, 2.6, 0.2);
-    const trunkHeight = 1.45 + variant * 0.16;
-    const trunk = MeshBuilder.CreateCylinder(`${object.id}-trunk`, { diameterTop: 0.36 + variant * 0.03, diameterBottom: 0.56 + variant * 0.06, height: trunkHeight, tessellation: 7 }, scene);
+    const tall = variant === 1 || variant === 4 || variant === 7;
+    const broad = variant === 2 || variant === 3 || variant === 6;
+    const trunkHeight = tall ? 2.05 : broad ? 1.3 : 1.62;
+    const trunk = MeshBuilder.CreateCylinder(`${object.id}-trunk`, {
+      diameterTop: variant === 7 ? 0.3 : 0.38,
+      diameterBottom: broad ? 0.68 : 0.56,
+      height: trunkHeight,
+      tessellation: 7
+    }, scene);
     trunk.parent = root;
     trunk.position.y = trunkHeight / 2;
-    trunk.rotation.z = (variant - 2) * 0.035;
-    trunk.material = mat(`${object.id}-trunk-mat`, palette.bark.scale(0.92 + variant * 0.04));
+    trunk.rotation.z = (variant % 3 - 1) * 0.045;
+    trunk.material = mat(`${object.id}-trunk-mat`, variant === 7 ? palette.stoneLight.scale(1.08) : palette.bark.scale(0.84 + (variant % 4) * 0.06));
     const rootA = box(`${object.id}-root-a`, { width: 1.0, height: 0.16, depth: 0.18 }, palette.bark.scale(0.8));
     rootA.parent = root; rootA.position.set(0.28, 0.1, 0.24); rootA.rotation.y = 0.55;
     const rootB = box(`${object.id}-root-b`, { width: 0.82, height: 0.14, depth: 0.16 }, palette.bark.scale(0.72));
     rootB.parent = root; rootB.position.set(-0.26, 0.09, -0.18); rootB.rotation.y = -0.85;
-    const crownColor = variant === 2 ? palette.leafDark : variant === 3 ? palette.leafGold.scale(0.86) : palette.leaf.scale(0.88 + variant * 0.025);
-    const crownLayers = variant === 4 ? 3 : 2;
+    const crownColor = variant === 2 || variant === 5
+      ? palette.leafDark
+      : variant === 3 ? palette.leafGold.scale(0.9)
+        : variant === 6 ? palette.leaf.scale(1.1)
+          : palette.leaf.scale(0.88 + (variant % 4) * 0.035);
+    const crownLayers = lowSpecMode ? 2 : (variant === 1 || variant === 4 ? 3 : 2);
     for (let i = 0; i < crownLayers; i++) {
+      const umbrella = variant === 6;
+      const sparse = variant === 5;
+      const layerWidth = umbrella ? 2.8 - i * 0.5 : sparse ? 1.75 - i * 0.28 : broad ? 2.65 - i * 0.28 : 2.35 - i * 0.38;
+      const layerHeight = umbrella ? 0.66 : sparse ? 0.9 : tall ? 1.28 : 1.12;
       const layer = MeshBuilder.CreateCylinder(`${object.id}-crown-${i}`, {
-        diameterTop: 0.34 + i * 0.18,
-        diameterBottom: 2.45 - i * 0.42 + variant * 0.06,
-        height: 1.38 - i * 0.08,
+        diameterTop: umbrella ? layerWidth * 0.68 : 0.28 + i * 0.14,
+        diameterBottom: layerWidth,
+        height: layerHeight,
         tessellation: 6
       }, scene);
       layer.parent = root;
-      layer.position.set((i % 2 ? 0.14 : -0.1) * (variant % 2), 2.18 + i * 0.86, (i % 2 ? -0.08 : 0.1));
+      const baseY = umbrella ? 1.75 : sparse ? 1.82 : tall ? 2.35 : 1.92;
+      const spacing = umbrella ? 0.42 : tall ? 0.76 : 0.68;
+      layer.position.set((i % 2 ? 0.16 : -0.1) * (variant % 2), baseY + i * spacing, (i % 2 ? -0.1 : 0.12));
       layer.rotation.y = variant * 0.21 + i * 0.38;
       layer.material = mat(`${object.id}-crown-${i}-mat`, crownColor.scale(0.88 + i * 0.07));
     }
@@ -2448,6 +2531,30 @@ function animateWorld() {
     if (head) head.position.y = Number(head.metadata?.baseY || head.position.y) + bob * 0.8;
     if (leftFist) leftFist.rotation.x = Math.sin(t * speedBob) * 0.55;
     if (rightFist) rightFist.rotation.x = -Math.sin(t * speedBob) * 0.55;
+    if (enemy.type === "archer" && node.metadata?.archerBow) {
+      const bowData = node.metadata.archerBow as { bowRig: TransformNode; bowString: any; heldArrow: Mesh; size: number };
+      const shotRemaining = Math.max(0, (autoSwings.get(id) || 0) - performance.now()) / 520;
+      const pull = shotRemaining > 0 ? Math.min(1, shotRemaining * 1.7) : 0.18 + Math.sin(t * 2.2 + id.length) * 0.06;
+      bowData.bowRig.rotation.x = -0.12 + pull * 0.22;
+      bowData.bowRig.rotation.y = Math.sin(t * 1.7 + id.length) * 0.04;
+      bowData.bowRig.position.y = bowData.size * 0.82 + bob * 0.55;
+      MeshBuilder.CreateLines(bowData.bowString.name, {
+        points: [
+          new Vector3(bowData.size * 0.24, bowData.size * 0.94, 0),
+          new Vector3(-bowData.size * 0.18, 0, bowData.size * (0.16 + pull * 0.56)),
+          new Vector3(bowData.size * 0.24, -bowData.size * 0.94, 0),
+        ],
+        instance: bowData.bowString,
+      });
+      bowData.heldArrow.position.z = -bowData.size * (0.68 - pull * 0.52);
+      bowData.heldArrow.isVisible = shotRemaining === 0 || shotRemaining > 0.42;
+      const marker = node.getChildMeshes().find((mesh) => mesh.name.endsWith("-archer-marker"));
+      if (marker) {
+        const pulse = 1 + Math.sin(t * 4.2 + id.length) * 0.08;
+        marker.scaling.setAll(pulse);
+        (marker.material as StandardMaterial).alpha = 0.32 + (enemy.alerted ? 0.2 : 0.06) + Math.sin(t * 4.2) * 0.06;
+      }
+    }
   }
   for (const [, node] of mapMeshes) {
     const crystal = node.getChildMeshes().find((mesh) => mesh.name.endsWith("-crystal"));
@@ -2724,7 +2831,7 @@ function createEnemy(e: EnemyState) {
   const root = new TransformNode(e.id, scene);
   root.metadata = { entityId: e.id };
   const color = enemyColor(e.type, e.boss);
-  const size = e.boss ? 2.2 : e.type === "brute" ? 1.4 : 0.9;
+  const size = e.boss ? 2.2 : e.type === "brute" ? 1.4 : e.type === "archer" ? 1.08 : 0.9;
   addContactShadow(root, `${e.id}-contact-shadow`, size * 1.7, e.boss ? 0.24 : 0.2, 0.82);
   const body = box(`${e.id}-body`, { width: size, height: size, depth: size }, color); body.parent = root; body.position.y = size / 2; body.metadata = { entityId: e.id, baseY: body.position.y };
   const head = box(`${e.id}-head`, { width: size * 0.72, height: size * 0.46, depth: size * 0.62 }, color.scale(1.12)); head.parent = root; head.position.y = size * 1.12; head.metadata = { entityId: e.id, baseY: head.position.y };
@@ -2769,12 +2876,20 @@ function addEnemyIdentityDetails(root: TransformNode, e: EnemyState, size: numbe
       claw.parent = root; claw.position.set(side * size * 0.25, size * 0.11, -size * 0.48); claw.rotation.x = Math.PI / 2; claw.material = mat(`${e.id}-claw-${side}-mat`, new Color3(0.92, 0.86, 0.65));
     }
   } else if (e.type === "archer") {
-    const quiver = box(`${e.id}-enemy-quiver`, { width: size * 0.22, height: size * 0.72, depth: size * 0.18 }, new Color3(0.24, 0.12, 0.05));
-    quiver.parent = root; quiver.position.set(-size * 0.32, size * 0.78, size * 0.48); quiver.rotation.z = 0.18;
-    for (let i = 0; i < 3; i++) {
-      const arrow = box(`${e.id}-enemy-quiver-arrow-${i}`, { width: size * 0.035, height: size * 0.48, depth: size * 0.035 }, new Color3(0.88, 0.78, 0.52));
-      arrow.parent = root; arrow.position.set(-size * (0.38 - i * 0.06), size * 1.12, size * 0.54); arrow.rotation.z = 0.2;
+    const leather = new Color3(0.28, 0.12, 0.045);
+    const fletching = new Color3(1, 0.48, 0.06);
+    const quiver = MeshBuilder.CreateCylinder(`${e.id}-enemy-quiver`, { diameterTop: size * 0.24, diameterBottom: size * 0.31, height: size * 0.88, tessellation: 7 }, scene);
+    quiver.parent = root; quiver.position.set(-size * 0.42, size * 0.82, size * 0.5); quiver.rotation.z = 0.2; quiver.material = mat(`${e.id}-enemy-quiver-mat`, leather);
+    const quiverBand = MeshBuilder.CreateTorus(`${e.id}-quiver-band`, { diameter: size * 0.28, thickness: size * 0.035, tessellation: 12 }, scene);
+    quiverBand.parent = quiver; quiverBand.position.y = size * 0.4; quiverBand.rotation.x = Math.PI / 2; quiverBand.material = mat(`${e.id}-quiver-band-mat`, new Color3(0.72, 0.46, 0.12));
+    for (let i = 0; i < 6; i++) {
+      const arrow = box(`${e.id}-enemy-quiver-arrow-${i}`, { width: size * 0.035, height: size * 0.68, depth: size * 0.035 }, new Color3(0.9, 0.78, 0.42));
+      arrow.parent = root; arrow.position.set(-size * (0.5 - i * 0.045), size * (1.28 + (i % 2) * 0.04), size * (0.48 + (i % 3) * 0.035)); arrow.rotation.z = 0.2;
+      const feather = box(`${e.id}-enemy-arrow-feather-${i}`, { width: size * 0.12, height: size * 0.16, depth: size * 0.035 }, fletching);
+      feather.parent = root; feather.position.set(arrow.position.x, arrow.position.y + size * 0.31, arrow.position.z); feather.rotation.z = 0.2;
     }
+    const chestStrap = box(`${e.id}-archer-chest-strap`, { width: size * 0.11, height: size * 1.08, depth: size * 0.68 }, new Color3(0.72, 0.42, 0.09));
+    chestStrap.parent = root; chestStrap.position.set(0, size * 0.68, -size * 0.03); chestStrap.rotation.z = -0.55;
   } else if (e.type === "sorcerer") {
     const pendant = MeshBuilder.CreateSphere(`${e.id}-pendant`, { diameter: size * 0.18, segments: 7 }, scene);
     pendant.parent = root; pendant.position.set(0, size * 0.74, -size * 0.53);
@@ -2818,10 +2933,23 @@ function addEnemyDetails(root: TransformNode, e: EnemyState, size: number, color
     const rightBoot = box(`${e.id}-right-boot`, { width: size * 0.22, height: size * 0.18, depth: size * 0.48 }, new Color3(0.18, 0.12, 0.08)); rightBoot.parent = root; rightBoot.position.set(size * 0.24, size * 0.1, -size * 0.18);
     const tail = MeshBuilder.CreateCylinder(`${e.id}-tail`, { diameterTop: size * 0.08, diameterBottom: size * 0.14, height: size * 0.8, tessellation: 6 }, scene); tail.parent = root; tail.position.set(0, size * 0.48, size * 0.62); tail.rotation.x = 1.1; tail.material = mat(`${e.id}-tail-mat`, color.scale(0.9));
   } else if (e.type === "archer") {
-    const hood = MeshBuilder.CreateCylinder(`${e.id}-hood`, { diameterTop: size * 0.25, diameterBottom: size * 0.7, height: size * 0.5, tessellation: 5 }, scene); hood.parent = root; hood.position.y = size * 1.37; hood.material = mat(`${e.id}-hood-mat`, new Color3(0.04, 0.16, 0.07));
-    const bow = MeshBuilder.CreateTorus(`${e.id}-enemy-bow`, { diameter: size * 0.78, thickness: size * 0.035, tessellation: 24 }, scene); bow.parent = root; bow.position.set(size * 0.7, size * 0.75, 0); bow.rotation.z = Math.PI / 2; bow.scaling.y = 1.6; bow.material = mat(`${e.id}-enemy-bow-mat`, new Color3(0.38, 0.22, 0.08));
-    const arrow = box(`${e.id}-arrow`, { width: size * 0.05, height: size * 0.9, depth: size * 0.05 }, new Color3(0.9, 0.82, 0.55)); arrow.parent = root; arrow.position.set(-size * 0.34, size * 0.92, -size * 0.32); arrow.rotation.z = 0.35;
-    const cloak = box(`${e.id}-cloak`, { width: size * 0.76, height: size * 0.78, depth: size * 0.08 }, new Color3(0.03, 0.11, 0.05)); cloak.parent = root; cloak.position.set(0, size * 0.68, size * 0.48); cloak.rotation.x = -0.12;
+    const archerGreen = new Color3(0.08, 0.3, 0.12);
+    const brightLeather = new Color3(0.58, 0.31, 0.07);
+    const hood = MeshBuilder.CreateCylinder(`${e.id}-hood`, { diameterTop: size * 0.3, diameterBottom: size * 0.78, height: size * 0.56, tessellation: 6 }, scene); hood.parent = root; hood.position.y = size * 1.4; hood.material = mat(`${e.id}-hood-mat`, archerGreen);
+    const hoodTip = MeshBuilder.CreateCylinder(`${e.id}-hood-tip`, { diameterTop: 0, diameterBottom: size * 0.24, height: size * 0.48, tessellation: 5 }, scene); hoodTip.parent = root; hoodTip.position.set(0, size * 1.72, size * 0.12); hoodTip.rotation.x = 0.48; hoodTip.material = mat(`${e.id}-hood-tip-mat`, archerGreen.scale(0.85));
+    const leftPauldron = box(`${e.id}-archer-left-pauldron`, { width: size * 0.4, height: size * 0.18, depth: size * 0.5 }, brightLeather); leftPauldron.parent = root; leftPauldron.position.set(-size * 0.55, size * 1.0, 0); leftPauldron.rotation.z = -0.15;
+    const bowRig = new TransformNode(`${e.id}-archer-bow-rig`, scene); bowRig.parent = root; bowRig.position.set(size * 0.68, size * 0.82, -size * 0.5); bowRig.rotation.z = -0.08;
+    const bowWood = new Color3(0.62, 0.3, 0.055);
+    const upperLimb = MeshBuilder.CreateCylinder(`${e.id}-bow-upper`, { diameter: size * 0.07, height: size * 1.0, tessellation: 7 }, scene); upperLimb.parent = bowRig; upperLimb.position.set(size * 0.12, size * 0.44, 0); upperLimb.rotation.z = -0.25; upperLimb.material = mat(`${e.id}-bow-upper-mat`, bowWood);
+    const lowerLimb = MeshBuilder.CreateCylinder(`${e.id}-bow-lower`, { diameter: size * 0.07, height: size * 1.0, tessellation: 7 }, scene); lowerLimb.parent = bowRig; lowerLimb.position.set(size * 0.12, -size * 0.44, 0); lowerLimb.rotation.z = 0.25; lowerLimb.material = mat(`${e.id}-bow-lower-mat`, bowWood);
+    const grip = box(`${e.id}-bow-grip`, { width: size * 0.13, height: size * 0.34, depth: size * 0.12 }, new Color3(0.2, 0.09, 0.03)); grip.parent = bowRig;
+    const bowString = MeshBuilder.CreateLines(`${e.id}-bow-string`, { points: [new Vector3(size * 0.24, size * 0.94, 0), new Vector3(-size * 0.18, 0, size * 0.16), new Vector3(size * 0.24, -size * 0.94, 0)] }, scene);
+    bowString.parent = bowRig; bowString.color = new Color3(0.94, 0.88, 0.68); bowString.alpha = 0.92;
+    const heldArrow = box(`${e.id}-held-arrow`, { width: size * 0.045, height: size * 1.42, depth: size * 0.045 }, new Color3(0.95, 0.82, 0.42)); heldArrow.parent = bowRig; heldArrow.position.set(-size * 0.16, 0, -size * 0.68); heldArrow.rotation.x = Math.PI / 2;
+    const arrowHead = MeshBuilder.CreateCylinder(`${e.id}-held-arrow-head`, { diameterTop: 0, diameterBottom: size * 0.16, height: size * 0.28, tessellation: 4 }, scene); arrowHead.parent = bowRig; arrowHead.position.set(-size * 0.16, 0, -size * 1.38); arrowHead.rotation.x = -Math.PI / 2; arrowHead.material = mat(`${e.id}-held-arrow-head-mat`, new Color3(0.72, 0.76, 0.72));
+    const cloak = box(`${e.id}-cloak`, { width: size * 0.86, height: size * 0.92, depth: size * 0.1 }, archerGreen.scale(0.7)); cloak.parent = root; cloak.position.set(0, size * 0.68, size * 0.54); cloak.rotation.x = -0.12;
+    const archerMarker = MeshBuilder.CreateTorus(`${e.id}-archer-marker`, { diameter: size * 1.75, thickness: size * 0.055, tessellation: 36 }, scene); archerMarker.parent = root; archerMarker.position.y = 0.055; archerMarker.rotation.x = Math.PI / 2; const markerMat = transparentMat(`${e.id}-archer-marker-mat`, new Color3(1, 0.58, 0.06), 0.42); markerMat.emissiveColor = new Color3(0.65, 0.22, 0.01); archerMarker.material = markerMat;
+    root.metadata = { ...(root.metadata || {}), archerBow: { bowRig, bowString, heldArrow, size } };
   } else if (e.type === "sorcerer") {
     const mask = box(`${e.id}-mask`, { width: size * 0.58, height: size * 0.42, depth: size * 0.12 }, new Color3(0.92, 0.86, 0.58)); mask.parent = root; mask.position.set(0, size * 1.15, -size * 0.34);
     const staff = box(`${e.id}-sorcerer-staff`, { width: size * 0.08, height: size * 1.45, depth: size * 0.08 }, new Color3(0.24, 0.12, 0.05)); staff.parent = root; staff.position.set(size * 0.62, size * 0.72, 0); staff.rotation.z = -0.2;
@@ -2953,7 +3081,9 @@ function playCastEffect(event: CombatEvent) {
   if (!source || !target) return;
   const ability = event.abilityId ? state?.abilities[event.abilityId] : null;
   const color = effectColor(event.abilityId || "", event.school || "");
-  if (event.abilityId?.includes("frost_nova")) {
+  if (event.abilityId?.includes("mage_cone_of_cold")) {
+    coneOfColdVisual(source.position, state?.players[event.sourceId || ""]?.facing || 0);
+  } else if (event.abilityId?.includes("frost_nova")) {
     frostRing(source.position, 4.2, 900);
   } else if (event.abilityId?.includes("warrior_charge")) {
     slashRing(target.position, 520);
@@ -3075,9 +3205,9 @@ function playAutoAttackEffect(event: CombatEvent) {
   const source = event.sourceId ? meshes.get(event.sourceId) : null;
   const target = event.targetId ? meshes.get(event.targetId) : null;
   if (!source || !target) return;
-  autoSwings.set(event.sourceId || "", performance.now() + 320);
   const sourcePlayer = event.sourceId ? state?.players[event.sourceId] : null;
   const sourceEnemy = event.sourceId ? state?.enemies[event.sourceId] : null;
+  autoSwings.set(event.sourceId || "", performance.now() + (sourceEnemy?.type === "archer" ? 520 : 320));
   if (sourcePlayer?.classId === "rogue" && event.sourceId) {
     autoSwingHands.set(event.sourceId, autoSwingHands.get(event.sourceId) === "left" ? "right" : "left");
   }
@@ -4648,6 +4778,10 @@ function cast(slot: number) {
   const me = state?.players[state.you];
   const abilityId = me?.abilities.find((id) => abilitySlot(me, id) === slot);
   if (abilityId && state?.abilities[abilityId]?.targetType === "ground") {
+    if (pendingGroundAbilitySlot === slot) {
+      cancelGroundTargeting();
+      return;
+    }
     pendingGroundAbilitySlot = slot;
     const radius = state.abilities[abilityId].effects?.find((effect) => effect.radius)?.radius || 5.2;
     groundTargetMarker.scaling.setAll(radius / 5.2);
@@ -4655,9 +4789,90 @@ function cast(slot: number) {
     text("target", "Choose a ground location");
     return;
   }
+  cancelGroundTargeting();
+  send({ type: "cast_ability", abilitySlot: slot });
+}
+
+function cancelGroundTargeting() {
   pendingGroundAbilitySlot = null;
   groundTargetMarker.setEnabled(false);
-  send({ type: "cast_ability", abilitySlot: slot });
+}
+
+function coneOfColdVisual(center: Vector3, facing: number) {
+  const root = new TransformNode("cone-of-cold-vfx", scene);
+  root.position = center.clone();
+  root.rotation.y = facing;
+  const radius = 7.5;
+  const halfAngle = 75 * Math.PI / 360;
+  const segments = 22;
+  const positions: number[] = [0, 0.07, 0];
+  const indices: number[] = [];
+  for (let i = 0; i <= segments; i++) {
+    const angle = -halfAngle + i / segments * halfAngle * 2;
+    positions.push(Math.sin(angle) * radius, 0.07, Math.cos(angle) * radius);
+    if (i > 0) indices.push(0, i, i + 1);
+  }
+  const wedge = new Mesh("cone-of-cold-ground", scene);
+  const vertexData = new VertexData();
+  vertexData.positions = positions;
+  vertexData.indices = indices;
+  vertexData.applyToMesh(wedge);
+  wedge.parent = root;
+  const wedgeMat = transparentMat("cone-of-cold-ground-mat", new Color3(0.25, 0.74, 1), 0.34);
+  wedgeMat.emissiveColor = new Color3(0.2, 0.65, 1);
+  wedgeMat.backFaceCulling = false;
+  wedge.material = wedgeMat;
+  const rimPoints = Array.from({ length: segments + 1 }, (_, i) => {
+    const angle = -halfAngle + i / segments * halfAngle * 2;
+    return new Vector3(Math.sin(angle) * radius, 0.14, Math.cos(angle) * radius);
+  });
+  const rim = MeshBuilder.CreateLines("cone-of-cold-rim", { points: [Vector3.Zero(), ...rimPoints, Vector3.Zero()] }, scene);
+  rim.parent = root;
+  rim.color = new Color3(0.75, 0.96, 1);
+  rim.alpha = 0.95;
+  const shards = Array.from({ length: 38 }, (_, i) => {
+    const shard = MeshBuilder.CreatePolyhedron(`cone-ice-shard-${i}`, { type: i % 2 ? 1 : 2, size: 0.12 + (i % 5) * 0.055 }, scene);
+    shard.parent = root;
+    const shardMat = transparentMat(`cone-ice-shard-${i}-mat`, i % 3 ? new Color3(0.32, 0.82, 1) : new Color3(0.82, 0.98, 1), 0.92);
+    shardMat.emissiveColor = new Color3(0.25, 0.72, 1);
+    shard.material = shardMat;
+    return { shard, material: shardMat, angle: -halfAngle + (i % 13) / 12 * halfAngle * 2, lane: 0.25 + ((i * 37) % 70) / 100, delay: (i % 9) / 18 };
+  });
+  const frostClouds = Array.from({ length: 18 }, (_, i) => {
+    const cloud = MeshBuilder.CreateSphere(`cone-frost-cloud-${i}`, { diameter: 0.55 + (i % 4) * 0.18, segments: 6 }, scene);
+    cloud.parent = root;
+    const material = transparentMat(`cone-frost-cloud-${i}-mat`, new Color3(0.65, 0.9, 1), 0.22);
+    cloud.material = material;
+    return { cloud, material, angle: -halfAngle + (i % 9) / 8 * halfAngle * 2, delay: (i % 6) / 15 };
+  });
+  const started = performance.now();
+  const observer = scene.onBeforeRenderObservable.add(() => {
+    const progress = (performance.now() - started) / 900;
+    const wave = Math.min(1, progress * 2.1);
+    wedge.scaling.z = wave;
+    rim.scaling.z = wave;
+    wedgeMat.alpha = Math.max(0, 0.42 * (1 - progress));
+    rim.alpha = Math.max(0, 1 - progress);
+    shards.forEach((entry) => {
+      const p = Math.max(0, Math.min(1, (progress - entry.delay) / 0.68));
+      const distance = radius * entry.lane * p;
+      entry.shard.position.set(Math.sin(entry.angle) * distance, 0.18 + Math.sin(p * Math.PI) * 0.9, Math.cos(entry.angle) * distance);
+      entry.shard.rotation.x += 0.16;
+      entry.shard.rotation.y += 0.2;
+      entry.material.alpha = Math.sin(p * Math.PI) * 0.95;
+    });
+    frostClouds.forEach((entry) => {
+      const p = Math.max(0, Math.min(1, (progress - entry.delay) / 0.65));
+      const distance = radius * p * (0.45 + entry.delay);
+      entry.cloud.position.set(Math.sin(entry.angle) * distance, 0.35 + p * 0.45, Math.cos(entry.angle) * distance);
+      entry.cloud.scaling.setAll(0.35 + p * 1.5);
+      entry.material.alpha = Math.sin(p * Math.PI) * 0.24;
+    });
+    if (progress >= 1) {
+      scene.onBeforeRenderObservable.remove(observer);
+      root.dispose();
+    }
+  });
 }
 
 function playSignatureSpellEffect(event: CombatEvent) {
@@ -4667,11 +4882,29 @@ function playSignatureSpellEffect(event: CombatEvent) {
   const sourcePos = source?.position;
   const targetPos = target?.position;
   const id = event.abilityId;
+  const signatureStyle: Record<string, { color: Color3; radius: number }> = {
+    warrior_execute: { color: new Color3(0.9, 0.04, 0.02), radius: 2.2 },
+    hunter_disengage: { color: new Color3(0.75, 0.62, 0.35), radius: 2.8 },
+    priest_holy_nova: { color: new Color3(1, 0.9, 0.3), radius: 5 },
+    priest_leap_of_faith: { color: new Color3(1, 0.85, 0.58), radius: 2.2 },
+    mage_dragons_breath: { color: new Color3(1, 0.16, 0.01), radius: 4.5 },
+    rogue_fan_of_knives: { color: new Color3(0.6, 0.72, 0.78), radius: 5 },
+    rogue_shadowstep: { color: new Color3(0.48, 0.1, 0.75), radius: 2 },
+    druid_starfall: { color: new Color3(0.4, 0.7, 1), radius: 8 },
+    druid_wild_growth: { color: new Color3(0.2, 0.9, 0.25), radius: 7 },
+    shaman_thunderstorm: { color: new Color3(0.08, 0.62, 1), radius: 5.5 },
+    shaman_riptide: { color: new Color3(0.08, 0.75, 1), radius: 2.2 },
+    paladin_divine_storm: { color: new Color3(1, 0.72, 0.08), radius: 4.5 },
+    paladin_avengers_shield: { color: new Color3(1, 0.68, 0.06), radius: 2.2 },
+  };
+  const style = signatureStyle[id];
+  const burstCenter = targetPos || sourcePos;
+  if (style && burstCenter) layeredSpellBurst(id, burstCenter, style.radius, style.color);
   if (id === "warrior_execute" && targetPos) expandingDisc("execute", targetPos, 2.2, new Color3(0.85, 0.03, 0.02), 420, 0.36);
   else if (id === "hunter_disengage" && sourcePos) expandingDisc("disengage", sourcePos, 2.6, new Color3(0.72, 0.62, 0.4), 480, 0.25);
   else if (id === "priest_holy_nova" && sourcePos) expandingDisc("holy-nova", sourcePos, 5, new Color3(1, 0.9, 0.35), 720, 0.38);
   else if (id === "priest_leap_of_faith" && sourcePos && targetPos) projectile(targetPos, sourcePos, new Color3(1, 0.9, 0.65), 360, source);
-  else if (id === "mage_dragons_breath" && sourcePos) expandingDisc("dragons-breath", sourcePos, 5.8, new Color3(1, 0.2, 0.01), 520, 0.32);
+  else if (id === "mage_dragons_breath" && sourcePos) dragonBreathVisual(sourcePos, state?.players[event.sourceId || ""]?.facing || 0);
   else if (id === "rogue_fan_of_knives" && sourcePos) expandingDisc("fan-of-knives", sourcePos, 5, new Color3(0.62, 0.72, 0.76), 460, 0.28);
   else if (id === "rogue_shadowstep" && targetPos) expandingDisc("shadowstep", targetPos, 1.8, new Color3(0.48, 0.12, 0.72), 420, 0.34);
   else if (id === "druid_starfall" && sourcePos) expandingDisc("starfall", sourcePos, 8, new Color3(0.4, 0.7, 1), 700, 0.22);
@@ -4680,6 +4913,93 @@ function playSignatureSpellEffect(event: CombatEvent) {
   else if (id === "shaman_riptide" && sourcePos && targetPos) projectile(sourcePos, targetPos, new Color3(0.1, 0.72, 1), 360, target);
   else if (id === "paladin_divine_storm" && sourcePos) expandingDisc("divine-storm", sourcePos, 4.5, new Color3(1, 0.75, 0.12), 650, 0.4);
   else if (id === "paladin_avengers_shield" && sourcePos && targetPos) projectile(sourcePos, targetPos, new Color3(1, 0.72, 0.08), 420, target);
+}
+
+function layeredSpellBurst(name: string, center: Vector3, radius: number, color: Color3) {
+  expandingDisc(`${name}-outer`, center, radius, color, 760, 0.28);
+  window.setTimeout(() => expandingDisc(`${name}-inner`, center, radius * 0.68, new Color3(Math.min(1, color.r + 0.28), Math.min(1, color.g + 0.2), Math.min(1, color.b + 0.16)), 560, 0.38), 70);
+  const shards = Array.from({ length: 18 }, (_, i) => {
+    const shard = MeshBuilder.CreatePolyhedron(`${name}-rune-shard-${i}`, { type: i % 2 ? 1 : 2, size: 0.11 + (i % 4) * 0.035 }, scene);
+    const angle = i * Math.PI * 2 / 18;
+    shard.position = center.add(new Vector3(Math.sin(angle) * radius * 0.28, 0.2 + (i % 3) * 0.15, Math.cos(angle) * radius * 0.28));
+    const material = mat(`${name}-rune-shard-${i}-mat`, color);
+    material.emissiveColor = color.scale(0.9);
+    shard.material = material;
+    return { shard, material, angle, speed: radius * (0.65 + (i % 4) * 0.1) };
+  });
+  const started = performance.now();
+  const observer = scene.onBeforeRenderObservable.add(() => {
+    const progress = Math.min(1, (performance.now() - started) / 720);
+    shards.forEach((entry, i) => {
+      const distance = entry.speed * progress;
+      entry.shard.position.x = center.x + Math.sin(entry.angle) * distance;
+      entry.shard.position.z = center.z + Math.cos(entry.angle) * distance;
+      entry.shard.position.y = 0.25 + Math.sin(progress * Math.PI) * (1.1 + (i % 3) * 0.25);
+      entry.shard.rotation.x += 0.11;
+      entry.shard.rotation.y += 0.15;
+      entry.material.alpha = 1 - progress;
+    });
+    if (progress >= 1) {
+      scene.onBeforeRenderObservable.remove(observer);
+      shards.forEach(({ shard }) => shard.dispose());
+    }
+  });
+}
+
+function dragonBreathVisual(center: Vector3, facing: number) {
+  const root = new TransformNode("dragon-breath-vfx", scene);
+  root.position = center.clone();
+  root.rotation.y = facing;
+  const scale = 1.15;
+  const crimson = new Color3(0.42, 0.035, 0.025);
+  const bone = new Color3(0.72, 0.2, 0.08);
+  const skull = MeshBuilder.CreatePolyhedron("dragon-head", { type: 1, size: 1.05 * scale }, scene);
+  skull.parent = root; skull.position.set(0, 2.75, 0.35); skull.scaling.set(1.05, 0.72, 1.18); skull.material = mat("dragon-head-mat", crimson);
+  const snout = box("dragon-snout", { width: 1.15, height: 0.5, depth: 1.45 }, bone); snout.parent = root; snout.position.set(0, 2.55, 1.25);
+  const jaw = box("dragon-jaw", { width: 1.05, height: 0.22, depth: 1.25 }, crimson.scale(0.7)); jaw.parent = root; jaw.position.set(0, 2.18, 1.3); jaw.rotation.x = -0.18;
+  for (const side of [-1, 1]) {
+    const horn = MeshBuilder.CreateCylinder(`dragon-horn-${side}`, { diameterTop: 0, diameterBottom: 0.28, height: 1.25, tessellation: 5 }, scene);
+    horn.parent = root; horn.position.set(side * 0.72, 3.45, 0); horn.rotation.z = side * -0.55; horn.rotation.x = -0.35; horn.material = mat(`dragon-horn-${side}-mat`, new Color3(0.16, 0.08, 0.04));
+    const eye = MeshBuilder.CreateSphere(`dragon-eye-${side}`, { diameter: 0.2, segments: 6 }, scene);
+    eye.parent = root; eye.position.set(side * 0.48, 2.88, 0.83); const eyeMat = mat(`dragon-eye-${side}-mat`, new Color3(1, 0.65, 0.04)); eyeMat.emissiveColor = new Color3(1, 0.12, 0); eye.material = eyeMat;
+  }
+  const flames = Array.from({ length: 34 }, (_, i) => {
+    const flame = MeshBuilder.CreatePolyhedron(`dragon-flame-${i}`, { type: i % 2 ? 1 : 2, size: 0.18 + (i % 5) * 0.07 }, scene);
+    flame.parent = root;
+    const flameMat = transparentMat(`dragon-flame-${i}-mat`, i % 3 ? new Color3(1, 0.18, 0.01) : new Color3(1, 0.75, 0.08), 0.95);
+    flameMat.emissiveColor = i % 3 ? new Color3(1, 0.08, 0) : new Color3(1, 0.55, 0.02);
+    flame.material = flameMat;
+    return { flame, material: flameMat, lane: (i % 7 - 3) / 3, delay: (i % 11) / 11 };
+  });
+  const smoke = Array.from({ length: 15 }, (_, i) => {
+    const puff = MeshBuilder.CreateSphere(`dragon-smoke-${i}`, { diameter: 0.45 + (i % 4) * 0.16, segments: 6 }, scene);
+    puff.parent = root; const smokeMat = transparentMat(`dragon-smoke-${i}-mat`, new Color3(0.16, 0.13, 0.12), 0.32); puff.material = smokeMat;
+    return { puff, material: smokeMat, delay: i / 15, side: i % 2 ? 1 : -1 };
+  });
+  const started = performance.now();
+  const observer = scene.onBeforeRenderObservable.add(() => {
+    const progress = (performance.now() - started) / 1250;
+    const headPulse = Math.min(1, progress * 7) * Math.min(1, (1.25 - progress) * 6);
+    root.scaling.setAll(Math.max(0.01, headPulse));
+    jaw.rotation.x = -0.18 - Math.sin(Math.min(1, progress * 4) * Math.PI) * 0.35;
+    flames.forEach((entry, i) => {
+      const p = Math.max(0, Math.min(1, (progress - entry.delay * 0.28) / 0.7));
+      entry.flame.position.set(entry.lane * (0.18 + p * 1.4), 2.38 + Math.sin(i * 2.1 + p * 12) * 0.24, 1.75 + p * 8.5);
+      entry.flame.scaling.setAll(0.45 + Math.sin(p * Math.PI) * 1.5);
+      entry.material.alpha = Math.sin(p * Math.PI) * 0.95;
+      entry.flame.rotation.x += 0.14; entry.flame.rotation.z += 0.18;
+    });
+    smoke.forEach((entry, i) => {
+      const p = Math.max(0, Math.min(1, (progress - 0.28 - entry.delay * 0.22) / 0.7));
+      entry.puff.position.set(entry.side * p * (0.5 + i % 3), 2.6 + p * 1.5, 2.2 + p * 7.2);
+      entry.puff.scaling.setAll(0.2 + p * 2.1);
+      entry.material.alpha = Math.sin(p * Math.PI) * 0.3;
+    });
+    if (progress >= 1.25) {
+      scene.onBeforeRenderObservable.remove(observer);
+      root.dispose();
+    }
+  });
 }
 function flushSendQueue() {
   while (sendQueue.length && ws?.readyState === WebSocket.OPEN) {
