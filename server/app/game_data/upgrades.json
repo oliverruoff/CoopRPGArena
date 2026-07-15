@@ -10,5 +10,6 @@
   {"id":"resistance","name":"Resistance +15","stat":"resistance","mode":"add","value":15},
   {"id":"regen","name":"Resource Regen +25%","stat":"resourceRegen","mode":"mult","value":1.25},
   {"id":"cooldown_reduction","name":"Cooldown Reduction +5%","stat":"cooldownReduction","mode":"add","value":0.05},
-  {"id":"cast_speed","name":"Cast Speed +10%","stat":"castSpeed","mode":"mult","value":1.10}
+  {"id":"cast_speed","name":"Cast Speed +10%","stat":"castSpeed","mode":"mult","value":1.10},
+  {"id":"attack_speed","name":"Auto Attack Speed +10%","stat":"autoAttackInterval","mode":"mult","value":0.90}
 ]

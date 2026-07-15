@@ -944,6 +944,125 @@ def test_late_wave_scaling_accelerates_and_adds_more_enemies():
     assert late_health_ratio > base_health_ratio + 1.5
 
 
+def test_attack_speed_upgrade_reduces_auto_attack_interval():
+    game = Game()
+    player = Player(id="player", name="Player")
+    player.stats = {"autoAttackInterval": 2.0}
+    player.auto_attack_at = time.monotonic() + 2.0
+    player.pending_upgrades = [{**next(upgrade for upgrade in game.upgrades if upgrade["id"] == "attack_speed"), "choiceType": "stat"}]
+    game._choose_upgrade_locked(player, "attack_speed")
+    assert player.stats["autoAttackInterval"] == 1.8
+    assert 1.7 <= player.auto_attack_at - time.monotonic() <= 1.8
+
+
+def test_paladin_lay_on_hands_fully_heals_selected_ally():
+    asyncio.run(_paladin_lay_on_hands_fully_heals_selected_ally())
+
+
+async def _paladin_lay_on_hands_fully_heals_selected_ally():
+    game = Game()
+    paladin = await game.add_player()
+    ally = await game.add_player()
+    await game.handle_message(paladin.id, {"type": "select_class", "classId": "paladin"})
+    await game.handle_message(ally.id, {"type": "select_class", "classId": "warrior"})
+    async with game._lock:
+        game._start_match_locked()
+        caster = game.players[paladin.id]
+        target = game.players[ally.id]
+        caster.abilities.append("paladin_lay_on_hands")
+        caster.ability_slots["paladin_lay_on_hands"] = 6
+        caster.resource = caster.stats["maxResource"]
+        caster.ally_target_id = target.id
+        target.hp = 1
+        game._cast_ability_locked(caster, 6)
+        assert target.hp == target.stats["maxHealth"]
+        assert caster.cooldowns["paladin_lay_on_hands"] > time.monotonic()
+        assert any(event.get("type") == "heal" and event.get("abilityId") == "paladin_lay_on_hands" for event in game.events)
+
+
+def test_cone_of_cold_only_hits_enemies_in_front_of_mage():
+    game = Game()
+    mage = Player(id="mage", name="Mage", class_id="mage")
+    mage.stats = dict(game.classes["mage"]["baseStats"])
+    mage.resource = mage.stats["maxResource"]
+    mage.abilities = ["mage_cone_of_cold"]
+    mage.ability_slots = {"mage_cone_of_cold": 2}
+    mage.facing = 0
+    game.players[mage.id] = mage
+    front = game.spawn_enemy_locked("goblin", {"x": 0, "z": 5})
+    behind = game.spawn_enemy_locked("goblin", {"x": 0, "z": -5})
+    front_hp, behind_hp = front.hp, behind.hp
+    game._cast_ability_locked(mage, 2)
+    assert front.hp < front_hp
+    assert front.slow_until > 0
+    assert behind.hp == behind_hp
+
+
+def test_blizzard_can_be_placed_and_ticks_aoe_damage():
+    game = Game()
+    mage = Player(id="mage", name="Mage", class_id="mage")
+    mage.stats = dict(game.classes["mage"]["baseStats"])
+    mage.resource = mage.stats["maxResource"]
+    mage.abilities = ["mage_blizzard"]
+    mage.ability_slots = {"mage_blizzard": 7}
+    game.players[mage.id] = mage
+    inside = game.spawn_enemy_locked("goblin", {"x": 8, "z": 0})
+    outside = game.spawn_enemy_locked("goblin", {"x": -8, "z": 0})
+    inside_hp, outside_hp = inside.hp, outside.hp
+    game._cast_ability_locked(mage, 7, {"x": 8, "z": 0})
+    blizzard = next(effect for effect in game.ground_effects if effect["type"] == "blizzard")
+    game._tick_ground_effects_locked(blizzard["nextTick"])
+    assert inside.hp < inside_hp
+    assert inside.slow_until > 0
+    assert outside.hp == outside_hp
+
+
+def test_every_class_has_two_new_signature_spells():
+    game = Game()
+    expected = {
+        "warrior": {"warrior_execute", "warrior_heroic_leap"},
+        "hunter": {"hunter_disengage", "hunter_volley"},
+        "priest": {"priest_holy_nova", "priest_leap_of_faith"},
+        "mage": {"mage_flamestrike", "mage_dragons_breath"},
+        "rogue": {"rogue_fan_of_knives", "rogue_shadowstep"},
+        "druid": {"druid_starfall", "druid_wild_growth"},
+        "shaman": {"shaman_thunderstorm", "shaman_riptide"},
+        "paladin": {"paladin_divine_storm", "paladin_avengers_shield"},
+    }
+    for class_id, ability_ids in expected.items():
+        assert ability_ids <= {ability_id for ability_id, ability in game.abilities.items() if ability["classId"] == class_id}
+
+
+def test_execute_bonus_and_heroic_leap_mechanics():
+    game = Game()
+    warrior = Player(id="warrior", name="Warrior", class_id="warrior")
+    warrior.stats = dict(game.classes["warrior"]["baseStats"])
+    warrior.stats["critChance"] = 0
+    warrior.resource = warrior.stats["maxResource"]
+    warrior.abilities = ["warrior_execute", "warrior_heroic_leap"]
+    warrior.ability_slots = {"warrior_execute": 2, "warrior_heroic_leap": 6}
+    game.players[warrior.id] = warrior
+    healthy = game.spawn_enemy_locked("brute", {"x": 1, "z": 0})
+    low = game.spawn_enemy_locked("brute", {"x": -1, "z": 0})
+    low.max_health = 500
+    low.hp = low.max_health * 0.3
+    healthy_before, low_before = healthy.hp, low.hp
+    warrior.target_id = healthy.id
+    game._cast_ability_locked(warrior, 2)
+    normal_damage = healthy_before - healthy.hp
+    warrior.global_cooldown_until = 0
+    warrior.cooldowns.clear()
+    warrior.resource = warrior.stats["maxResource"]
+    warrior.target_id = low.id
+    game._cast_ability_locked(warrior, 2)
+    assert low_before - low.hp > normal_damage * 2
+    warrior.global_cooldown_until = 0
+    warrior.resource = warrior.stats["maxResource"]
+    game._cast_ability_locked(warrior, 6, {"x": 8, "z": 0})
+    assert warrior.x == 8
+    assert any(event.get("abilityId") == "warrior_heroic_leap" and event.get("type") == "ground_impact" for event in game.events)
+
+
 def test_sorcerer_unlocks_telegraphed_meteor_from_wave_five():
     asyncio.run(_sorcerer_unlocks_telegraphed_meteor_from_wave_five())
 

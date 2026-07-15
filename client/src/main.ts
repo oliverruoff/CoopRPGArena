@@ -204,6 +204,21 @@ let optimisticAllyTargetId: string | null = null;
 let lastClassPreviewInfoSignature = "";
 let castBarVisualProgress = 0;
 let autoAttackVisualProgress = 0;
+let pendingGroundAbilitySlot: number | null = null;
+let statsPanelExpanded = false;
+const groundTargetMarker = new TransformNode("ground-target-marker", scene);
+const groundTargetDisc = MeshBuilder.CreateCylinder("ground-target-disc", { diameter: 10.4, height: 0.035, tessellation: 64 }, scene);
+groundTargetDisc.parent = groundTargetMarker;
+groundTargetDisc.position.y = 0.08;
+groundTargetDisc.material = transparentMat("ground-target-disc-mat", new Color3(0.25, 0.72, 1), 0.22);
+groundTargetDisc.isPickable = false;
+const groundTargetRing = MeshBuilder.CreateTorus("ground-target-ring", { diameter: 10.4, thickness: 0.09, tessellation: 64 }, scene);
+groundTargetRing.parent = groundTargetMarker;
+groundTargetRing.position.y = 0.13;
+groundTargetRing.rotation.x = Math.PI / 2;
+groundTargetRing.material = mat("ground-target-ring-mat", new Color3(0.35, 0.88, 1));
+groundTargetRing.isPickable = false;
+groundTargetMarker.setEnabled(false);
 
 function isLocalhostOnlyUrl(url: string): boolean {
   try {
@@ -535,6 +550,19 @@ window.addEventListener("keyup", (event) => {
 setInterval(() => { if (state?.matchState === "running" && !state?.players[state.you]?.spectator) send({ type: "input", movement: input }); }, 50);
 
 scene.onPointerObservable.add((pointerInfo) => {
+  if (pendingGroundAbilitySlot !== null && (pointerInfo.type === PointerEventTypes.POINTERMOVE || pointerInfo.type === PointerEventTypes.POINTERDOWN)) {
+    const groundPick = scene.pick(scene.pointerX, scene.pointerY, (mesh) => mesh === arena);
+    if (groundPick?.hit && groundPick.pickedPoint) {
+      groundTargetMarker.position.set(groundPick.pickedPoint.x, 0, groundPick.pickedPoint.z);
+      groundTargetMarker.setEnabled(true);
+      if (pointerInfo.type === PointerEventTypes.POINTERDOWN) {
+        send({ type: "cast_ability", abilitySlot: pendingGroundAbilitySlot, groundPosition: { x: groundPick.pickedPoint.x, z: groundPick.pickedPoint.z } });
+        pendingGroundAbilitySlot = null;
+        groundTargetMarker.setEnabled(false);
+      }
+    }
+    return;
+  }
   if (pointerInfo.type !== PointerEventTypes.POINTERDOWN) return;
   if (state?.players[state.you]?.spectator) return;
   unlockAudio();
@@ -811,14 +839,22 @@ function worldStaticSignature(snapshot: Snapshot) {
 function renderStatsPanel(me: PlayerState) {
   const panel = document.querySelector<HTMLElement>("#statsPanel")!;
   const orderedStats = ["maxHealth", "maxResource", "attackPower", "spellPower", "armor", "resistance", "critChance", "critMultiplier", "moveSpeed", "resourceRegen", "resourceCostMultiplier", "autoAttackDamage", "autoAttackInterval", "autoAttackRange", "cooldownReduction", "castSpeed"];
-  panel.innerHTML = `<h2>Current Stats</h2>${orderedStats.map((stat) => {
+  panel.classList.toggle("expanded", statsPanelExpanded);
+  panel.innerHTML = `<button id="statsToggle" type="button" aria-expanded="${statsPanelExpanded}" aria-controls="statsContent"><span>Stats</span><b>${statsPanelExpanded ? "›" : "‹"}</b></button><div id="statsContent">${orderedStats.map((stat) => {
     const value = me.stats?.[stat];
     if (value === undefined) return "";
     const base = me.baseStats?.[stat];
     const improvement = base !== undefined && value !== base ? formatStatImprovement(stat, value, base) : "";
     return `<div class="statRow"><span>${statLabel(stat)}</span><b>${formatStat(stat, value)}${improvement ? ` <em class="statImprovement">${improvement}</em>` : ""}</b></div>`;
-  }).join("")}`;
+  }).join("")}</div>`;
 }
+
+document.querySelector<HTMLElement>("#statsPanel")!.addEventListener("click", (event) => {
+  if (!(event.target as HTMLElement).closest("#statsToggle")) return;
+  statsPanelExpanded = !statsPanelExpanded;
+  const me = state?.players[state.you];
+  if (me) renderStatsPanel(me);
+});
 
 function renderScoreboard(matchStats: Record<string, MatchStats>, players: Record<string, PlayerState>, you: string) {
   const rows = Object.entries(matchStats).sort(([, a], [, b]) => b.damageDealt - a.damageDealt || b.healingDone - a.healingDone);
@@ -1106,7 +1142,7 @@ function processEvents(events: CombatEvent[]) {
     lastEventId = event.id;
     if (event.type === "cast") { playChargeEffect(event); playCastStartSound(event); }
     if (event.type === "auto_attack") playAutoAttackEffect(event);
-    if (event.type === "cast_complete") { playCastEffect(event); playCastReleaseSound(event); }
+    if (event.type === "cast_complete") { playCastEffect(event); playSignatureSpellEffect(event); playCastReleaseSound(event); }
     if (event.type === "status") {
       if ((event.abilityId?.includes("whirlwind") || event.abilityId?.includes("blade_flurry")) && event.sourceId) spinVisuals.set(event.sourceId, performance.now() + (event.duration || 3) * 1000);
       playStatusEffect(event); playStatusSound(event);
@@ -1118,6 +1154,9 @@ function processEvents(events: CombatEvent[]) {
     }
     if (event.type === "ground_impact" && event.abilityId === "enemy_charge" && event.x !== undefined && event.z !== undefined) {
       expandingDisc("enemy-charge-impact", new Vector3(event.x, 0, event.z), event.radius || 2.15, new Color3(1, 0.68, 0.04), 520, 0.3);
+    }
+    if (event.type === "ground_impact" && event.abilityId === "warrior_heroic_leap" && event.x !== undefined && event.z !== undefined) {
+      expandingDisc("heroic-leap-impact", new Vector3(event.x, 0, event.z), event.radius || 3.5, new Color3(1, 0.36, 0.04), 650, 0.38);
     }
     if (event.type === "damage") { if (event.abilityId?.includes("arcane_missiles")) playArcaneMissileTick(event); playImpactEffect(event, false); playHitSound(event); }
     if (event.type === "heal") { playImpactEffect(event, true); playHealSound(); }
@@ -1144,6 +1183,7 @@ function showAbilityTooltip(button: HTMLButtonElement) {
     if (effect.type === "dot") return `DoT: ${total} ${effect.school || ""} over ${effect.duration || 0}s${effect.radius ? ` in ${effect.radius}m` : ""}`;
     if (effect.type === "channel_damage") return `Channel: ${total} ${effect.school || ""} every ${effect.tickInterval || 0}s while casting`;
     if (effect.type === "heal") return `Heal: ${total}${effect.radius ? ` in ${effect.radius}m` : ""}`;
+    if (effect.type === "heal_percent") return `Heal: ${(effect.percent || 0) * 100}% of max health`;
     if (effect.type === "heal_percent") return `Heal: ${Math.round((effect.percent || 1) * 100)}% max HP`;
     if (effect.type === "hot") return `Heal over time: ${total}/tick for ${effect.duration || 0}s`;
     if (effect.type === "shield") return `Shield: ${total}`;
@@ -1228,6 +1268,8 @@ function abilityDescription(abilityId: string) {
     mage_frost_nova: "Freeze nearby enemies to the ground for 2 seconds.",
     mage_meteor: "Call down a fiery impact that damages and burns an area.",
     mage_arcane_blast: "Release a costly arcane shockwave that damages nearby enemies.",
+    mage_cone_of_cold: "Blast a wide cone in front of you, damaging and heavily slowing every enemy caught.",
+    mage_blizzard: "Select a ground location for a persistent storm that repeatedly damages and slows enemies.",
     warrior_whirlwind: "Spin for 3 seconds, damaging nearby enemies every 0.5 seconds.",
     warrior_shield_wall: "Absorb incoming damage with a defensive wall.",
     warrior_concussive_slam: "Stun one enemy with a high-threat slam.",
@@ -1344,6 +1386,7 @@ function formatAbilityEffectSummary(effect: NonNullable<Ability["effects"]>[numb
   if (effect.type === "dot") return `${effect.amount || 0} ${effect.school || ""} DoT over ${effect.duration || 0}s`;
   if (effect.type === "channel_damage") return `${effect.amount || 0} ${effect.school || ""} every ${effect.tickInterval || 0}s while casting`;
   if (effect.type === "heal") return `${effect.amount || 0} heal${effect.radius ? ` in ${effect.radius}m` : ""}`;
+  if (effect.type === "heal_percent") return `${(effect.percent || 0) * 100}% max-health heal`;
   if (effect.type === "heal_percent") return `${Math.round((effect.percent || 1) * 100)}% max HP heal`;
   if (effect.type === "hot") return `${effect.amount || 0} HoT over ${effect.duration || 0}s`;
   if (effect.type === "shield") return `${effect.amount || 0} shield for ${effect.duration || 0}s`;
@@ -1683,6 +1726,51 @@ function createGroundEffect(effect: GroundEffect) {
     rimMat.emissiveColor = hotCore;
     rim.material = rimMat;
     root.metadata = { ...(root.metadata || {}), consecration: { discMat, coreMat, rimMat, cracks } };
+  } else if (effect.type === "blizzard") {
+    const disc = MeshBuilder.CreateCylinder(`${effect.id}-disc`, { diameter: effect.radius * 2, height: 0.035, tessellation: 64 }, scene);
+    disc.parent = root;
+    disc.position.y = 0.05;
+    const ice = new Color3(0.3, 0.72, 1);
+    const discMat = transparentMat(`${effect.id}-disc-mat`, ice, 0.2);
+    discMat.emissiveColor = ice.scale(0.55);
+    disc.material = discMat;
+    const ring = MeshBuilder.CreateTorus(`${effect.id}-ring`, { diameter: effect.radius * 2, thickness: 0.08, tessellation: 64 }, scene);
+    ring.parent = root;
+    ring.position.y = 0.12;
+    ring.rotation.x = Math.PI / 2;
+    ring.material = transparentMat(`${effect.id}-ring-mat`, new Color3(0.65, 0.9, 1), 0.65);
+    for (let i = 0; i < 18; i++) {
+      const shard = MeshBuilder.CreateCylinder(`${effect.id}-ice-${i}`, { diameterTop: 0, diameterBottom: 0.16, height: 0.7, tessellation: 5 }, scene);
+      shard.parent = root;
+      const angle = i * Math.PI * 2 / 18;
+      const distance = effect.radius * (0.2 + (i % 4) * 0.2);
+      shard.position.set(Math.sin(angle) * distance, 0.35, Math.cos(angle) * distance);
+      shard.material = transparentMat(`${effect.id}-ice-${i}-mat`, ice, 0.65);
+    }
+  } else if (effect.type === "volley" || effect.type === "flamestrike" || effect.type === "starfall") {
+    const isFire = effect.type === "flamestrike";
+    const isStar = effect.type === "starfall";
+    const color = isFire ? new Color3(1, 0.22, 0.02) : isStar ? new Color3(0.45, 0.72, 1) : new Color3(0.82, 0.72, 0.42);
+    const disc = MeshBuilder.CreateCylinder(`${effect.id}-disc`, { diameter: effect.radius * 2, height: 0.035, tessellation: 64 }, scene);
+    disc.parent = root;
+    disc.position.y = 0.05;
+    const discMat = transparentMat(`${effect.id}-disc-mat`, color, 0.2);
+    discMat.emissiveColor = color.scale(0.6);
+    disc.material = discMat;
+    const ring = MeshBuilder.CreateTorus(`${effect.id}-ring`, { diameter: effect.radius * 2, thickness: 0.08, tessellation: 64 }, scene);
+    ring.parent = root;
+    ring.position.y = 0.12;
+    ring.rotation.x = Math.PI / 2;
+    ring.material = transparentMat(`${effect.id}-ring-mat`, color, 0.68);
+    for (let i = 0; i < 14; i++) {
+      const streak = MeshBuilder.CreateCylinder(`${effect.id}-streak-${i}`, { diameter: isFire ? 0.18 : 0.07, height: isFire ? 0.8 : 1.7, tessellation: isFire ? 7 : 5 }, scene);
+      streak.parent = root;
+      const angle = i * Math.PI * 2 / 14;
+      const distance = effect.radius * (0.2 + (i % 4) * 0.19);
+      streak.position.set(Math.sin(angle) * distance, isFire ? 0.4 : 1.2, Math.cos(angle) * distance);
+      streak.rotation.z = isFire ? 0 : 0.2;
+      streak.material = transparentMat(`${effect.id}-streak-${i}-mat`, color, 0.72);
+    }
   } else if (effect.type === "boss_meteor" || effect.type === "enemy_meteor" || effect.type === "enemy_charge") {
     const isCharge = effect.type === "enemy_charge";
     const warningColor = isCharge ? new Color3(1, 0.72, 0.04) : new Color3(1, 0.12, 0.02);
@@ -4555,7 +4643,44 @@ function transparentMat(name: string, color: Color3, alpha: number) {
   return material;
 }
 
-function cast(slot: number) { if (Number.isFinite(slot)) send({ type: "cast_ability", abilitySlot: slot }); }
+function cast(slot: number) {
+  if (!Number.isFinite(slot)) return;
+  const me = state?.players[state.you];
+  const abilityId = me?.abilities.find((id) => abilitySlot(me, id) === slot);
+  if (abilityId && state?.abilities[abilityId]?.targetType === "ground") {
+    pendingGroundAbilitySlot = slot;
+    const radius = state.abilities[abilityId].effects?.find((effect) => effect.radius)?.radius || 5.2;
+    groundTargetMarker.scaling.setAll(radius / 5.2);
+    groundTargetMarker.setEnabled(false);
+    text("target", "Choose a ground location");
+    return;
+  }
+  pendingGroundAbilitySlot = null;
+  groundTargetMarker.setEnabled(false);
+  send({ type: "cast_ability", abilitySlot: slot });
+}
+
+function playSignatureSpellEffect(event: CombatEvent) {
+  if (!event.abilityId) return;
+  const source = event.sourceId ? meshes.get(event.sourceId) : null;
+  const target = event.targetId ? meshes.get(event.targetId) : null;
+  const sourcePos = source?.position;
+  const targetPos = target?.position;
+  const id = event.abilityId;
+  if (id === "warrior_execute" && targetPos) expandingDisc("execute", targetPos, 2.2, new Color3(0.85, 0.03, 0.02), 420, 0.36);
+  else if (id === "hunter_disengage" && sourcePos) expandingDisc("disengage", sourcePos, 2.6, new Color3(0.72, 0.62, 0.4), 480, 0.25);
+  else if (id === "priest_holy_nova" && sourcePos) expandingDisc("holy-nova", sourcePos, 5, new Color3(1, 0.9, 0.35), 720, 0.38);
+  else if (id === "priest_leap_of_faith" && sourcePos && targetPos) projectile(targetPos, sourcePos, new Color3(1, 0.9, 0.65), 360, source);
+  else if (id === "mage_dragons_breath" && sourcePos) expandingDisc("dragons-breath", sourcePos, 5.8, new Color3(1, 0.2, 0.01), 520, 0.32);
+  else if (id === "rogue_fan_of_knives" && sourcePos) expandingDisc("fan-of-knives", sourcePos, 5, new Color3(0.62, 0.72, 0.76), 460, 0.28);
+  else if (id === "rogue_shadowstep" && targetPos) expandingDisc("shadowstep", targetPos, 1.8, new Color3(0.48, 0.12, 0.72), 420, 0.34);
+  else if (id === "druid_starfall" && sourcePos) expandingDisc("starfall", sourcePos, 8, new Color3(0.4, 0.7, 1), 700, 0.22);
+  else if (id === "druid_wild_growth" && targetPos) expandingDisc("wild-growth", targetPos, 7, new Color3(0.25, 0.9, 0.25), 680, 0.26);
+  else if (id === "shaman_thunderstorm" && sourcePos) expandingDisc("thunderstorm", sourcePos, 5.5, new Color3(0.15, 0.65, 1), 620, 0.42);
+  else if (id === "shaman_riptide" && sourcePos && targetPos) projectile(sourcePos, targetPos, new Color3(0.1, 0.72, 1), 360, target);
+  else if (id === "paladin_divine_storm" && sourcePos) expandingDisc("divine-storm", sourcePos, 4.5, new Color3(1, 0.75, 0.12), 650, 0.4);
+  else if (id === "paladin_avengers_shield" && sourcePos && targetPos) projectile(sourcePos, targetPos, new Color3(1, 0.72, 0.08), 420, target);
+}
 function flushSendQueue() {
   while (sendQueue.length && ws?.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify(sendQueue.shift()));
