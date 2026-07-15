@@ -278,11 +278,17 @@ test("mobile actions work with a second pointer while joystick movement continue
   const targetMarker = page.getByTestId("enemy-hp-bar").filter({ hasText: "TARGET" });
   await expect(targetMarker).toHaveClass(/targetedEnemy/);
   await expect(targetMarker).toContainText("TARGET");
+  const targetId = afterTarget.players[playerId].targetId;
+  await expect.poll(() => page.evaluate((id) => {
+    const canvas = document.querySelector<HTMLCanvasElement>("#renderCanvas") as any;
+    const arrow = canvas.scene.getTransformNodeByName(`${id}-target-arrow`);
+    return Boolean(arrow && arrow.getChildMeshes().some((mesh: any) => mesh.name.endsWith("-target-arrow-head")) && arrow.getChildMeshes().some((mesh: any) => mesh.name.endsWith("-target-arrow-shaft")));
+  }, targetId)).toBe(true);
 
   await page.evaluate(() => {
-    document.querySelector<HTMLElement>("#jump")!.dispatchEvent(new PointerEvent("pointerdown", {
-      pointerId: 23, pointerType: "touch", isPrimary: false, bubbles: true,
-    }));
+    const button = document.querySelector<HTMLElement>("#jump")!;
+    const touch = new Touch({ identifier: 23, target: button, clientX: 0, clientY: 0 });
+    button.dispatchEvent(new TouchEvent("touchstart", { touches: [touch], targetTouches: [touch], changedTouches: [touch], bubbles: true, cancelable: true }));
   });
   await page.waitForTimeout(80);
   const jumping = await (await request.get("http://127.0.0.1:8000/debug/state")).json();

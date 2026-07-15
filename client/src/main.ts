@@ -519,31 +519,43 @@ moveStick.addEventListener("pointerdown", (event) => {
   event.preventDefault();
   unlockAudio();
   movePointerId = event.pointerId;
-  try { moveStick.setPointerCapture(event.pointerId); } catch { /* Synthetic tests may not create a capturable OS pointer. */ }
   updateTouchMovement(event);
 });
-moveStick.addEventListener("pointermove", (event) => {
-  if (event.pointerId === movePointerId) updateTouchMovement(event);
-});
-moveStick.addEventListener("pointerup", (event) => stopTouchMovement(event.pointerId));
-moveStick.addEventListener("pointercancel", (event) => stopTouchMovement(event.pointerId));
-moveStick.addEventListener("lostpointercapture", () => stopTouchMovement());
+window.addEventListener("pointermove", (event) => {
+  if (event.pointerId !== movePointerId) return;
+  event.preventDefault();
+  updateTouchMovement(event);
+}, { passive: false });
+window.addEventListener("pointerup", (event) => stopTouchMovement(event.pointerId));
+window.addEventListener("pointercancel", (event) => stopTouchMovement(event.pointerId));
 window.addEventListener("blur", () => {
   if (movePointerId !== null) stopTouchMovement();
 });
 function bindMobileAction(selector: string, action: () => void) {
   const button = document.querySelector<HTMLButtonElement>(selector)!;
+  let lastPhysicalTriggerAt = 0;
   const trigger = () => {
     unlockAudio();
     action();
   };
-  // pointerdown fires immediately for an independent second finger while the
-  // movement pointer remains captured by the joystick.
+  const triggerPhysical = () => {
+    const now = performance.now();
+    if (now - lastPhysicalTriggerAt < 80) return;
+    lastPhysicalTriggerAt = now;
+    trigger();
+  };
   button.addEventListener("pointerdown", (event) => {
     event.preventDefault();
     event.stopPropagation();
-    trigger();
+    triggerPhysical();
   });
+  // Explicit Safari fallback: some iOS versions suppress a secondary pointer
+  // event during an existing joystick gesture but still deliver touchstart.
+  button.addEventListener("touchstart", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    triggerPhysical();
+  }, { passive: false });
   // Preserve keyboard activation; pointer-generated clicks are already handled.
   button.addEventListener("click", (event) => {
     if (event.detail === 0) trigger();
@@ -2449,24 +2461,36 @@ function updateSelectionRing(node: TransformNode, kind: "self" | "enemy" | "ally
   const scale = kind === "enemy" || kind === "ally" ? 1.62 + Math.sin(performance.now() / 110) * 0.12 : kind === "self" ? 1.12 : 1;
   ring.scaling.set(scale, 1, scale);
   ring.isVisible = kind !== "none" || node.name.startsWith(state?.you || "---");
-  let beacon = cachedChild(node, "targetBeacon", (mesh) => mesh.name.endsWith("-target-beacon"));
+  let arrow = node.metadata?.targetArrow as TransformNode | undefined;
+  if (arrow?.isDisposed()) arrow = undefined;
   if (kind !== "enemy" && kind !== "ally") {
-    beacon?.dispose();
+    arrow?.getChildMeshes().forEach((mesh) => mesh.dispose(false, true));
+    arrow?.dispose();
+    node.metadata.targetArrow = undefined;
     return;
   }
-  if (!beacon) {
-    beacon = MeshBuilder.CreateCylinder(`${node.name}-target-beacon`, { diameterTop: 0, diameterBottom: 0.42, height: 0.54, tessellation: 4 }, scene);
-    beacon.parent = node;
-    beacon.position.y = 2.25;
-    beacon.rotation.z = Math.PI;
-    beacon.isPickable = false;
-    node.metadata.visualCache.targetBeacon = beacon;
+  if (!arrow) {
+    arrow = new TransformNode(`${node.name}-target-arrow`, scene);
+    arrow.parent = node;
+    arrow.metadata = { baseY: 2.55 };
+    const blue = new Color3(0.08, 0.48, 1);
+    const yellow = new Color3(1, 0.84, 0.05);
+    const blueMat = mat(`${node.name}-target-arrow-blue-mat`, blue);
+    blueMat.emissiveColor = blue.scale(0.9);
+    const yellowMat = mat(`${node.name}-target-arrow-yellow-mat`, yellow);
+    yellowMat.emissiveColor = yellow;
+    const shaft = MeshBuilder.CreateCylinder(`${node.name}-target-arrow-shaft`, { diameter: 0.22, height: 0.72, tessellation: 8 }, scene);
+    shaft.parent = arrow; shaft.position.y = 0.42; shaft.material = blueMat; shaft.isPickable = false;
+    const head = MeshBuilder.CreateCylinder(`${node.name}-target-arrow-head`, { diameterTop: 0.62, diameterBottom: 0, height: 0.72, tessellation: 8 }, scene);
+    head.parent = arrow; head.position.y = -0.2; head.material = yellowMat; head.isPickable = false;
+    const band = MeshBuilder.CreateTorus(`${node.name}-target-arrow-band`, { diameter: 0.5, thickness: 0.1, tessellation: 16 }, scene);
+    band.parent = arrow; band.position.y = 0.1; band.rotation.x = Math.PI / 2; band.material = blueMat; band.isPickable = false;
+    node.metadata.targetArrow = arrow;
   }
-  beacon.rotation.y += 0.08;
-  const beaconMat = beacon.material as StandardMaterial || transparentMat(`${node.name}-target-beacon-mat`, colors[kind], 0.92);
-  beaconMat.diffuseColor = colors[kind];
-  beaconMat.emissiveColor = colors[kind];
-  beacon.material = beaconMat;
+  const pulse = Math.sin(performance.now() / 130);
+  arrow.position.y = Number(arrow.metadata?.baseY || 2.55) + pulse * 0.16;
+  arrow.rotation.y += 0.075;
+  arrow.scaling.setAll(1.08 + pulse * 0.08);
 }
 
 function updateEnemyFov(node: TransformNode, enemy: EnemyState) {
