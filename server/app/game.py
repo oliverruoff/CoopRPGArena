@@ -19,6 +19,8 @@ BOSS_METEOR_WARNING_SECONDS = 2.0
 BOSS_METEOR_COOLDOWN_SECONDS = 8.0
 BOSS_METEOR_COUNT = 3
 BOSS_METEOR_RADIUS = 3.5
+ENEMY_METEOR_WARNING_SECONDS = 1.65
+ENEMY_CHARGE_WARNING_SECONDS = 1.1
 
 
 def load_json(name: str) -> Any:
@@ -527,8 +529,12 @@ class Game:
             regular_waves = [wave for wave in self.waves_data if "boss" not in wave.get("composition", {})]
             wave = regular_waves[(number - 1) % len(regular_waves)]
             scale = max(1, len(self.players))
+            cycle = (number - 1) // len(regular_waves)
             for typ, count in wave["composition"].items():
-                for _ in range(max(1, math.ceil(count * (0.45 + 0.18 * scale)))):
+                # Repeated wave sets gain bodies as well as stats, so wave 11+ is
+                # not just wave 1 with a larger health bar.
+                scaled_count = count * (0.45 + 0.18 * scale) * (1 + cycle * 0.22)
+                for _ in range(max(1, math.ceil(scaled_count))):
                     self.spawn_enemy_locked(typ)
         self.wave["aliveEnemies"] = len(self.enemies)
         # Initial spawn should avoid map objects; later waves preserve player positions.
@@ -553,15 +559,22 @@ class Game:
         x = position.get("x", math.cos(angle) * radius) if position else math.cos(angle) * radius
         z = position.get("z", math.sin(angle) * radius) if position else math.sin(angle) * radius
         wave_number = max(1, self.wave["number"] or 1)
-        health_multiplier = 1 + (wave_number - 1) * 0.12
+        late_waves = max(0, wave_number - 7)
+        health_multiplier = 1 + (wave_number - 1) * 0.15 + late_waves * late_waves * 0.012
+        damage_multiplier = 1 + (wave_number - 1) * 0.105 + late_waves * 0.012
+        elite = not boss and wave_number >= 8 and self._enemy_seq % 5 == 0
+        if elite:
+            health_multiplier *= 1.3
+            damage_multiplier *= 1.2
+        speed_multiplier = 1 + min(0.22, max(0, wave_number - 6) * 0.012)
         enemy = Enemy(
-            id=f"enemy_{self._enemy_seq}", type=data["id"], name=data.get("name", data["id"].title()), x=x, z=z,
+            id=f"enemy_{self._enemy_seq}", type=data["id"], name=("Empowered " if elite else "") + data.get("name", data["id"].title()), x=x, z=z,
             hp=round(data["maxHealth"] * health_multiplier, 1), max_health=round(data["maxHealth"] * health_multiplier, 1),
-            damage=data["damage"] * (1 + (wave_number - 1) * 0.08), attack_interval=data["attackInterval"],
-            attack_range=data["attackRange"], move_speed=data["moveSpeed"], armor=data["armor"],
+            damage=data["damage"] * damage_multiplier, attack_interval=max(0.72, data["attackInterval"] * (1 - min(0.18, late_waves * 0.008))),
+            attack_range=data["attackRange"], move_speed=data["moveSpeed"] * speed_multiplier, armor=data["armor"],
             resistance=data["resistance"], xp=int(data["xp"] * (1 + (wave_number - 1) * 0.05)), boss=boss,
             facing=random.random() * math.tau,
-            special_attack_at=time.monotonic() + random.uniform(2.5, 4.0) if boss else 0,
+            special_attack_at=time.monotonic() + random.uniform(2.5, 4.0) if boss or wave_number >= 5 else 0,
         )
         self._choose_wander_target_locked(enemy)
         self.enemies[enemy.id] = enemy
@@ -651,6 +664,8 @@ class Game:
                 continue
             if enemy.boss:
                 self._tick_boss_special_locked(enemy, now)
+            else:
+                self._tick_enemy_special_locked(enemy, now)
             target = self._enemy_target_locked(enemy, now)
             if not target:
                 self._wander_enemy_locked(enemy, now, dt)
@@ -722,6 +737,35 @@ class Game:
             })
         enemy.special_attack_at = now + BOSS_METEOR_COOLDOWN_SECONDS
         self._emit_locked({"type": "status", "sourceId": enemy.id, "targetId": enemy.id, "abilityId": "boss_triple_meteor", "status": "meteor_warning", "duration": BOSS_METEOR_WARNING_SECONDS})
+
+    def _tick_enemy_special_locked(self, enemy: Enemy, now: float) -> None:
+        if not enemy.special_attack_at or now < enemy.special_attack_at:
+            return
+        living = [p for p in self.players.values() if self._is_present_locked(p) and not p.dead]
+        if not living:
+            return
+        wave_number = self.wave["number"]
+        target = min(living, key=lambda p: self._distance(enemy, p))
+        if enemy.type == "sorcerer" and wave_number >= 5:
+            self._add_enemy_warning_locked(enemy, target.x, target.z, "enemy_meteor", "enemy_small_meteor", 2.35, enemy.damage * 1.45, "fire", now + ENEMY_METEOR_WARNING_SECONDS)
+            cooldown = 8.5
+        elif enemy.type in ("runner", "brute") and wave_number >= 7 and self._distance(enemy, target) >= 3:
+            self._add_enemy_warning_locked(enemy, target.x, target.z, "enemy_charge", "enemy_charge", 2.15, enemy.damage * 1.3, "physical", now + ENEMY_CHARGE_WARNING_SECONDS)
+            cooldown = 7.0 if enemy.type == "runner" else 9.0
+        else:
+            enemy.special_attack_at = now + 2.0
+            return
+        enemy.special_attack_at = now + cooldown * max(0.62, 1 - max(0, wave_number - 10) * 0.018)
+
+    def _add_enemy_warning_locked(self, enemy: Enemy, x: float, z: float, effect_type: str, ability_id: str, radius: float, damage: float, school: str, impact_at: float) -> None:
+        self._ground_effect_seq += 1
+        self.ground_effects.append({
+            "id": f"{effect_type}_{self._ground_effect_seq}", "type": effect_type,
+            "sourceId": enemy.id, "abilityId": ability_id, "x": x, "z": z,
+            "radius": radius, "damage": damage, "school": school,
+            "impactAt": impact_at, "expiresAt": impact_at + 0.25,
+        })
+        self._emit_locked({"type": "status", "sourceId": enemy.id, "targetId": enemy.id, "abilityId": ability_id, "status": "warning", "duration": max(0, impact_at - time.monotonic())})
 
     def _enemy_target_locked(self, enemy: Enemy, now: float) -> Player | None:
         if now < enemy.stun_until:
@@ -1170,7 +1214,7 @@ class Game:
 
     def _tick_ground_effects_locked(self, now: float) -> None:
         for effect in list(self.ground_effects):
-            if now >= effect["expiresAt"] and effect.get("type") != "boss_meteor":
+            if now >= effect["expiresAt"] and effect.get("type") not in ("boss_meteor", "enemy_meteor", "enemy_charge"):
                 self.ground_effects.remove(effect)
                 continue
             if effect.get("type") == "trap":
@@ -1189,9 +1233,13 @@ class Game:
                     if effect in self.ground_effects:
                         self.ground_effects.remove(effect)
                     break
-            elif effect.get("type") == "boss_meteor":
+            elif effect.get("type") in ("boss_meteor", "enemy_meteor", "enemy_charge"):
                 if now < effect.get("impactAt", now):
                     continue
+                source = self.enemies.get(effect.get("sourceId", ""))
+                if effect.get("type") == "enemy_charge" and source:
+                    source.x, source.z = effect["x"], effect["z"]
+                    self._push_out_of_map_objects_locked(source)
                 self._emit_locked({"type": "ground_impact", "sourceId": effect.get("sourceId"), "abilityId": effect.get("abilityId"), "x": round(effect["x"], 2), "z": round(effect["z"], 2), "radius": effect.get("radius", BOSS_METEOR_RADIUS)})
                 for player in self.players.values():
                     if not self._is_present_locked(player) or player.dead:

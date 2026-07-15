@@ -1111,9 +1111,13 @@ function processEvents(events: CombatEvent[]) {
       if ((event.abilityId?.includes("whirlwind") || event.abilityId?.includes("blade_flurry")) && event.sourceId) spinVisuals.set(event.sourceId, performance.now() + (event.duration || 3) * 1000);
       playStatusEffect(event); playStatusSound(event);
     }
-    if (event.type === "ground_impact" && event.abilityId?.includes("boss_triple_meteor") && event.x !== undefined && event.z !== undefined) {
-      meteorStrike(new Vector3(event.x, 0, event.z), 850, 6);
-      expandingDisc("boss-meteor-impact", new Vector3(event.x, 0, event.z), event.radius || 3.5, new Color3(1, 0.16, 0.02), 700, 0.34);
+    if (event.type === "ground_impact" && event.abilityId?.includes("meteor") && event.x !== undefined && event.z !== undefined) {
+      const bossMeteor = event.abilityId.includes("boss_triple_meteor");
+      meteorStrike(new Vector3(event.x, 0, event.z), 850, bossMeteor ? 6 : 3);
+      expandingDisc("enemy-meteor-impact", new Vector3(event.x, 0, event.z), event.radius || 3.5, new Color3(1, 0.16, 0.02), 700, 0.34);
+    }
+    if (event.type === "ground_impact" && event.abilityId === "enemy_charge" && event.x !== undefined && event.z !== undefined) {
+      expandingDisc("enemy-charge-impact", new Vector3(event.x, 0, event.z), event.radius || 2.15, new Color3(1, 0.68, 0.04), 520, 0.3);
     }
     if (event.type === "damage") { if (event.abilityId?.includes("arcane_missiles")) playArcaneMissileTick(event); playImpactEffect(event, false); playHitSound(event); }
     if (event.type === "heal") { playImpactEffect(event, true); playHealSound(); }
@@ -1679,19 +1683,21 @@ function createGroundEffect(effect: GroundEffect) {
     rimMat.emissiveColor = hotCore;
     rim.material = rimMat;
     root.metadata = { ...(root.metadata || {}), consecration: { discMat, coreMat, rimMat, cracks } };
-  } else if (effect.type === "boss_meteor") {
+  } else if (effect.type === "boss_meteor" || effect.type === "enemy_meteor" || effect.type === "enemy_charge") {
+    const isCharge = effect.type === "enemy_charge";
+    const warningColor = isCharge ? new Color3(1, 0.72, 0.04) : new Color3(1, 0.12, 0.02);
     const disc = MeshBuilder.CreateCylinder(`${effect.id}-disc`, { diameter: effect.radius * 2, height: 0.04, tessellation: 72 }, scene);
     disc.parent = root;
     disc.position.y = 0.055;
     const discMat = transparentMat(`${effect.id}-disc-mat`, new Color3(1, 0.12, 0.02), 0.22);
-    discMat.emissiveColor = new Color3(0.75, 0.05, 0.01);
+    discMat.emissiveColor = warningColor.scale(0.75);
     disc.material = discMat;
     const ring = MeshBuilder.CreateTorus(`${effect.id}-ring`, { diameter: effect.radius * 2, thickness: 0.08, tessellation: 72 }, scene);
     ring.parent = root;
     ring.position.y = 0.12;
     ring.rotation.x = Math.PI / 2;
-    const ringMat = mat(`${effect.id}-ring-mat`, new Color3(1, 0.34, 0.04));
-    ringMat.emissiveColor = new Color3(1, 0.12, 0.02);
+    const ringMat = mat(`${effect.id}-ring-mat`, warningColor);
+    ringMat.emissiveColor = warningColor;
     ring.material = ringMat;
     const started = performance.now();
     const observer = scene.onBeforeRenderObservable.add(() => {
@@ -1702,7 +1708,7 @@ function createGroundEffect(effect: GroundEffect) {
       const elapsed = performance.now() - started;
       const pulse = 0.5 + Math.sin(elapsed * 0.014) * 0.5;
       const remaining = Number(root.metadata?.remaining ?? 0);
-      const urgency = remaining <= 0 ? 1 : Math.max(0, Math.min(1, 1 - remaining / 2));
+      const urgency = remaining <= 0 ? 1 : Math.max(0, Math.min(1, 1 - remaining / (isCharge ? 1.1 : 2)));
       discMat.alpha = 0.14 + pulse * 0.12 + urgency * 0.12;
       ringMat.alpha = 0.55 + pulse * 0.35;
       ring.scaling.setAll(1 + pulse * 0.04 + urgency * 0.08);

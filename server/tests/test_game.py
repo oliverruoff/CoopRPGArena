@@ -2,7 +2,7 @@ import asyncio
 import math
 import time
 
-from app.game import Game
+from app.game import Game, Player
 
 
 def test_mitigation_reduces_damage():
@@ -927,6 +927,69 @@ async def _boss_triple_meteor_warns_then_damages_players_in_area():
         game._tick_ground_effects_locked(meteor["impactAt"])
         assert player.hp < before
         assert any(event.get("type") == "ground_impact" and event.get("abilityId") == "boss_triple_meteor" for event in game.events)
+
+
+def test_late_wave_scaling_accelerates_and_adds_more_enemies():
+    game = Game()
+    game.players["dummy"] = Player(id="dummy", name="Dummy")
+    game._start_wave_locked(1)
+    wave_one_count = len(game.enemies)
+    wave_one_enemy = next(iter(game.enemies.values()))
+    base_health_ratio = wave_one_enemy.max_health / game.enemies_data[wave_one_enemy.type]["maxHealth"]
+    game.enemies.clear()
+    game._start_wave_locked(11)
+    late_enemy = next(iter(game.enemies.values()))
+    late_health_ratio = late_enemy.max_health / game.enemies_data[late_enemy.type]["maxHealth"]
+    assert len(game.enemies) > wave_one_count
+    assert late_health_ratio > base_health_ratio + 1.5
+
+
+def test_sorcerer_unlocks_telegraphed_meteor_from_wave_five():
+    asyncio.run(_sorcerer_unlocks_telegraphed_meteor_from_wave_five())
+
+
+async def _sorcerer_unlocks_telegraphed_meteor_from_wave_five():
+    game = Game()
+    player = await game.add_player()
+    await game.handle_message(player.id, {"type": "select_class", "classId": "mage"})
+    async with game._lock:
+        game._start_match_locked()
+        game.enemies.clear()
+        game.wave["number"] = 5
+        enemy = game.spawn_enemy_locked("sorcerer", {"x": 5, "z": 0})
+        enemy.special_attack_at = 0.5
+        game._tick_enemy_special_locked(enemy, 1)
+        meteor = next(effect for effect in game.ground_effects if effect["type"] == "enemy_meteor")
+        target = game.players[player.id]
+        target.x, target.z = meteor["x"], meteor["z"]
+        before = target.hp
+        game._tick_ground_effects_locked(meteor["impactAt"])
+        assert target.hp < before
+
+
+def test_runner_unlocks_telegraphed_charge_from_wave_seven():
+    asyncio.run(_runner_unlocks_telegraphed_charge_from_wave_seven())
+
+
+async def _runner_unlocks_telegraphed_charge_from_wave_seven():
+    game = Game()
+    player = await game.add_player()
+    await game.handle_message(player.id, {"type": "select_class", "classId": "warrior"})
+    async with game._lock:
+        game._start_match_locked()
+        game.enemies.clear()
+        game.map_objects.clear()
+        game.wave["number"] = 7
+        target = game.players[player.id]
+        target.x, target.z = 0, 0
+        enemy = game.spawn_enemy_locked("runner", {"x": 8, "z": 0})
+        enemy.special_attack_at = 0.5
+        game._tick_enemy_special_locked(enemy, 1)
+        charge = next(effect for effect in game.ground_effects if effect["type"] == "enemy_charge")
+        before = target.hp
+        game._tick_ground_effects_locked(charge["impactAt"])
+        assert target.hp < before
+        assert math.hypot(enemy.x - charge["x"], enemy.z - charge["z"]) < 0.01
 
 
 def test_arcane_missiles_deals_damage_during_channel():
