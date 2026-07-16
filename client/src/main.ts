@@ -1,4 +1,4 @@
-import { ArcRotateCamera, Color3, Color4, DirectionalLight, Engine, HemisphericLight, Matrix, Mesh, MeshBuilder, PointerEventTypes, Scene, StandardMaterial, TransformNode, Vector3, VertexData } from "@babylonjs/core";
+import { ArcRotateCamera, Color3, Color4, DefaultRenderingPipeline, DepthOfFieldEffectBlurLevel, DirectionalLight, Engine, HemisphericLight, Matrix, Mesh, MeshBuilder, PointerEventTypes, Scene, StandardMaterial, TransformNode, Vector3, VertexData } from "@babylonjs/core";
 import "./style.css";
 
 type Vec = { x: number; z: number };
@@ -161,6 +161,14 @@ camera.lowerAlphaLimit = CAMERA_ALPHA;
 camera.upperAlphaLimit = CAMERA_ALPHA;
 camera.lowerBetaLimit = CAMERA_BETA;
 camera.upperBetaLimit = CAMERA_BETA;
+const lobbyPipeline = lowSpecMode ? null : new DefaultRenderingPipeline("lobby-background", true, scene, [camera]);
+if (lobbyPipeline) {
+  lobbyPipeline.depthOfFieldBlurLevel = DepthOfFieldEffectBlurLevel.Medium;
+  lobbyPipeline.depthOfField.focusDistance = 17_200;
+  lobbyPipeline.depthOfField.focalLength = 85;
+  lobbyPipeline.depthOfField.fStop = 1.8;
+  lobbyPipeline.depthOfFieldEnabled = true;
+}
 new HemisphericLight("light", new Vector3(0.3, 1, 0.2), scene).intensity = 0.5;
 const dirLight = new DirectionalLight("dirLight", new Vector3(-0.45, -1, -0.35), scene);
 dirLight.position = new Vector3(18, 32, 18);
@@ -828,6 +836,7 @@ function renderUi() {
   document.querySelector<HTMLElement>("#lobby")!.style.display = state.matchState === "lobby" ? "block" : "none";
   document.querySelector<HTMLElement>("#hud")!.style.display = state.matchState === "lobby" ? "none" : "block";
   document.querySelector<HTMLElement>("#classPreviewInfo")!.style.display = state.matchState === "lobby" ? "block" : "none";
+  if (lobbyPipeline) lobbyPipeline.depthOfFieldEnabled = state.matchState === "lobby";
   if (wasLobby && state.matchState !== "lobby") {
     setLobbyStatsOpen(false);
     document.querySelector<HTMLElement>("#statTooltip")!.style.display = "none";
