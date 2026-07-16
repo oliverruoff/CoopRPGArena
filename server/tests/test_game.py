@@ -1202,6 +1202,27 @@ def test_blizzard_can_be_placed_and_ticks_aoe_damage():
     assert outside.hp == outside_hp
 
 
+def test_hunter_arrow_barrage_can_be_placed_and_repeatedly_damages_its_area():
+    game = Game()
+    hunter = Player(id="hunter", name="Hunter", class_id="hunter")
+    hunter.stats = dict(game.classes["hunter"]["baseStats"])
+    hunter.resource = hunter.stats["maxResource"]
+    hunter.abilities = ["hunter_arrow_barrage"]
+    hunter.ability_slots = {"hunter_arrow_barrage": 6}
+    game.players[hunter.id] = hunter
+    inside = game.spawn_enemy_locked("goblin", {"x": 8, "z": 0})
+    outside = game.spawn_enemy_locked("goblin", {"x": -8, "z": 0})
+    inside_hp, outside_hp = inside.hp, outside.hp
+
+    game._cast_ability_locked(hunter, 6, {"x": 8, "z": 0})
+
+    barrage = next(effect for effect in game.ground_effects if effect["abilityId"] == "hunter_arrow_barrage")
+    game._tick_ground_effects_locked(barrage["nextTick"])
+    assert barrage["type"] == "volley"
+    assert inside.hp < inside_hp
+    assert outside.hp == outside_hp
+
+
 def test_every_class_has_two_new_signature_spells():
     game = Game()
     expected = {

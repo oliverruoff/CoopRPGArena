@@ -2227,7 +2227,7 @@ function createGroundEffect(effect: GroundEffect) {
     });
   } else if (effect.type === "volley" || effect.type === "flamestrike") {
     const isFire = effect.type === "flamestrike";
-    const color = isFire ? new Color3(1, 0.22, 0.02) : new Color3(0.82, 0.72, 0.42);
+    const color = isFire ? new Color3(1, 0.22, 0.02) : new Color3(0.74, 0.54, 0.2);
     const disc = MeshBuilder.CreateCylinder(`${effect.id}-disc`, { diameter: effect.radius * 2, height: 0.035, tessellation: 64 }, scene);
     disc.parent = root;
     disc.position.y = 0.05;
@@ -2239,14 +2239,80 @@ function createGroundEffect(effect: GroundEffect) {
     ring.position.y = 0.12;
     ring.rotation.x = Math.PI / 2;
     ring.material = transparentMat(`${effect.id}-ring-mat`, color, 0.68);
-    for (let i = 0; i < 14; i++) {
-      const streak = MeshBuilder.CreateCylinder(`${effect.id}-streak-${i}`, { diameter: isFire ? 0.18 : 0.07, height: isFire ? 0.8 : 1.7, tessellation: isFire ? 7 : 5 }, scene);
-      streak.parent = root;
-      const angle = i * Math.PI * 2 / 14;
-      const distance = effect.radius * (0.2 + (i % 4) * 0.19);
-      streak.position.set(Math.sin(angle) * distance, isFire ? 0.4 : 1.2, Math.cos(angle) * distance);
-      streak.rotation.z = isFire ? 0 : 0.2;
-      streak.material = transparentMat(`${effect.id}-streak-${i}-mat`, color, 0.72);
+    if (isFire) {
+      for (let i = 0; i < 14; i++) {
+        const streak = MeshBuilder.CreateCylinder(`${effect.id}-streak-${i}`, { diameter: 0.18, height: 0.8, tessellation: 7 }, scene);
+        streak.parent = root;
+        const angle = i * Math.PI * 2 / 14;
+        const distance = effect.radius * (0.2 + (i % 4) * 0.19);
+        streak.position.set(Math.sin(angle) * distance, 0.4, Math.cos(angle) * distance);
+        streak.material = transparentMat(`${effect.id}-streak-${i}-mat`, color, 0.72);
+      }
+    } else {
+      const shaftColor = new Color3(0.32, 0.18, 0.07);
+      const steelColor = new Color3(0.72, 0.78, 0.72);
+      const featherColor = new Color3(0.88, 0.22, 0.06);
+      const arrows = Array.from({ length: 34 }, (_, i) => {
+        const arrow = new TransformNode(`${effect.id}-arrow-${i}`, scene);
+        arrow.parent = root;
+        const shaft = MeshBuilder.CreateCylinder(`${effect.id}-shaft-${i}`, { diameter: 0.055, height: 1.35, tessellation: 6 }, scene);
+        shaft.parent = arrow;
+        shaft.material = mat(`${effect.id}-shaft-${i}-mat`, shaftColor);
+        const head = MeshBuilder.CreateCylinder(`${effect.id}-head-${i}`, { diameterTop: 0, diameterBottom: 0.17, height: 0.3, tessellation: 4 }, scene);
+        head.parent = arrow;
+        head.position.y = -0.82;
+        head.rotation.z = Math.PI;
+        const headMat = mat(`${effect.id}-head-${i}-mat`, steelColor);
+        headMat.emissiveColor = steelColor.scale(0.16);
+        head.material = headMat;
+        for (let f = 0; f < 2; f++) {
+          const feather = box(`${effect.id}-feather-${i}-${f}`, { width: f ? 0.035 : 0.2, height: 0.28, depth: f ? 0.2 : 0.035 }, featherColor);
+          feather.parent = arrow;
+          feather.position.y = 0.58;
+        }
+        const impact = MeshBuilder.CreateTorus(`${effect.id}-impact-${i}`, { diameter: 0.34, thickness: 0.035, tessellation: 16 }, scene);
+        impact.parent = root;
+        impact.rotation.x = Math.PI / 2;
+        impact.position.y = 0.09;
+        const impactMat = transparentMat(`${effect.id}-impact-${i}-mat`, new Color3(1, 0.68, 0.18), 0);
+        impactMat.emissiveColor = new Color3(0.75, 0.32, 0.03);
+        impact.material = impactMat;
+        const angle = i * 2.399;
+        const distance = effect.radius * (0.12 + ((i * 47) % 84) / 100);
+        arrow.position.set(Math.sin(angle) * distance, 3 + ((i * 61) % 100) / 100 * 8, Math.cos(angle) * distance);
+        arrow.rotation.z = 0.12 + (i % 4) * 0.035;
+        arrow.rotation.x = -0.08 + (i % 3) * 0.055;
+        impact.position.x = arrow.position.x;
+        impact.position.z = arrow.position.z;
+        return { arrow, impact, impactMat, speed: 12 + (i % 7) * 1.1, seed: i, impactAge: 2 };
+      });
+      const observer = scene.onBeforeRenderObservable.add(() => {
+        if (!groundEffectMeshes.has(effect.id)) {
+          scene.onBeforeRenderObservable.remove(observer);
+          return;
+        }
+        const dt = Math.min(0.05, scene.getEngine().getDeltaTime() / 1000);
+        const now = performance.now() / 1000;
+        for (const particle of arrows) {
+          particle.arrow.position.y -= particle.speed * dt;
+          particle.arrow.position.x += 0.8 * dt;
+          particle.arrow.position.z += 0.35 * dt;
+          particle.impactAge += dt * 5.5;
+          const impactLife = Math.max(0, 1 - particle.impactAge);
+          particle.impact.scaling.setAll(0.35 + particle.impactAge * 0.9);
+          particle.impactMat.alpha = impactLife * 0.85;
+          if (particle.arrow.position.y <= 0.9) {
+            particle.impact.position.x = particle.arrow.position.x;
+            particle.impact.position.z = particle.arrow.position.z;
+            particle.impactAge = 0;
+            const angle = particle.seed * 2.399 + now * 0.31;
+            const distance = effect.radius * (0.1 + ((particle.seed * 47 + Math.floor(now * 7) * 13) % 86) / 100);
+            particle.arrow.position.set(Math.sin(angle) * distance - 0.65, 8 + (particle.seed % 6) * 0.75, Math.cos(angle) * distance - 0.28);
+          }
+        }
+        ring.rotation.z -= dt * 0.45;
+        discMat.alpha = 0.14 + Math.sin(now * 5.5) * 0.055;
+      });
     }
   } else if (effect.type === "boss_meteor" || effect.type === "enemy_meteor" || effect.type === "enemy_charge") {
     const isCharge = effect.type === "enemy_charge";
