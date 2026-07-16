@@ -693,6 +693,8 @@ class Game:
                 mitigation_stat = "resistance" if enemy.type == "sorcerer" else "armor"
                 damage = self._mitigate(enemy.damage, target.stats.get(mitigation_stat, 0))
                 damage = self._damage_player_locked(target, damage)
+                if target.target_id is None and target.ally_target_id is None:
+                    target.target_id = enemy.id
                 target.damage_taken += damage
                 if target.hp <= 0 and not target.dead:
                     target.deaths += 1

@@ -733,6 +733,52 @@ def test_archer_cannot_attack_through_wall_after_acquiring_target():
     assert archer.z < 6
 
 
+def test_enemy_attack_targets_attacker_only_when_player_has_no_target():
+    game = Game()
+    player = game.add_player_locked()
+    player.class_id = "warrior"
+    player.base_stats = dict(game.classes["warrior"]["baseStats"])
+    player.stats = dict(player.base_stats)
+    player.hp = player.stats["maxHealth"]
+    game.match_state = "running"
+    game.enemies.clear()
+    attacker = game.spawn_enemy_locked("brute", {"x": 0, "z": 1})
+    existing_target = game.spawn_enemy_locked("brute", {"x": 4, "z": 0})
+    attacker.alerted = True
+    attacker.target_id = player.id
+    attacker.attack_at = 0
+
+    game._tick_enemies_locked(time.monotonic(), 0.05)
+    assert player.target_id == attacker.id
+
+    player.target_id = existing_target.id
+    attacker.attack_at = 0
+    game._tick_enemies_locked(time.monotonic(), 0.05)
+    assert player.target_id == existing_target.id
+
+
+def test_enemy_attack_does_not_replace_ally_target():
+    game = Game()
+    player = game.add_player_locked()
+    ally = game.add_player_locked()
+    player.class_id = "priest"
+    player.base_stats = dict(game.classes["priest"]["baseStats"])
+    player.stats = dict(player.base_stats)
+    player.hp = player.stats["maxHealth"]
+    player.ally_target_id = ally.id
+    game.match_state = "running"
+    game.enemies.clear()
+    attacker = game.spawn_enemy_locked("brute", {"x": 0, "z": 1})
+    attacker.alerted = True
+    attacker.target_id = player.id
+    attacker.attack_at = 0
+
+    game._tick_enemies_locked(time.monotonic(), 0.05)
+
+    assert player.target_id is None
+    assert player.ally_target_id == ally.id
+
+
 def test_set_name_in_lobby():
     asyncio.run(_set_name_in_lobby())
 
