@@ -732,13 +732,19 @@ setInterval(() => { if (state?.matchState === "running" && !state?.players[state
 
 scene.onPointerObservable.add((pointerInfo) => {
   if (pendingGroundAbilitySlot !== null && (pointerInfo.type === PointerEventTypes.POINTERMOVE || pointerInfo.type === PointerEventTypes.POINTERDOWN)) {
-    const groundPick = scene.pick(scene.pointerX, scene.pointerY, (mesh) => mesh === arena);
-    if (groundPick?.hit && groundPick.pickedPoint) {
+    // Do not run a full scene pick on every mouse move. Ground effects can add
+    // hundreds of meshes, making repeated picking expensive enough to stall
+    // the render loop. Intersecting the camera ray with y=0 is constant-time.
+    const ray = scene.createPickingRay(scene.pointerX, scene.pointerY, Matrix.Identity(), camera);
+    const verticalDirection = ray.direction.y;
+    const distanceToGround = Math.abs(verticalDirection) > 0.00001 ? -ray.origin.y / verticalDirection : -1;
+    if (distanceToGround >= 0 && Number.isFinite(distanceToGround)) {
+      const groundPoint = ray.origin.add(ray.direction.scale(distanceToGround));
       const me = state?.players[state.you];
       const abilityId = me?.abilities.find((id) => abilitySlot(me, id) === pendingGroundAbilitySlot);
       const maxRange = abilityId ? state?.abilities[abilityId]?.range || 0 : 0;
-      let targetX = groundPick.pickedPoint.x;
-      let targetZ = groundPick.pickedPoint.z;
+      let targetX = groundPoint.x;
+      let targetZ = groundPoint.z;
       if (me && maxRange > 0) {
         const dx = targetX - me.position.x;
         const dz = targetZ - me.position.z;
@@ -2302,42 +2308,51 @@ function createGroundEffect(effect: GroundEffect) {
         streak.material = transparentMat(`${effect.id}-streak-${i}-mat`, color, 0.72);
       }
     } else {
-      const shaftColor = new Color3(0.32, 0.18, 0.07);
-      const steelColor = new Color3(0.72, 0.78, 0.72);
-      const featherColor = new Color3(0.88, 0.22, 0.06);
-      const arrows = Array.from({ length: 34 }, (_, i) => {
-        const arrow = new TransformNode(`${effect.id}-arrow-${i}`, scene);
-        arrow.parent = root;
-        const shaft = MeshBuilder.CreateCylinder(`${effect.id}-shaft-${i}`, { diameter: 0.055, height: 1.35, tessellation: 6 }, scene);
-        shaft.parent = arrow;
-        shaft.material = mat(`${effect.id}-shaft-${i}-mat`, shaftColor);
-        const head = MeshBuilder.CreateCylinder(`${effect.id}-head-${i}`, { diameterTop: 0, diameterBottom: 0.17, height: 0.3, tessellation: 4 }, scene);
-        head.parent = arrow;
-        head.position.y = -0.82;
-        head.rotation.z = Math.PI;
-        const headMat = mat(`${effect.id}-head-${i}-mat`, steelColor);
-        headMat.emissiveColor = steelColor.scale(0.16);
-        head.material = headMat;
-        for (let f = 0; f < 2; f++) {
-          const feather = box(`${effect.id}-feather-${i}-${f}`, { width: f ? 0.035 : 0.2, height: 0.28, depth: f ? 0.2 : 0.035 }, featherColor);
-          feather.parent = arrow;
-          feather.position.y = 0.58;
-        }
+      const arrowMat = mat(`${effect.id}-arrow-mat`, new Color3(0.48, 0.29, 0.09));
+      arrowMat.emissiveColor = new Color3(0.12, 0.055, 0.01);
+      const prototypeParts: Mesh[] = [];
+      const shaft = MeshBuilder.CreateCylinder(`${effect.id}-shaft-source`, { diameter: 0.055, height: 1.35, tessellation: 6 }, scene);
+      shaft.material = arrowMat;
+      prototypeParts.push(shaft);
+      const head = MeshBuilder.CreateCylinder(`${effect.id}-head-source`, { diameterTop: 0, diameterBottom: 0.17, height: 0.3, tessellation: 4 }, scene);
+      head.position.y = -0.82;
+      head.rotation.z = Math.PI;
+      head.material = arrowMat;
+      prototypeParts.push(head);
+      for (let f = 0; f < 2; f++) {
+        const feather = box(`${effect.id}-feather-source-${f}`, { width: f ? 0.035 : 0.2, height: 0.28, depth: f ? 0.2 : 0.035 }, new Color3(0.48, 0.29, 0.09));
+        feather.position.y = 0.58;
+        feather.material?.dispose();
+        feather.material = arrowMat;
+        prototypeParts.push(feather);
+      }
+      const arrowPrototype = Mesh.MergeMeshes(prototypeParts, true, true, undefined, false, true);
+      if (!arrowPrototype) return root;
+      arrowPrototype.name = `${effect.id}-arrow-0`;
+      arrowPrototype.parent = root;
+      arrowPrototype.isPickable = false;
+      const impacts = Array.from({ length: 10 }, (_, i) => {
         const impact = MeshBuilder.CreateTorus(`${effect.id}-impact-${i}`, { diameter: 0.34, thickness: 0.035, tessellation: 16 }, scene);
         impact.parent = root;
         impact.rotation.x = Math.PI / 2;
         impact.position.y = 0.09;
+        impact.isPickable = false;
         const impactMat = transparentMat(`${effect.id}-impact-${i}-mat`, new Color3(1, 0.68, 0.18), 0);
         impactMat.emissiveColor = new Color3(0.75, 0.32, 0.03);
         impact.material = impactMat;
+        return { impact, impactMat, age: 2 };
+      });
+      let nextImpact = 0;
+      const arrows = Array.from({ length: 34 }, (_, i) => {
+        const arrow = i === 0 ? arrowPrototype : arrowPrototype.clone(`${effect.id}-arrow-${i}`)!;
+        arrow.parent = root;
+        arrow.isPickable = false;
         const angle = i * 2.399;
         const distance = effect.radius * (0.12 + ((i * 47) % 84) / 100);
         arrow.position.set(Math.sin(angle) * distance, 3 + ((i * 61) % 100) / 100 * 8, Math.cos(angle) * distance);
         arrow.rotation.z = 0.12 + (i % 4) * 0.035;
         arrow.rotation.x = -0.08 + (i % 3) * 0.055;
-        impact.position.x = arrow.position.x;
-        impact.position.z = arrow.position.z;
-        return { arrow, impact, impactMat, speed: 12 + (i % 7) * 1.1, seed: i, impactAge: 2 };
+        return { arrow, speed: 12 + (i % 7) * 1.1, seed: i };
       });
       const observer = scene.onBeforeRenderObservable.add(() => {
         if (!groundEffectMeshes.has(effect.id)) {
@@ -2350,18 +2365,21 @@ function createGroundEffect(effect: GroundEffect) {
           particle.arrow.position.y -= particle.speed * dt;
           particle.arrow.position.x += 0.8 * dt;
           particle.arrow.position.z += 0.35 * dt;
-          particle.impactAge += dt * 5.5;
-          const impactLife = Math.max(0, 1 - particle.impactAge);
-          particle.impact.scaling.setAll(0.35 + particle.impactAge * 0.9);
-          particle.impactMat.alpha = impactLife * 0.85;
           if (particle.arrow.position.y <= 0.9) {
-            particle.impact.position.x = particle.arrow.position.x;
-            particle.impact.position.z = particle.arrow.position.z;
-            particle.impactAge = 0;
+            const flash = impacts[nextImpact++ % impacts.length];
+            flash.impact.position.x = particle.arrow.position.x;
+            flash.impact.position.z = particle.arrow.position.z;
+            flash.age = 0;
             const angle = particle.seed * 2.399 + now * 0.31;
             const distance = effect.radius * (0.1 + ((particle.seed * 47 + Math.floor(now * 7) * 13) % 86) / 100);
             particle.arrow.position.set(Math.sin(angle) * distance - 0.65, 8 + (particle.seed % 6) * 0.75, Math.cos(angle) * distance - 0.28);
           }
+        }
+        for (const flash of impacts) {
+          flash.age += dt * 5.5;
+          const impactLife = Math.max(0, 1 - flash.age);
+          flash.impact.scaling.setAll(0.35 + flash.age * 0.9);
+          flash.impactMat.alpha = impactLife * 0.85;
         }
         ring.rotation.z -= dt * 0.45;
         discMat.alpha = 0.14 + Math.sin(now * 5.5) * 0.055;
