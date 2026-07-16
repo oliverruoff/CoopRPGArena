@@ -19,8 +19,10 @@ test.beforeEach(async ({ request }) => {
 });
 
 test("lobby waits for every player to select a class and ready", async ({ browser }) => {
-  const playerOne = await browser.newPage();
-  const playerTwo = await browser.newPage();
+  const contextOne = await browser.newContext();
+  const contextTwo = await browser.newContext();
+  const playerOne = await contextOne.newPage();
+  const playerTwo = await contextTwo.newPage();
   try {
     await playerOne.goto("/");
     await playerTwo.goto("/");
@@ -46,8 +48,7 @@ test("lobby waits for every player to select a class and ready", async ({ browse
     await playerOne.getByTestId("ready-button").click();
     await expect(playerOne.getByTestId("wave-counter")).toContainText("Wave 1", { timeout: 7000 });
   } finally {
-    await playerOne.close();
-    await playerTwo.close();
+    await Promise.allSettled([contextOne.close(), contextTwo.close()]);
   }
 });
 
@@ -65,7 +66,8 @@ test("single player can start, move, target, level, and reach the boss wave", as
   const playerId = Object.values<any>(afterMove.players).find((p) => p.classId === "mage").id;
   expect(afterMove.players[playerId].position.z).toBeGreaterThan(before.players[playerId].position.z);
 
-  const spawn = await (await request.post("http://127.0.0.1:8000/debug/action", { data: { action: "spawn_enemy", payload: { type: "brute", position: { x: 2, z: 2 } } } })).json();
+  const playerPosition = afterMove.players[playerId].position;
+  const spawn = await (await request.post("http://127.0.0.1:8000/debug/action", { data: { action: "spawn_enemy", payload: { type: "brute", position: { x: playerPosition.x + 0.75, z: playerPosition.z } } } })).json();
   await request.post("http://127.0.0.1:8000/debug/action", { data: { action: "set_enemy_target", payload: { playerId, targetId: spawn.enemyId } } });
   await expect(page.getByTestId("target-frame")).toContainText("Brute");
   await page.getByTestId("ability-slot-1").hover();
@@ -347,11 +349,22 @@ test("mage can drag and drop abilities to swap slots", async ({ page, request })
   await expect(slot1).toContainText("Firebolt");
   await expect(slotE).toContainText("E");
 
-  await slot1.dragTo(slotE);
+  // Chromium's synthetic dragTo can stop after dragover on draggable buttons.
+  // Dispatch the native DnD lifecycle with one shared DataTransfer instead.
+  await page.evaluate(() => {
+    const source = document.querySelector<HTMLElement>('[data-testid="ability-slot-1"]')!;
+    const target = document.querySelector<HTMLElement>('[data-testid="ability-slot-e"]')!;
+    const dataTransfer = new DataTransfer();
+    source.dispatchEvent(new DragEvent("dragstart", { bubbles: true, dataTransfer }));
+    target.dispatchEvent(new DragEvent("dragover", { bubbles: true, cancelable: true, dataTransfer }));
+    target.dispatchEvent(new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer }));
+    source.dispatchEvent(new DragEvent("dragend", { bubbles: true, dataTransfer }));
+  });
 
-  const after = await (await request.get("http://127.0.0.1:8000/debug/state")).json();
-  const abilitySlots = after.players[playerId].abilitySlots;
-  expect(abilitySlots["mage_fireball"]).toBe(6);
+  await expect.poll(async () => {
+    const after = await (await request.get("http://127.0.0.1:8000/debug/state")).json();
+    return after.players[playerId].abilitySlots["mage_fireball"];
+  }).toBe(6);
 
   await expect(slotE).toContainText("Firebolt");
   await expect(slot1).not.toContainText("Firebolt");

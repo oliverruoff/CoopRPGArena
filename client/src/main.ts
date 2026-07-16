@@ -27,6 +27,16 @@ const classInfo: Record<string, { name: string; description: string; stats: stri
   shaman: { name: "Shaman", description: "A spiritual caster bonded to the elements. Calls down lightning, heals allies with totems, and wades into melee with elemental strikes.", stats: ["HP 108", "Mana 120", "Spell Power 19 / Attack Power 9", "Lightning + Totem caster"] },
   paladin: { name: "Paladin", description: "A heavily armored holy bruiser with a two-handed mace. Calls down judgement, protects allies with blessings, and survives through divine miracles.", stats: ["HP 132", "Mana 110", "Attack Power 18 / Spell Power 14", "Two-handed holy bruiser"] }
 };
+const classPresentation: Record<string, { role: string; fantasy: string; glyph: string; color: string; profile: [number, number, number, number] }> = {
+  warrior: { role: "Frontline", fantasy: "Break the line", glyph: "W", color: "#d48a4a", profile: [95, 72, 28, 48] },
+  hunter: { role: "Ranged DPS", fantasy: "Never stop hunting", glyph: "H", color: "#8fc957", profile: [48, 78, 32, 82] },
+  priest: { role: "Healer", fantasy: "Keep hope alive", glyph: "P", color: "#f2d77d", profile: [42, 48, 100, 45] },
+  mage: { role: "Burst Caster", fantasy: "Command the elements", glyph: "M", color: "#56c8f2", profile: [28, 98, 45, 62] },
+  rogue: { role: "Assassin", fantasy: "Strike from the shadows", glyph: "R", color: "#f0dc45", profile: [38, 92, 18, 100] },
+  druid: { role: "Shapeshifter", fantasy: "Adapt and overcome", glyph: "D", color: "#f28a31", profile: [78, 64, 72, 72] },
+  shaman: { role: "Elemental Support", fantasy: "Call the storm", glyph: "S", color: "#438cef", profile: [58, 76, 78, 54] },
+  paladin: { role: "Holy Bruiser", fantasy: "Stand in the light", glyph: "P", color: "#ee80b5", profile: [88, 68, 74, 36] }
+};
 const SNAPSHOT_INTERVAL_MS = 1000 / 15;
 const JUMP_DURATION_SECONDS = 0.36;
 
@@ -34,31 +44,41 @@ const root = document.querySelector<HTMLDivElement>("#app")!;
 root.innerHTML = `
   <canvas id="renderCanvas" data-testid="arena"></canvas>
   <section id="lobby" data-testid="lobby">
-    <h1>Coop RPG Arena</h1>
-    <p id="connection">Connecting...</p>
-    <div id="nameField">
-      <label for="playerName">Your name</label>
-      <input id="playerName" type="text" maxlength="18" placeholder="Enter name" data-testid="player-name-input" />
-    </div>
-    <div class="classes">
-      <button data-testid="class-warrior" data-class="warrior">Warrior</button>
-      <button data-testid="class-hunter" data-class="hunter">Hunter</button>
-      <button data-testid="class-priest" data-class="priest">Priest</button>
-      <button data-testid="class-mage" data-class="mage">Mage</button>
-      <button data-testid="class-rogue" data-class="rogue">Rogue</button>
-      <button data-testid="class-druid" data-class="druid">Druid</button>
-      <button data-testid="class-shaman" data-class="shaman">Shaman</button>
-      <button data-testid="class-paladin" data-class="paladin">Paladin</button>
-    </div>
-    <div id="lobbyUpgrades" data-testid="lobby-upgrades">
-      <h3>Stat Upgrades <span id="lobbyUpgradePoints" data-testid="lobby-upgrade-points">3</span></h3>
-      <p>Distribute 3 stat upgrades before readying up.</p>
+    <header class="lobbyHeader">
+      <div class="lobbyBrand"><span class="brandRune">✦</span><div><h1>Coop RPG Arena</h1><p>Assemble your party. Forge your legend.</p></div></div>
+      <div class="connectionPill"><i></i><span id="connection">Connecting...</span></div>
+    </header>
+    <aside class="lobbyIdentity glassPanel">
+      <div class="panelEyebrow">Your adventurer</div>
+      <div id="nameField">
+        <label for="playerName">Display name</label>
+        <input id="playerName" type="text" maxlength="18" placeholder="Enter name" data-testid="player-name-input" />
+      </div>
+      <div id="lobbyPlayers"></div>
+    </aside>
+    <main class="heroStage" aria-live="polite">
+      <div class="heroAura"></div>
+      <div class="heroTitle" id="heroTitle">
+        <span class="heroKicker">Choose your hero</span>
+        <h2>Who answers the call?</h2>
+        <p>Select a class to reveal their strengths.</p>
+      </div>
+      <div class="stageHint"><span>↔</span> Swipe or use arrow keys</div>
+    </main>
+    <nav class="classes" aria-label="Choose a class">
+      ${Object.entries(classPresentation).map(([id, item]) => `<button data-testid="class-${id}" data-class="${id}" style="--class-color:${item.color}" aria-label="${classInfo[id].name}, ${item.role}"><span class="classPortrait"><i>${item.glyph}</i></span><span class="classCardCopy"><b>${classInfo[id].name}</b><small>${item.role}</small></span></button>`).join("")}
+    </nav>
+    <section id="lobbyUpgrades" class="glassPanel" data-testid="lobby-upgrades">
+      <div class="upgradeHeading"><div><span class="panelEyebrow">Prepare for battle</span><h3>Choose your blessings</h3></div><span class="upgradeCounter"><b id="lobbyUpgradePoints" data-testid="lobby-upgrade-points">3</b> left</span></div>
+      <p>Spend all three points to unlock Ready.</p>
       <div id="lobbyUpgradeChoices" data-testid="lobby-upgrade-choices"></div>
-      <button id="resetLobbyUpgrades" data-testid="reset-lobby-upgrades">Reset Upgrades</button>
-    </div>
-    <button id="ready" data-testid="ready-button">Ready</button>
-    <div id="lobbyPlayers"></div>
-    <div id="countdown" data-testid="countdown"></div>
+      <button id="resetLobbyUpgrades" data-testid="reset-lobby-upgrades">Reset choices</button>
+    </section>
+    <footer class="lobbyActions">
+      <div class="readyProgress"><span id="readyStep">1 · Choose a class</span><div><i id="readyProgressFill"></i></div></div>
+      <button id="ready" data-testid="ready-button"><span>Ready for battle</span><small id="readyRequirement">Choose a class first</small></button>
+      <div id="countdown" data-testid="countdown"></div>
+    </footer>
   </section>
   <div id="classPreviewInfo" data-testid="class-preview-info"></div>
   <div id="statTooltip" data-testid="stat-tooltip"></div>
@@ -271,7 +291,9 @@ function isLocalhostOnlyUrl(url: string): boolean {
 
 function getWsUrl(): string {
   const base = configuredWsUrl && !isLocalhostOnlyUrl(configuredWsUrl) ? configuredWsUrl : defaultWsUrl;
-  const token = localStorage.getItem("cooprpg_reconnect_token");
+  // A reconnect identity belongs to one tab. localStorage is shared between
+  // tabs and caused two lobby tabs to repeatedly take over the same player.
+  const token = sessionStorage.getItem("cooprpg_reconnect_token");
   if (!token) return base;
   const sep = base.includes("?") ? "&" : "?";
   return `${base}${sep}token=${encodeURIComponent(token)}`;
@@ -295,7 +317,7 @@ function connect() {
     previousState = state;
     const incoming = JSON.parse(event.data) as IncomingSnapshot;
     if (incoming.reconnectToken) {
-      localStorage.setItem("cooprpg_reconnect_token", incoming.reconnectToken);
+      sessionStorage.setItem("cooprpg_reconnect_token", incoming.reconnectToken);
     }
     const incomingHasStatic = incoming.mapObjects !== undefined;
     state = mergeSnapshot(incoming);
@@ -323,6 +345,7 @@ function connect() {
 connect();
 
 const MAX_ABILITY_SLOTS = 11;
+let abilityDragGesture: { abilityId: string; x: number; y: number } | null = null;
 const slotKeys: Record<number, string> = { 1: "1", 2: "2", 3: "3", 4: "4", 5: "q", 6: "e", 7: "r", 8: "f", 9: "g", 10: "c", 11: "v" };
 const keySlots: Record<string, number> = { Digit1: 1, Digit2: 2, Digit3: 3, Digit4: 4, KeyQ: 5, KeyE: 6, KeyR: 7, KeyF: 8, KeyG: 9, KeyC: 10, KeyV: 11 };
 
@@ -362,11 +385,34 @@ document.querySelector<HTMLInputElement>("#playerName")!.addEventListener("keydo
 document.querySelectorAll<HTMLButtonElement>("[data-class]").forEach((button) => {
   button.addEventListener("click", () => {
     unlockAudio();
+    playUiClickSound();
     selectedClassId = button.dataset.class || null;
     if (!selectedClassId) return;
     updateClassPreview(selectedClassId);
     send({ type: "select_class", classId: selectedClassId });
   });
+});
+function selectAdjacentClass(direction: number) {
+  if (state?.matchState !== "lobby") return;
+  const ids = Object.keys(classPresentation);
+  const current = selectedClassId ? ids.indexOf(selectedClassId) : -1;
+  const next = current < 0 ? (direction > 0 ? 0 : ids.length - 1) : (current + direction + ids.length) % ids.length;
+  const button = document.querySelector<HTMLButtonElement>(`[data-class="${ids[next]}"]`);
+  button?.click();
+  button?.focus({ preventScroll: true });
+}
+document.querySelector<HTMLElement>(".classes")!.addEventListener("keydown", (event) => {
+  if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+  event.preventDefault();
+  selectAdjacentClass(event.key === "ArrowRight" ? 1 : -1);
+});
+let lobbySwipeStartX: number | null = null;
+document.querySelector<HTMLElement>(".heroStage")!.addEventListener("pointerdown", (event) => { lobbySwipeStartX = event.clientX; });
+document.querySelector<HTMLElement>(".heroStage")!.addEventListener("pointerup", (event) => {
+  if (lobbySwipeStartX === null) return;
+  const distance = event.clientX - lobbySwipeStartX;
+  lobbySwipeStartX = null;
+  if (Math.abs(distance) > 48) selectAdjacentClass(distance < 0 ? 1 : -1);
 });
 document.querySelector<HTMLButtonElement>("#ready")!.addEventListener("click", () => {
   if (!selectedClassId) return;
@@ -469,12 +515,16 @@ document.querySelector<HTMLButtonElement>("#resetLobbyUpgrades")!.addEventListen
 });
 document.querySelectorAll<HTMLButtonElement>("[data-slot]").forEach((button) => {
   button.setAttribute("draggable", "true");
+  button.addEventListener("pointerdown", (event) => {
+    const abilityId = button.dataset.abilityId;
+    abilityDragGesture = abilityId ? { abilityId, x: event.clientX, y: event.clientY } : null;
+  });
   button.addEventListener("click", () => { unlockAudio(); cast(slotNumber(button.dataset.slot)); });
   button.addEventListener("mouseenter", () => showAbilityTooltip(button));
   button.addEventListener("mouseleave", hideAbilityTooltip);
   button.addEventListener("dragstart", (event) => {
     const abilityId = button.dataset.abilityId;
-    if (!abilityId || !(event instanceof DragEvent) || !event.dataTransfer) {
+    if (!abilityId || !event.dataTransfer) {
       event.preventDefault();
       return;
     }
@@ -490,9 +540,8 @@ document.querySelectorAll<HTMLButtonElement>("[data-slot]").forEach((button) => 
     document.querySelectorAll<HTMLButtonElement>("#action button").forEach((b) => b.classList.remove("dragOver"));
   });
   button.addEventListener("dragover", (event) => {
-    if (!(event instanceof DragEvent)) return;
     event.preventDefault();
-    event.dataTransfer!.dropEffect = "move";
+    if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
     document.querySelectorAll<HTMLButtonElement>("#action button").forEach((b) => b.classList.remove("dragOver"));
     button.classList.add("dragOver");
   });
@@ -500,7 +549,7 @@ document.querySelectorAll<HTMLButtonElement>("[data-slot]").forEach((button) => 
     button.classList.remove("dragOver");
   });
   button.addEventListener("drop", (event) => {
-    if (!(event instanceof DragEvent) || !event.dataTransfer) return;
+    if (!event.dataTransfer) return;
     event.preventDefault();
     button.classList.remove("dragOver");
     const sourceAbilityId = event.dataTransfer.getData("text/plain");
@@ -509,6 +558,18 @@ document.querySelectorAll<HTMLButtonElement>("[data-slot]").forEach((button) => 
     send({ type: "set_ability_slot", abilityId: sourceAbilityId, slot: targetSlot });
   });
 });
+// Pointer fallback makes slot rearranging work in browsers and automation
+// environments that show native drag-over feedback but omit a final drop.
+window.addEventListener("pointerup", (event) => {
+  const gesture = abilityDragGesture;
+  abilityDragGesture = null;
+  if (!gesture || Math.hypot(event.clientX - gesture.x, event.clientY - gesture.y) < 12) return;
+  const target = document.elementFromPoint(event.clientX, event.clientY)?.closest<HTMLButtonElement>("#action button[data-slot]");
+  const targetSlot = target ? slotNumber(target.dataset.slot) : NaN;
+  if (!Number.isFinite(targetSlot)) return;
+  send({ type: "set_ability_slot", abilityId: gesture.abilityId, slot: targetSlot });
+});
+window.addEventListener("pointercancel", () => { abilityDragGesture = null; });
 
 const moveStick = document.querySelector<HTMLElement>("#moveStick")!;
 const moveStickKnob = document.querySelector<HTMLElement>("#moveStickKnob")!;
@@ -772,6 +833,10 @@ function renderUi() {
   const lobbyUpgradePoints = (me?.lobbyUpgradePoints ?? 0);
   const hasClass = Boolean(me?.classId);
   readyButton.disabled = isSpectator || !hasClass || lobbyUpgradePoints > 0;
+  document.body.style.setProperty("--selected-class-color", hasClass && me?.classId ? classPresentation[me.classId]?.color || "#d6b66b" : "#d6b66b");
+  text("readyStep", !hasClass ? "1 · Choose a class" : lobbyUpgradePoints > 0 ? `2 · Choose ${lobbyUpgradePoints} blessing${lobbyUpgradePoints === 1 ? "" : "s"}` : "3 · Your hero is ready");
+  text("readyRequirement", !hasClass ? "Choose a class first" : lobbyUpgradePoints > 0 ? `${lobbyUpgradePoints} upgrade${lobbyUpgradePoints === 1 ? "" : "s"} remaining` : "Join your party");
+  document.querySelector<HTMLElement>("#readyProgressFill")!.style.width = `${!hasClass ? 8 : lobbyUpgradePoints > 0 ? 35 + (3 - lobbyUpgradePoints) * 20 : 100}%`;
   const lobbyUpgradesPanel = document.querySelector<HTMLElement>("#lobbyUpgrades")!;
   lobbyUpgradesPanel.style.display = hasClass && !isSpectator ? "block" : "none";
   text("lobbyUpgradePoints", `${lobbyUpgradePoints}`);
@@ -1546,7 +1611,8 @@ function abilityDescription(abilityId: string) {
 function updateClassPreview(classId: string) {
   classPreview?.dispose();
   classPreview = createPreviewModel(classId);
-  classPreview.scaling.setAll(2.2);
+  classPreview.scaling.setAll(0.01);
+  classPreview.metadata = { ...(classPreview.metadata || {}), previewStartedAt: performance.now(), classId };
   updateLobbyPreviewPlacement();
   renderClassPreviewInfo(classId);
   lastClassPreviewInfoSignature = `${classId}|${JSON.stringify(state?.players[state.you]?.stats || {})}|${Object.keys(state?.abilities || {}).length}`;
@@ -1561,10 +1627,25 @@ function renderClassPreviewInfo(classId: string) {
   const abilities = Object.values(state?.abilities || {})
     .filter((a) => a.classId === classId)
     .sort((a, b) => a.slot - b.slot);
+  const presentation = classPresentation[classId];
   const abilitiesHtml = abilities.length
-    ? `<div class="classAbilities"><h3>Spells</h3>${abilities.map((a) => renderClassAbility(a)).join("")}</div>`
+    ? `<div class="classAbilities"><div class="detailSectionTitle"><h3>Signature abilities</h3><span>${abilities.length} total</span></div>${abilities.slice(0, 3).map((a) => renderClassAbility(a)).join("")}${abilities.length > 3 ? `<details><summary>View all ${abilities.length} abilities</summary>${abilities.slice(3).map((a) => renderClassAbility(a)).join("")}</details>` : ""}</div>`
     : "";
-  document.querySelector("#classPreviewInfo")!.innerHTML = `<h2>${name}</h2><p>${description}</p><h3>Current Class Stats</h3><div class="classStats">${statRows}</div>${abilitiesHtml}`;
+  const profileLabels = ["Toughness", "Damage", "Support", "Mobility"];
+  const profile = presentation.profile.map((value, index) => `<div class="powerRow"><span>${profileLabels[index]}</span><i><b style="width:${value}%"></b></i><strong>${powerLabel(value)}</strong></div>`).join("");
+  document.querySelector("#classPreviewInfo")!.innerHTML = `<div class="classInfoHeader"><span class="classRole">${presentation.role}</span><span class="classFantasy">${presentation.fantasy}</span><h2>${name}</h2><p>${description}</p></div><div class="classPowerProfile"><div class="detailSectionTitle"><h3>Combat profile</h3><span>Level 1</span></div>${profile}</div><details class="statDetails"><summary>Detailed attributes</summary><div class="classStats">${statRows}</div></details>${abilitiesHtml}`;
+  const title = document.querySelector<HTMLElement>("#heroTitle")!;
+  title.innerHTML = `<span class="heroKicker">${presentation.role}</span><h2>${name}</h2><p>${presentation.fantasy}</p>`;
+  title.classList.remove("heroTitleEnter");
+  requestAnimationFrame(() => title.classList.add("heroTitleEnter"));
+}
+
+function powerLabel(value: number) {
+  if (value >= 88) return "S";
+  if (value >= 72) return "A";
+  if (value >= 54) return "B";
+  if (value >= 38) return "C";
+  return "D";
 }
 
 function renderClassStatRows(classId: string) {
@@ -1596,11 +1677,12 @@ function renderClassAbility(ability: Ability) {
   const key = slotKeys[ability.slot] || String(ability.slot);
   const cost = ability.resourceCost ? `${ability.resourceCost.amount} ${resourceLabel(ability.resourceCost.type)}` : "None";
   const effects = (ability.effects || []).map((effect) => formatAbilityEffectSummary(effect)).filter(Boolean).join(" • ");
-  return `<div class="classAbility">
+  const school = ability.effects?.find((effect) => effect.school)?.school || ability.targetType;
+  return `<div class="classAbility"><span class="abilitySigil">${ability.name.slice(0, 1)}</span><div class="abilityCopy">
     <div class="classAbilityHeader"><b>${ability.name}</b><span class="classAbilityKey">${key.toUpperCase()}</span></div>
     <div class="classAbilityTags"><span>${ability.targetType}</span><span>${ability.range || "-"}m</span><span>${ability.cooldown || 0}s CD</span><span>${ability.castTime || 0}s cast</span><span>${cost}</span></div>
     <p>${ability.description || abilityDescription(ability.id)}</p>
-    ${effects ? `<div class="classAbilityEffects">${effects}</div>` : ""}
+    ${effects ? `<div class="classAbilityEffects"><b>${school}</b> · ${effects}</div>` : ""}</div>
   </div>`;
 }
 
@@ -1633,8 +1715,20 @@ function updateLobbyPreviewPlacement() {
   const forward = camera.getForwardRay(1).direction;
   const right = camera.getDirection(Vector3.Right());
   const up = camera.getDirection(Vector3.Up());
-  classPreview.position = camera.position.add(forward.scale(17)).add(right.scale(6.6)).add(up.scale(1.9));
-  classPreview.rotation.y += 0.01;
+  const portrait = document.body.classList.contains("mobilePortrait");
+  classPreview.position = camera.position.add(forward.scale(portrait ? 18.2 : 17.2)).add(right.scale(portrait ? 0 : 0.35)).add(up.scale(portrait ? 1.2 : 0.55));
+  const elapsed = Math.min(1, (performance.now() - Number(classPreview.metadata?.previewStartedAt || 0)) / 780);
+  const eased = 1 - Math.pow(1 - elapsed, 3);
+  classPreview.scaling.setAll((portrait ? 1.8 : 2.25) * eased);
+  classPreview.rotation.y = Math.PI + Math.sin(performance.now() / 1850) * 0.18;
+  classPreview.position.y += Math.sin(performance.now() / 620) * 0.05 + (1 - eased) * -1.2;
+  const leftArm = cachedChild(classPreview, "previewLeftArm", (mesh) => mesh.name.endsWith("-left-arm"));
+  const rightArm = cachedChild(classPreview, "previewRightArm", (mesh) => mesh.name.endsWith("-right-arm"));
+  if (leftArm && rightArm) {
+    const flourish = Math.sin(Math.min(1, elapsed * 1.6) * Math.PI) * 0.95;
+    leftArm.rotation.x = -flourish;
+    rightArm.rotation.x = flourish;
+  }
 }
 
 function createPreviewModel(classId: string) {
@@ -1644,6 +1738,17 @@ function createPreviewModel(classId: string) {
   const preview = createPlayer(fake);
   meshes.delete(fake.id);
   preview.getChildMeshes().forEach((mesh) => mesh.metadata = null);
+  const color = Color3.FromHexString(classPresentation[classId]?.color || "#d6b66b");
+  const dais = MeshBuilder.CreateCylinder(`preview-${classId}-dais`, { diameter: 2.15, height: 0.12, tessellation: 48 }, scene);
+  dais.parent = preview;
+  dais.position.y = -0.08;
+  const daisMaterial = mat(`preview-${classId}-dais-mat`, color.scale(0.28));
+  daisMaterial.emissiveColor = color.scale(0.16);
+  dais.material = daisMaterial;
+  const aura = MeshBuilder.CreateTorus(`preview-${classId}-aura`, { diameter: 1.82, thickness: 0.035, tessellation: 48 }, scene);
+  aura.parent = preview;
+  aura.position.y = 0.015;
+  aura.material = transparentMat(`preview-${classId}-aura-mat`, color, 0.72);
   return preview;
 }
 

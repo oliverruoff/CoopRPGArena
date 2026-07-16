@@ -1133,6 +1133,10 @@ class Game:
             elif effect["type"] == "stealth":
                 duration = effect.get("duration", 5)
                 player.stealth_until = max(player.stealth_until, now + duration)
+                # Vanish must also stop the queued auto attack. Otherwise a
+                # nearby target can reveal the rogue again on the next tick.
+                player.target_id = None
+                player.auto_attack_at = now + player.stats.get("autoAttackInterval", 1.4)
                 self._upsert_active_effect_locked(player, player.id, ability_id, "buff", duration, now)
                 for enemy in self.enemies.values():
                     enemy.threat[player.id] = 0
