@@ -328,7 +328,9 @@ body[data-mode="defeat"] #end { color: #a32020; }
 }
 
 /* Hero selection lobby */
-body[data-mode="lobby"] #renderCanvas { filter: saturate(.72) brightness(.62) contrast(1.08); }
+/* Keep WebGL on an unfiltered compositor layer. CSS filters on a canvas can
+   make the 3D preview look heavily blurred, especially on Safari/mobile. */
+body[data-mode="lobby"] #renderCanvas { filter: none; }
 body[data-mode="lobby"]::after { content: ""; position: fixed; inset: 0; pointer-events: none; background: radial-gradient(circle at 50% 43%, color-mix(in srgb, var(--selected-class-color, #d6b66b) 22%, transparent) 0, transparent 29%), linear-gradient(90deg, rgba(5,10,18,.84), transparent 31%, transparent 69%, rgba(5,10,18,.88)); }
 #lobby { z-index: 5; inset: 0; width: 100%; max-height: none; overflow: hidden; padding: 0; border-radius: 0; background: transparent; box-shadow: none; color: #f8fafc; pointer-events: none; }
 #lobby button, #lobby input, #lobby nav, #lobby .glassPanel, #lobby .lobbyActions { pointer-events: auto; }
