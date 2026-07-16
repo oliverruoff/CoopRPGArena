@@ -2343,7 +2343,7 @@ function createGroundEffect(effect: GroundEffect) {
         return { impact, impactMat, age: 2 };
       });
       let nextImpact = 0;
-      const arrows = Array.from({ length: 34 }, (_, i) => {
+      const arrows = Array.from({ length: 11 }, (_, i) => {
         const arrow = i === 0 ? arrowPrototype : arrowPrototype.clone(`${effect.id}-arrow-${i}`)!;
         arrow.parent = root;
         arrow.isPickable = false;
@@ -5051,7 +5051,7 @@ function multiArrow(from: Vector3, to: Vector3) {
 
 function arrowBarrage(center: Vector3, radius: number, duration: number) {
   expandingDisc("arrow-barrage", center, radius, new Color3(0.95, 0.75, 0.22), duration, 0.18);
-  for (let i = 0; i < 18; i++) {
+  for (let i = 0; i < 6; i++) {
     const angle = Math.random() * Math.PI * 2;
     const distance = Math.sqrt(Math.random()) * radius;
     const end = center.add(new Vector3(Math.cos(angle) * distance, 0, Math.sin(angle) * distance));
@@ -5636,7 +5636,7 @@ function cast(slot: number) {
     const radius = state.abilities[abilityId].effects?.find((effect) => effect.radius)?.radius || 5.2;
     groundTargetMarker.scaling.setAll(radius / 5.2);
     groundTargetMarker.setEnabled(false);
-    text("target", "Choose a ground location");
+    document.querySelector<HTMLElement>("#target .targetSummary")!.textContent = "Choose a ground location";
     return;
   }
   cancelGroundTargeting();

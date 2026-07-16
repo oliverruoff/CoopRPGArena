@@ -94,6 +94,35 @@ test("mobile lobby keeps class description, blessings, and actions separate", as
   expect(layout.blessings.bottom).toBeLessThanOrEqual(layout.actions.top);
 });
 
+test("mobile lobby stats can be toggled and reflect blessing choices", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/");
+  await page.getByTestId("class-mage").click();
+
+  const toggle = page.getByTestId("lobby-stats-toggle");
+  const drawer = page.getByTestId("lobby-stats-drawer");
+  await expect(toggle).toBeVisible();
+  await expect(toggle).toContainText("Live Stats");
+  await expect(toggle).toHaveAttribute("aria-expanded", "false");
+
+  await toggle.click();
+  await expect(toggle).toHaveAttribute("aria-expanded", "true");
+  await expect(drawer).toBeVisible();
+  await expect(drawer).toContainText("Build progress");
+  await expect(drawer).toContainText("0/3");
+
+  await page.getByRole("button", { name: "Close live stats" }).click();
+  await expect(toggle).toHaveAttribute("aria-expanded", "false");
+  await expect(drawer).toBeHidden();
+
+  await page.getByTestId("lobby-upgrade-max_health").click();
+  await toggle.click();
+  await expect(drawer).toBeVisible();
+  await expect(drawer).toContainText("1/3");
+  await expect(drawer).toContainText("(+12%)");
+  await expect(drawer).toContainText("Max Health +12%");
+});
+
 test("lobby waits for every player to select a class and ready", async ({ browser }) => {
   const contextOne = await browser.newContext();
   const contextTwo = await browser.newContext();
@@ -313,6 +342,40 @@ test("druid can shift into bear and cat forms", async ({ page, request }) => {
   const humanoid = await (await request.get("http://127.0.0.1:8000/debug/state")).json();
   expect(humanoid.players[playerId].form).toBeNull();
   expect(humanoid.players[playerId].stats.moveSpeed).toBeCloseTo(base.stats.moveSpeed, 4);
+});
+
+test("arrow barrage keeps rendering with a reduced arrow count", async ({ page, request }) => {
+  await page.goto("/");
+  await page.getByTestId("class-hunter").click();
+  for (let i = 0; i < 3; i++) await page.getByTestId("lobby-upgrade-max_health").click();
+  await page.getByTestId("ready-button").click();
+  await expect(page.getByTestId("wave-counter")).toContainText("Wave 1", { timeout: 14000 });
+
+  const started = await (await request.get("http://127.0.0.1:8000/debug/state")).json();
+  const playerId = Object.values<any>(started.players).find((player) => player.classId === "hunter").id;
+  await request.post("http://127.0.0.1:8000/debug/action", { data: { action: "give_xp", payload: { playerId, amount: 600 } } });
+  await request.post("http://127.0.0.1:8000/debug/action", { data: { action: "choose_upgrade", payload: { playerId, upgradeId: "learn:hunter_arrow_barrage" } } });
+  const barrageButton = page.locator('[data-ability-id="hunter_arrow_barrage"]');
+  await expect(barrageButton).toContainText("Arrow Barrage");
+
+  await barrageButton.click();
+  await expect(page.locator("#target .targetSummary")).toContainText("Tap arena to place Arrow Barrage");
+  await page.getByTestId("arena").click({ position: { x: 520, y: 360 } });
+  await expect.poll(async () => (await (await request.get("http://127.0.0.1:8000/debug/state")).json()).groundEffects.length).toBeGreaterThan(0);
+
+  const renderResult = await page.getByTestId("arena").evaluate(async (canvas: HTMLCanvasElement) => {
+    const scene = (canvas as any).scene;
+    let frames = 0;
+    const observer = scene.onAfterRenderObservable.add(() => frames++);
+    await new Promise((resolve) => window.setTimeout(resolve, 500));
+    scene.onAfterRenderObservable.remove(observer);
+    return {
+      frames,
+      arrows: scene.meshes.filter((mesh: { name: string; parent?: { metadata?: { effectType?: string } } }) => mesh.parent?.metadata?.effectType === "volley" && /-arrow-\d+$/.test(mesh.name)).length,
+    };
+  });
+  expect(renderResult.frames).toBeGreaterThan(5);
+  expect(renderResult.arrows).toBe(11);
 });
 
 test("desktop stats panel stays expanded across live updates", async ({ page }) => {

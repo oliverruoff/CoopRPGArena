@@ -471,7 +471,7 @@ body.lobbyStatsOpen[data-mode="lobby"] #lobbyStatsDrawer { display: block; anima
   #resetLobbyUpgrades { display: block; margin-left: auto; font-size: 7px; }
   .lobbyActions { right: 12px; bottom: max(10px, env(safe-area-inset-bottom)); left: 12px; display: grid; grid-template-columns: 1fr 1.25fr; gap: 9px; }
   .lobbyActions { grid-template-columns: auto 1fr 1.25fr; }
-  .lobbyStatsToggle { min-width: 47px; min-height: 53px; padding: 7px; font-size: 0; }.lobbyStatsToggle span { margin: 0; font-size: 14px; }
+  .lobbyStatsToggle { min-width: 72px; min-height: 53px; padding: 7px 9px; font-size: 8px; line-height: 1.2; }.lobbyStatsToggle span { display: block; margin: 0 0 3px; font-size: 13px; }
   .readyProgress { width: auto; text-align: left; }#ready { width: 100%; min-height: 53px; }
   #countdown { right: 0; bottom: 58px; font-size: 16px; }
   #lobbyStatsDrawer { top: auto; right: 0; bottom: 0; left: 0; width: auto; height: min(58dvh, 510px); padding: 18px 15px calc(78px + env(safe-area-inset-bottom)); border-width: 1px 0 0; border-radius: 22px 22px 0 0; background: linear-gradient(180deg, rgba(16,23,36,.99), rgba(5,9,17,.99)); }
