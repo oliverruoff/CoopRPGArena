@@ -47,6 +47,12 @@ test("lobby canvas renders sharply at device pixel resolution", async ({ browser
     }));
     expect(dimensions.bufferWidth).toBe(dimensions.cssWidth * 2);
     expect(dimensions.bufferHeight).toBe(dimensions.cssHeight * 2);
+    const filters = await page.evaluate(() => ({
+      canvas: getComputedStyle(document.querySelector<HTMLCanvasElement>("#renderCanvas")!).filter,
+      lobbyBackdrop: getComputedStyle(document.querySelector<HTMLElement>("#lobby")!).backdropFilter,
+      classInfoBackdrop: getComputedStyle(document.querySelector<HTMLElement>("#classPreviewInfo")!).backdropFilter,
+    }));
+    expect(filters).toEqual({ canvas: "none", lobbyBackdrop: "none", classInfoBackdrop: "none" });
   } finally {
     await context.close();
   }
