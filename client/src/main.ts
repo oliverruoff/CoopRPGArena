@@ -145,6 +145,8 @@ const urlParams = new URLSearchParams(window.location.search);
 const qualityOverride = (urlParams.get("quality") || urlParams.get("q") || "").toLowerCase();
 const lowSpecMode = qualityOverride === "low";
 const engine = new Engine(canvas, !lowSpecMode);
+const renderPixelRatio = lowSpecMode ? 1 : Math.min(window.devicePixelRatio || 1, 2);
+engine.setHardwareScalingLevel(1 / renderPixelRatio);
 const scene = new Scene(engine);
 (canvas as any).engine = engine;
 (canvas as any).scene = scene;
@@ -3827,6 +3829,7 @@ function playAutoAttackEffect(event: CombatEvent) {
     hunterTwang(0, 0.035);
   } else if (isSorcerer) {
     purpleSpellBall(source.position, target, 420);
+    shadowPulse(0.028);
   } else {
     slashArc(target.position, 260);
     if (sourcePlayer?.classId === "warrior") warriorClang(0.04);
@@ -3834,6 +3837,10 @@ function playAutoAttackEffect(event: CombatEvent) {
     else if (sourcePlayer?.classId === "rogue") rogueSlice(0.04);
     else if (sourcePlayer?.classId === "priest") priestChoir(0.025);
     else if (sourcePlayer?.classId === "mage") mageSparkle();
+    else if (sourcePlayer?.classId === "druid") sourcePlayer.form === "bear" ? beastSwipe("bear", 0.05) : beastSwipe("cat", 0.04);
+    else if (sourcePlayer?.classId === "shaman") { warriorClang(0.032); electricZap(0.018); }
+    else if (sourceEnemy?.type === "brute") beastSwipe("bear", 0.045);
+    else if (sourceEnemy) beastSwipe("cat", 0.032);
   }
 }
 
@@ -5068,30 +5075,45 @@ function startBattleMusic() {
   master.connect(ctx.destination);
   const bass = ctx.createOscillator();
   const drone = ctx.createOscillator();
+  const fifth = ctx.createOscillator();
   bass.type = "triangle";
   drone.type = "sine";
+  fifth.type = "triangle";
   bass.frequency.setValueAtTime(55, ctx.currentTime);
   drone.frequency.setValueAtTime(110, ctx.currentTime);
+  fifth.frequency.setValueAtTime(164.81, ctx.currentTime);
   const bassGain = ctx.createGain();
   const droneGain = ctx.createGain();
+  const fifthGain = ctx.createGain();
   bassGain.gain.setValueAtTime(0.42, ctx.currentTime);
   droneGain.gain.setValueAtTime(0.18, ctx.currentTime);
+  fifthGain.gain.setValueAtTime(0.08, ctx.currentTime);
   bass.connect(bassGain).connect(master);
   drone.connect(droneGain).connect(master);
+  fifth.connect(fifthGain).connect(master);
   bass.start();
   drone.start();
-  musicNodes = { oscillators: [bass, drone], gains: [master, bassGain, droneGain] };
-  const pattern = [55, 55, 65.41, 73.42, 55, 82.41, 73.42, 65.41];
+  fifth.start();
+  musicNodes = { oscillators: [bass, drone, fifth], gains: [master, bassGain, droneGain, fifthGain] };
+  // D-minor/Dorian war-march: low strings, open fifth drone, horns, harp and frame drums.
+  const roots = [73.42, 73.42, 65.41, 73.42, 58.27, 65.41, 55, 65.41];
+  const melody = [293.66, 349.23, 392, 440, 392, 349.23, 293.66, 261.63, 293.66, 329.63, 349.23, 293.66, 261.63, 220, 261.63, 293.66];
   let step = 0;
   musicStepTimer = window.setInterval(() => {
     const musicCtx = soundContext();
     if (!musicCtx || !musicNodes || state?.matchState !== "running") return;
-    const frequency = pattern[step % pattern.length];
+    const frequency = roots[Math.floor(step / 2) % roots.length];
+    const note = melody[step % melody.length];
     step += 1;
-    bass.frequency.setTargetAtTime(frequency, musicCtx.currentTime, 0.04);
-    tone(frequency * 4, 0.08, "triangle", 0.01);
-    if (step % 4 === 0) noise(0.05, 0.008, 260, 0, "lowpass");
-  }, 520);
+    bass.frequency.setTargetAtTime(frequency / 2, musicCtx.currentTime, 0.08);
+    drone.frequency.setTargetAtTime(frequency, musicCtx.currentTime, 0.12);
+    fifth.frequency.setTargetAtTime(frequency * 1.5, musicCtx.currentTime, 0.12);
+    tone(note, 0.34, "triangle", 0.009);
+    tone(note / 2, 0.42, "sine", 0.006, 0.015);
+    if (step % 2 === 1) noise(0.12, 0.012, 135, 0, "lowpass");
+    if (step % 4 === 0) { noise(0.2, 0.016, 82, 0, "lowpass"); tone(82, 0.18, "sine", 0.012); }
+    if (step % 8 === 0) [note * 2, note * 2.25, note * 2.5].forEach((n, i) => tone(n, 0.22, "sine", 0.006, i * 0.07));
+  }, 430);
 }
 
 function stopBattleMusic() {
@@ -5133,17 +5155,24 @@ function playDefeatSound() {
 function playCastStartSound(event: CombatEvent) {
   const abilityId = event.abilityId || "";
   const sourceClass = sourceClassId(event.sourceId);
-  if (abilityId.includes("fireball")) {
+  const family = soundFamily(event);
+  if (family === "fire") {
     fireWhoosh(0);
     gliss(130, 240, 0.28, "sawtooth", 0.035);
-  } else if (abilityId.includes("frostbolt")) {
+  } else if (family === "lightning") {
+    electricZap(0.035);
+  } else if (family === "frost") {
     frostCrackle(0);
     gliss(900, 1600, 0.22, "sine", 0.03);
-  } else if (abilityId.includes("heal")) {
+  } else if (family === "nature") {
+    natureRustle(0.032);
+  } else if (family === "holy" || family === "healing") {
     priestChoir(0.04);
-  } else if (abilityId.includes("smite") || abilityId.includes("paladin_judgement") || sourceClass === "paladin") {
-    holyCharge();
-  } else if (abilityId.includes("shot")) {
+  } else if (family === "shadow" || family === "poison") {
+    shadowPulse(0.032);
+  } else if (family === "arcane") {
+    arcaneShimmer(0.032);
+  } else if (family === "bow") {
     hunterTwang(0, 0.035);
   } else if (sourceClass === "warrior") {
     warriorGrunt(0.03);
@@ -5157,24 +5186,28 @@ function playCastStartSound(event: CombatEvent) {
 function playCastReleaseSound(event: CombatEvent) {
   const abilityId = event.abilityId || "";
   const sourceClass = sourceClassId(event.sourceId);
-  if (abilityId.includes("fireball")) {
+  const family = soundFamily(event);
+  if (family === "fire") {
     fireWhoosh(0);
     gliss(320, 82, 0.24, "sawtooth", 0.08);
     noise(0.22, 0.07, 520, 0.02, "lowpass");
-  } else if (abilityId.includes("frostbolt")) {
+    fireSizzle(0.04);
+  } else if (family === "lightning") {
+    electricZap(0.07);
+  } else if (family === "frost") {
     frostCrackle(0);
     tone(1450, 0.05, "sine", 0.04);
     tone(2110, 0.11, "triangle", 0.035, 0.035);
-  } else if (abilityId.includes("smite")) {
-    lightningSnap();
-  } else if (abilityId.includes("paladin_judgement")) {
-    lightningSnap();
-    warriorClang(0.05);
-  } else if (abilityId.includes("paladin_flash_of_light")) {
-    priestChoir(0.045);
-  } else if (abilityId.includes("heal") || event.school === "holy") {
+  } else if (family === "holy" || family === "healing") {
     [740, 988, 1318].forEach((frequency, index) => tone(frequency, 0.16, "sine", 0.035, index * 0.045));
-  } else if (abilityId.includes("shot")) {
+    if (abilityId.includes("judgement") || abilityId.includes("hammer")) warriorClang(0.045);
+  } else if (family === "nature") {
+    natureRustle(0.05);
+  } else if (family === "shadow" || family === "poison") {
+    shadowPulse(0.05);
+  } else if (family === "arcane") {
+    arcaneShimmer(0.05);
+  } else if (family === "bow") {
     hunterTwang(0, 0.045);
   } else if (sourceClass === "warrior") {
     warriorClang(0.055);
@@ -5186,6 +5219,45 @@ function playCastReleaseSound(event: CombatEvent) {
     rogueSlice(0.04);
   } else {
     tone(180, 0.08, "square", 0.045);
+  }
+  playAbilityAccent(abilityId);
+}
+
+function playAbilityAccent(id: string) {
+  if (/whirlwind|blade_flurry|fan_of_knives|divine_storm/.test(id)) {
+    noise(0.24, 0.038, 2100, 0, "highpass");
+    gliss(720, 190, 0.2, "triangle", 0.025);
+  } else if (/execute|eviscerate|concussive_slam|maul/.test(id)) {
+    tone(68, 0.2, "sine", 0.06);
+    noise(0.11, 0.055, 240, 0.015, "lowpass");
+  } else if (/shield|barrier|ice_block/.test(id)) {
+    tone(210, 0.28, "triangle", 0.038);
+    tone(420, 0.22, "sine", 0.026, 0.025);
+    noise(0.08, 0.025, 1500, 0.02, "bandpass");
+  } else if (/trap/.test(id)) {
+    tone(980, 0.035, "square", 0.035);
+    tone(440, 0.06, "triangle", 0.045, 0.045);
+    noise(0.055, 0.035, 1900, 0.04, "highpass");
+  } else if (/bear_form/.test(id)) {
+    beastSwipe("bear", 0.055);
+  } else if (/cat_form/.test(id)) {
+    beastSwipe("cat", 0.05);
+  } else if (/vanish|shadowstep|backstep|disengage/.test(id)) {
+    noise(0.14, 0.038, 2600, 0, "highpass");
+    gliss(620, 95, 0.13, "sine", 0.032);
+  } else if (/totem/.test(id)) {
+    tone(112, 0.16, "triangle", 0.04);
+    noise(0.09, 0.035, 310, 0.025, "lowpass");
+    tone(448, 0.13, "sine", 0.025, 0.08);
+  } else if (/resurrection|leap_of_faith/.test(id)) {
+    [392, 523, 659, 784].forEach((frequency, index) => tone(frequency, 0.32, "sine", 0.022, index * 0.055));
+  } else if (/charge|heroic_leap|thunder_clap/.test(id)) {
+    noise(0.16, 0.055, 150, 0, "lowpass");
+    tone(55, 0.24, "sine", 0.055);
+  } else if (/adrenaline|sprint|blessing/.test(id)) {
+    gliss(240, 720, 0.2, "triangle", 0.03);
+  } else if (/moonfire|starfall/.test(id)) {
+    [880, 1175, 1568].forEach((frequency, index) => tone(frequency, 0.22, "sine", 0.022, index * 0.06));
   }
 }
 
@@ -5230,12 +5302,66 @@ function rogueSlice(volume = 0.035) {
   tone(260, 0.045, "triangle", volume * 0.75, 0.015);
 }
 
+type SoundFamily = "fire" | "lightning" | "frost" | "holy" | "healing" | "nature" | "shadow" | "poison" | "arcane" | "bow" | "physical";
+
+function soundFamily(event: CombatEvent): SoundFamily {
+  const id = event.abilityId || "";
+  const school = event.school || state?.abilities[id]?.effects?.find((effect) => effect.school)?.school || "";
+  if (/lightning|thunder|storm/.test(id) && !/divine_storm/.test(id)) return "lightning";
+  if (/fire|flame|meteor|searing|explosive/.test(id) || school === "fire") return "fire";
+  if (/frost|ice|blizzard|cold/.test(id) || school === "frost") return "frost";
+  if (/arcane/.test(id) || school === "arcane" || school === "magical") return "arcane";
+  if (/shadow|vanish|shadowstep/.test(id) || school === "shadow") return "shadow";
+  if (/poison/.test(id) || school === "poison") return "poison";
+  if (/heal|renew|rejuvenation|riptide|wild_growth|lay_on_hands/.test(id)) return "healing";
+  if (/priest|paladin|holy|sanctify|consecration|blessing|divine|judgement/.test(id) || school === "holy") return "holy";
+  if (/druid|moonfire|starfall/.test(id) || school === "nature") return "nature";
+  if (/hunter|shot|arrow|volley|barrage/.test(id)) return "bow";
+  return "physical";
+}
+
+function fireSizzle(volume = 0.04) {
+  for (let i = 0; i < 5; i++) noise(0.035 + Math.random() * 0.045, volume * (0.45 + Math.random() * 0.5), 1800 + Math.random() * 2600, i * 0.035, "highpass");
+}
+
+function electricZap(volume = 0.055) {
+  noise(0.045, volume, 4200, 0, "highpass");
+  gliss(2800, 180, 0.085, "sawtooth", volume * 0.7, 0.006);
+  noise(0.025, volume * 0.65, 6500, 0.055, "highpass");
+  tone(72, 0.14, "sine", volume * 0.55, 0.025);
+}
+
+function natureRustle(volume = 0.04) {
+  noise(0.28, volume * 0.55, 1100, 0, "bandpass");
+  gliss(310, 510, 0.24, "sine", volume * 0.6, 0.02);
+  tone(760, 0.12, "triangle", volume * 0.45, 0.11);
+}
+
+function shadowPulse(volume = 0.04) {
+  gliss(145, 48, 0.3, "sawtooth", volume);
+  noise(0.22, volume * 0.55, 380, 0.015, "lowpass");
+  tone(740, 0.12, "sine", volume * 0.25, 0.03);
+}
+
+function arcaneShimmer(volume = 0.04) {
+  [466, 698, 932, 1397].forEach((frequency, index) => tone(frequency, 0.13, index % 2 ? "triangle" : "sine", volume * (1 - index * 0.14), index * 0.025));
+  gliss(360, 1440, 0.16, "sine", volume * 0.45);
+}
+
+function beastSwipe(kind: "bear" | "cat", volume: number) {
+  noise(kind === "bear" ? 0.16 : 0.09, volume, kind === "bear" ? 260 : 1700, 0, kind === "bear" ? "lowpass" : "highpass");
+  gliss(kind === "bear" ? 125 : 420, kind === "bear" ? 62 : 190, kind === "bear" ? 0.15 : 0.075, "sawtooth", volume * 0.7);
+}
+
 function playStatusSound(event: CombatEvent) {
-  if (event.abilityId?.includes("fire") || event.abilityId?.includes("meteor")) fireWhoosh(0);
-  if (event.abilityId?.includes("frost")) frostCrackle(0);
-  if (event.abilityId?.includes("renew") || event.abilityId?.includes("barrier")) priestChoir(0.03);
-  if (event.abilityId?.includes("paladin")) priestChoir(0.035);
-  if (event.abilityId?.includes("vanish")) rogueSlice(0.028);
+  const family = soundFamily(event);
+  if (family === "fire") fireSizzle(0.028);
+  else if (family === "lightning") electricZap(0.03);
+  else if (family === "frost") frostCrackle(0);
+  else if (family === "holy" || family === "healing") priestChoir(0.03);
+  else if (family === "nature") natureRustle(0.026);
+  else if (family === "shadow" || family === "poison") shadowPulse(0.028);
+  else if (family === "arcane") arcaneShimmer(0.025);
 }
 
 function playHitSound(event: CombatEvent) {
@@ -5248,14 +5374,19 @@ function playHitSound(event: CombatEvent) {
   } else if (hitPlayer) {
     noise(0.11, 0.045, 620);
     tone(145, 0.06, "triangle", 0.03);
-  } else if (event.abilityId?.includes("fireball")) {
+  } else if (soundFamily(event) === "fire") {
     fireWhoosh(0);
+    fireSizzle(0.035);
     tone(118, 0.08, "sawtooth", 0.045);
-  } else if (event.abilityId?.includes("frostbolt")) {
+  } else if (soundFamily(event) === "lightning") {
+    electricZap(0.055);
+  } else if (soundFamily(event) === "frost") {
     frostCrackle(0);
     tone(930, 0.05, "sine", 0.03);
-  } else if (event.abilityId?.includes("smite")) {
-    lightningSnap();
+  } else if (soundFamily(event) === "arcane") {
+    arcaneShimmer(0.035);
+  } else if (soundFamily(event) === "shadow" || soundFamily(event) === "poison") {
+    shadowPulse(0.035);
   } else if (sourceClass === "warrior") {
     warriorClang(0.04);
   } else if (sourceClass === "hunter") {
