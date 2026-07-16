@@ -258,7 +258,7 @@ class Game:
                 if target_id in self.enemies:
                     player.target_id = target_id
                     player.ally_target_id = None
-                if target_id in self.players and target_id != player.id:
+                if target_id in self.players:
                     player.ally_target_id = target_id
                     player.target_id = None
             elif typ == "cycle_target" and self._is_present_locked(player):

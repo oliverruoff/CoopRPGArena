@@ -261,6 +261,7 @@ const FOV_ALERT_COLOR = new Color3(1, 0.18, 0.08);
 const FOV_IDLE_COLOR = new Color3(1, 0.72, 0.18);
 const FOV_ALERT_EMISSIVE = FOV_ALERT_COLOR.scale(0.22);
 const FOV_IDLE_EMISSIVE = FOV_IDLE_COLOR.scale(0.22);
+const LEVEL_XP_THRESHOLDS = [100, 180, 280, 420, 600, 820, 1080, 1380, 1720, 2100, 2520];
 
 function cachedChild(node: TransformNode, key: string, predicate: (mesh: Mesh) => boolean): Mesh | undefined {
   node.metadata ||= {};
@@ -377,7 +378,7 @@ function setPlayerName(name: string) {
 }
 
 function targetPartyPlayer(playerId: string) {
-  if (!state?.players[playerId] || playerId === state.you) return;
+  if (!state?.players[playerId]) return;
   optimisticAllyTargetId = playerId;
   const me = state.players[state.you];
   if (me) {
@@ -385,7 +386,6 @@ function targetPartyPlayer(playerId: string) {
     me.targetId = null;
   }
   markSelectedPartyFrame(playerId);
-  text("target", `${state.players[playerId].name} ${Math.round(state.players[playerId].hp)}/${Math.round(state.players[playerId].maxHealth)}`);
   unlockAudio();
   playUiClickSound();
   send({ type: "select_target", targetId: playerId });
@@ -939,7 +939,8 @@ function renderUi() {
   text("level", `Level ${me.level}`);
   width("hp", me.hp / me.maxHealth);
   width("res", me.resource / me.maxResource);
-  width("xp", (me.xp % 100) / 100);
+  const xpToNextLevel = LEVEL_XP_THRESHOLDS[me.level - 1];
+  width("xp", xpToNextLevel ? me.xp / xpToNextLevel : 1);
   text("hpLabel", `HP ${Math.round(me.hp)}/${Math.round(me.maxHealth)}`);
   text("resLabel", `${resourceLabel(me.resourceType)} ${Math.round(me.resource)}/${Math.round(me.maxResource)}`);
   syncEffectGroups(document.querySelector<HTMLElement>("#selfEffects")!, me.activeEffects || [], "self");
@@ -1931,9 +1932,9 @@ function renderWorld() {
 let lastCoverHighlightAt = 0;
 const highlightedMeshes = new Set<Mesh>();
 
-function updateCoverHighlights() {
+function updateCoverHighlights(force = false) {
   const now = performance.now();
-  if (!state || now - lastCoverHighlightAt < 90) return;
+  if (!state || (!force && now - lastCoverHighlightAt < 90)) return;
   lastCoverHighlightAt = now;
   for (const mesh of highlightedMeshes) coverHighlight.removeMesh(mesh);
   highlightedMeshes.clear();
@@ -1942,8 +1943,8 @@ function updateCoverHighlights() {
     const actor = state.players[id] || state.enemies[id];
     if (!actor || ("spectator" in actor && actor.spectator) || !isBehindCover(node.position)) continue;
     const color = state.enemies[id] ? new Color3(1, 0.22, 0.12) : new Color3(0.18, 0.65, 1);
-    for (const mesh of node.getChildMeshes() as Mesh[]) {
-      if (!mesh.isVisible || mesh.name.endsWith("-ring") || mesh.name.includes("target-arrow")) continue;
+    for (const mesh of (node.metadata?.coverMeshes || []) as Mesh[]) {
+      if (mesh.isDisposed() || !mesh.isVisible) continue;
       coverHighlight.addMesh(mesh, color);
       highlightedMeshes.add(mesh);
     }
@@ -1966,6 +1967,8 @@ function isBehindCover(position: Vector3) {
     return Math.hypot(object.x - closestX, object.z - closestZ) < (object.radius || 1) * 0.9;
   });
 }
+(canvas as any).coverHighlight = coverHighlight;
+(canvas as any).updateCoverHighlights = updateCoverHighlights;
 
 function updateActiveShield(node: TransformNode, player: PlayerState) {
   const existing = cachedChild(node, "activeShield", (mesh) => mesh.name.endsWith("-active-shield"));
@@ -3317,6 +3320,7 @@ function createPlayer(p: PlayerState) {
     ring.position.y = 0.015;
     meshes.set(p.id, root);
     markEntityMeshes(root, p.id);
+    rememberCoverMeshes(root);
     return root;
   }
   const color = p.classId === "warrior" ? new Color3(0.7, 0.15, 0.1) : p.classId === "hunter" ? new Color3(0.1, 0.45, 0.18) : p.classId === "priest" ? new Color3(0.95, 0.9, 0.72) : p.classId === "rogue" ? new Color3(0.16, 0.12, 0.2) : p.classId === "druid" ? new Color3(0.22, 0.43, 0.18) : p.classId === "shaman" ? new Color3(0.16, 0.42, 0.6) : p.classId === "paladin" ? new Color3(0.72, 0.62, 0.38) : new Color3(0.15, 0.2, 0.85);
@@ -3331,6 +3335,7 @@ function createPlayer(p: PlayerState) {
   ring.position.y = 0.015;
   meshes.set(p.id, root);
   markEntityMeshes(root, p.id);
+  rememberCoverMeshes(root);
   return root;
 }
 
@@ -3597,7 +3602,16 @@ function createEnemy(e: EnemyState) {
   ring.position.y = 0.015;
   meshes.set(e.id, root);
   markEntityMeshes(root, e.id);
+  rememberCoverMeshes(root);
   return root;
+}
+
+function rememberCoverMeshes(root: TransformNode) {
+  root.metadata ||= {};
+  root.metadata.coverMeshes = (root.getChildMeshes() as Mesh[]).filter((mesh) => {
+    const alpha = (mesh.material as StandardMaterial | null)?.alpha ?? 1;
+    return alpha >= 0.95 && !/(?:ring|shadow|marker|aura|glow)$/.test(mesh.name);
+  });
 }
 
 function addEnemyIdentityDetails(root: TransformNode, e: EnemyState, size: number, color: Color3) {

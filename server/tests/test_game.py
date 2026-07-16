@@ -28,13 +28,37 @@ def test_generated_arena_only_contains_trees_and_rocks():
     assert all(item.get("blocksSight") for item in game.map_objects)
 
 
-def test_player_cannot_explicitly_target_self():
+def test_player_can_explicitly_target_self():
     async def run():
         game = Game()
         player = await game.add_player("Self Target")
         await game.handle_message(player.id, {"type": "select_target", "targetId": player.id})
-        assert player.ally_target_id is None
+        assert player.ally_target_id == player.id
         assert player.target_id is None
+
+    asyncio.run(run())
+
+
+def test_xp_at_threshold_levels_and_resets_the_bar():
+    async def run():
+        game = Game()
+        player = await game.add_player("Level Up")
+        await game.handle_message(player.id, {"type": "select_class", "classId": "mage"})
+        game._give_xp_locked(player, 100)
+        assert player.level == 2
+        assert player.xp == 0
+
+    asyncio.run(run())
+
+
+def test_xp_carries_over_across_multiple_levels():
+    async def run():
+        game = Game()
+        player = await game.add_player("Multi Level")
+        await game.handle_message(player.id, {"type": "select_class", "classId": "mage"})
+        game._give_xp_locked(player, 300)
+        assert player.level == 3
+        assert player.xp == 20
 
     asyncio.run(run())
 

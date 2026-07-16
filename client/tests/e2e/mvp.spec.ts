@@ -195,6 +195,8 @@ test("single player can start, move, target, level, and reach the boss wave", as
 
   await request.post("http://127.0.0.1:8000/debug/action", { data: { action: "give_xp", payload: { playerId, amount: 120 } } });
   await expect(page.getByTestId("level-up-panel")).toBeVisible();
+  await expect(page.getByTestId("player-level")).toContainText("Level 2");
+  await expect.poll(() => page.getByTestId("xp-bar").evaluate((bar) => parseFloat((bar as HTMLElement).style.width))).toBeCloseTo(20 / 180 * 100, 1);
   const beforeUpgrade = await (await request.get("http://127.0.0.1:8000/debug/state")).json();
   const chosenUpgradeText = await page.getByTestId("level-up-panel").getByRole("button").first().innerText();
   await page.getByTestId("level-up-panel").getByRole("button").first().click();
@@ -270,7 +272,15 @@ test("rogue can backstep and vanish from enemies", async ({ page, request }) => 
 
   const started = await (await request.get("http://127.0.0.1:8000/debug/state")).json();
   const playerId = Object.values<any>(started.players).find((p) => p.classId === "rogue").id;
-  const spawn = await (await request.post("http://127.0.0.1:8000/debug/action", { data: { action: "spawn_enemy", payload: { type: "brute", position: { x: 6, z: 0 } } } })).json();
+  const origin = started.players[playerId].position;
+  const candidates = [{ x: origin.x + 4, z: origin.z }, { x: origin.x - 4, z: origin.z }, { x: origin.x, z: origin.z + 4 }, { x: origin.x, z: origin.z - 4 }];
+  const clearPosition = candidates.find((candidate) => !started.mapObjects.some((object: any) => {
+    const dx = candidate.x - origin.x;
+    const dz = candidate.z - origin.z;
+    const t = Math.max(0, Math.min(1, ((object.x - origin.x) * dx + (object.z - origin.z) * dz) / (dx * dx + dz * dz)));
+    return object.blocksSight && Math.hypot(object.x - (origin.x + dx * t), object.z - (origin.z + dz * t)) < (object.radius || 1) + 0.3;
+  })) || candidates[0];
+  const spawn = await (await request.post("http://127.0.0.1:8000/debug/action", { data: { action: "spawn_enemy", payload: { type: "brute", position: clearPosition } } })).json();
   await request.post("http://127.0.0.1:8000/debug/action", { data: { action: "set_enemy_target", payload: { playerId, targetId: spawn.enemyId } } });
   await page.waitForTimeout(200);
 
@@ -361,7 +371,7 @@ test("arrow barrage keeps rendering with a reduced arrow count", async ({ page, 
 
   await barrageButton.click();
   await expect(page.locator("#target .targetSummary")).toContainText("Tap arena to place Arrow Barrage");
-  await page.getByTestId("arena").click({ position: { x: 520, y: 360 } });
+  await page.getByTestId("arena").click({ position: { x: 640, y: 360 } });
   await expect.poll(async () => (await (await request.get("http://127.0.0.1:8000/debug/state")).json()).groundEffects.length).toBeGreaterThan(0);
 
   const renderResult = await page.getByTestId("arena").evaluate(async (canvas: HTMLCanvasElement) => {
@@ -397,6 +407,33 @@ test("desktop stats panel stays expanded across live updates", async ({ page }) 
   await expect(content).toBeVisible();
 });
 
+test("cover highlighting outlines actors without including enemy view cones", async ({ page }) => {
+  await startMage(page);
+  await page.waitForTimeout(150);
+  const highlightState = await page.evaluate(async () => {
+    const canvas = document.querySelector<HTMLCanvasElement>("#renderCanvas") as any;
+    const scene = canvas.scene;
+    const player = scene.getTransformNodeByName(Object.keys((await (await fetch("http://127.0.0.1:8000/debug/state")).json()).players)[0]);
+    const tree = scene.transformNodes.find((node: any) => /^tree_\d+$/.test(node.name));
+    if (!player || !tree) return null;
+    const original = player.position.clone();
+    const camera = scene.activeCamera;
+    const dx = tree.position.x - camera.position.x;
+    const dz = tree.position.z - camera.position.z;
+    const distance = Math.hypot(dx, dz);
+    player.position.set(tree.position.x + dx / distance * 3, 0, tree.position.z + dz / distance * 3);
+    canvas.updateCoverHighlights(true);
+    const bodyMeshes = player.metadata.coverMeshes as any[];
+    const result = {
+      outlined: bodyMeshes.some((mesh) => canvas.coverHighlight.hasMesh(mesh)),
+      containsFov: bodyMeshes.some((mesh) => mesh.name.endsWith("-fov")),
+    };
+    player.position.copyFrom(original);
+    return result;
+  });
+  expect(highlightState).toEqual({ outlined: true, containsFov: false });
+});
+
 test("mobile actions work with a second pointer while joystick movement continues", async ({ page, request }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await startMage(page);
@@ -412,7 +449,8 @@ test("mobile actions work with a second pointer while joystick movement continue
   await page.locator(`[data-testid="party-frame"][data-id="${playerId}"]`).click();
   await page.waitForTimeout(120);
   const afterSelfTap = await (await request.get("http://127.0.0.1:8000/debug/state")).json();
-  expect(afterSelfTap.players[playerId].allyTargetId).toBeNull();
+  expect(afterSelfTap.players[playerId].allyTargetId).toBe(playerId);
+  await expect(page.getByTestId("target-frame")).toContainText(afterSelfTap.players[playerId].name);
 
   await page.evaluate(() => {
     const stick = document.querySelector<HTMLElement>("#moveStick")!;
