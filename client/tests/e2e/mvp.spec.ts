@@ -53,6 +53,22 @@ test("lobby canvas renders sharply at device pixel resolution", async ({ browser
       classInfoBackdrop: getComputedStyle(document.querySelector<HTMLElement>("#classPreviewInfo")!).backdropFilter,
     }));
     expect(filters).toEqual({ canvas: "none", lobbyBackdrop: "none", classInfoBackdrop: "none" });
+    await page.getByTestId("class-mage").click();
+    await expect(page.getByTestId("class-preview-info")).toContainText("Mage");
+    const lobbyScene = await page.getByTestId("arena").evaluate((canvas: HTMLCanvasElement) => {
+      const scene = (canvas as any).scene;
+      const pipeline = (canvas as any).lobbyPipeline;
+      const scenery = scene.getTransformNodeByName("lobby-scenery");
+      return {
+        treeCount: scenery.getChildren().filter((node: { name: string }) => /^lobby-tree-\d+$/.test(node.name)).length,
+        sceneryEnabled: scenery.isEnabled(),
+        blurEnabled: pipeline.depthOfFieldEnabled,
+        blurLevel: pipeline.depthOfFieldBlurLevel,
+        lensSize: pipeline.depthOfField.lensSize,
+        fStop: pipeline.depthOfField.fStop,
+      };
+    });
+    expect(lobbyScene).toEqual({ treeCount: 64, sceneryEnabled: true, blurEnabled: true, blurLevel: 2, lensSize: 120, fStop: 0.9 });
   } finally {
     await context.close();
   }

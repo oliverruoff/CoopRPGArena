@@ -163,12 +163,14 @@ camera.lowerBetaLimit = CAMERA_BETA;
 camera.upperBetaLimit = CAMERA_BETA;
 const lobbyPipeline = lowSpecMode ? null : new DefaultRenderingPipeline("lobby-background", true, scene, [camera]);
 if (lobbyPipeline) {
-  lobbyPipeline.depthOfFieldBlurLevel = DepthOfFieldEffectBlurLevel.Medium;
+  lobbyPipeline.depthOfFieldBlurLevel = DepthOfFieldEffectBlurLevel.High;
   lobbyPipeline.depthOfField.focusDistance = 17_200;
-  lobbyPipeline.depthOfField.focalLength = 95;
-  lobbyPipeline.depthOfField.fStop = 1.6;
+  lobbyPipeline.depthOfField.focalLength = 100;
+  lobbyPipeline.depthOfField.lensSize = 120;
+  lobbyPipeline.depthOfField.fStop = 0.9;
   lobbyPipeline.depthOfFieldEnabled = true;
 }
+(canvas as any).lobbyPipeline = lobbyPipeline;
 new HemisphericLight("light", new Vector3(0.3, 1, 0.2), scene).intensity = 0.5;
 const dirLight = new DirectionalLight("dirLight", new Vector3(-0.45, -1, -0.35), scene);
 dirLight.position = new Vector3(18, 32, 18);
@@ -204,6 +206,7 @@ arena.material = arenaMat;
 arena.position.y = -0.08;
 arena.receiveShadows = false;
 createGroundDressing();
+const lobbyScenery = createLobbyScenery();
 
 const configuredWsUrl = import.meta.env.VITE_WS_URL as string | undefined;
 const defaultWsUrl = `${window.location.protocol === "https:" ? "wss" : "ws"}://${window.location.hostname}:8000/ws`;
@@ -837,6 +840,7 @@ function renderUi() {
   document.querySelector<HTMLElement>("#hud")!.style.display = state.matchState === "lobby" ? "none" : "block";
   document.querySelector<HTMLElement>("#classPreviewInfo")!.style.display = state.matchState === "lobby" ? "block" : "none";
   if (lobbyPipeline) lobbyPipeline.depthOfFieldEnabled = state.matchState === "lobby" && Boolean(classPreview);
+  lobbyScenery.setEnabled(state.matchState === "lobby");
   if (wasLobby && state.matchState !== "lobby") {
     setLobbyStatsOpen(false);
     document.querySelector<HTMLElement>("#statTooltip")!.style.display = "none";
@@ -2486,6 +2490,34 @@ function createGroundDressing() {
   // Both batches are single static meshes, so the extra dressing costs only two draw calls.
   createGrassMesh("arena-field-grass", null, 48, lowSpecMode ? 36 : 78, palette.leafDark.scale(1.02), false);
   createGrassMesh("arena-edge-grass", null, 25.6, lowSpecMode ? 24 : 52, palette.leafDark.scale(1.08), true);
+}
+
+function createLobbyScenery() {
+  const root = new TransformNode("lobby-scenery", scene);
+  const treeCount = lowSpecMode ? 36 : 64;
+  for (let i = 0; i < treeCount; i++) {
+    const band = i % 3;
+    const angle = i * 2.399963229728653 + band * 0.31;
+    const radius = 8.5 + band * 5.4 + ((i * 17) % 7) * 0.52;
+    const tree = createMapObject({
+      id: `lobby-tree-${i}`,
+      type: "tree",
+      x: Math.cos(angle) * radius,
+      z: Math.sin(angle) * radius,
+      radius: 0.72 + ((i * 11) % 9) * 0.075,
+      rotation: angle * 0.63 + (i % 5) * 0.21,
+      variant: i % 8,
+    });
+    tree.parent = root;
+    tree.position.set(Math.cos(angle) * radius, 0, Math.sin(angle) * radius);
+    tree.getChildMeshes().forEach((mesh) => {
+      mesh.isPickable = false;
+      mesh.receiveShadows = false;
+      mesh.freezeWorldMatrix();
+      (mesh.material as StandardMaterial | null)?.freeze();
+    });
+  }
+  return root;
 }
 
 function addContactShadow(parent: TransformNode, name: string, diameter: number, alpha = 0.16, flatten = 1) {
