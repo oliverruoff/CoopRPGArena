@@ -18,6 +18,21 @@ test.beforeEach(async ({ request }) => {
   await request.post("http://127.0.0.1:8000/debug/action", { data: { action: "reset_match", payload: {} } });
 });
 
+test("lobby live stats update when blessings are chosen", async ({ page }) => {
+  await page.goto("/");
+  await page.getByTestId("class-mage").click();
+  await expect(page.getByTestId("lobby-stats-toggle")).toBeEnabled();
+  await page.getByTestId("lobby-stats-toggle").click();
+  const drawer = page.getByTestId("lobby-stats-drawer");
+  await expect(drawer).toBeVisible();
+  await expect(drawer).toContainText("Spell Power");
+  await expect(drawer).toContainText("0/3");
+  await page.getByTestId("lobby-upgrade-max_health").click();
+  await expect(drawer).toContainText("1/3");
+  await expect(drawer).toContainText("(+12%)");
+  await expect(drawer).toContainText("Max Health +12%");
+});
+
 test("lobby waits for every player to select a class and ready", async ({ browser }) => {
   const contextOne = await browser.newContext();
   const contextTwo = await browser.newContext();

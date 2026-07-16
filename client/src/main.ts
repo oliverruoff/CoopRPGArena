@@ -75,12 +75,17 @@ root.innerHTML = `
       <button id="resetLobbyUpgrades" data-testid="reset-lobby-upgrades">Reset choices</button>
     </section>
     <footer class="lobbyActions">
+      <button id="lobbyStatsToggle" class="lobbyStatsToggle" type="button" data-testid="lobby-stats-toggle" aria-expanded="false" aria-controls="lobbyStatsDrawer"><span>◆</span> Live Stats</button>
       <div class="readyProgress"><span id="readyStep">1 · Choose a class</span><div><i id="readyProgressFill"></i></div></div>
       <button id="ready" data-testid="ready-button"><span>Ready for battle</span><small id="readyRequirement">Choose a class first</small></button>
       <div id="countdown" data-testid="countdown"></div>
     </footer>
   </section>
   <div id="classPreviewInfo" data-testid="class-preview-info"></div>
+  <aside id="lobbyStatsDrawer" data-testid="lobby-stats-drawer" aria-label="Live character attributes">
+    <button id="closeLobbyStats" type="button" aria-label="Close live stats">×</button>
+    <div id="lobbyStatsContent"></div>
+  </aside>
   <div id="statTooltip" data-testid="stat-tooltip"></div>
   <section id="hud">
     <div id="party" data-testid="party"></div>
@@ -232,6 +237,7 @@ let hoverRangeRing: Mesh | null = null;
 let localPlayerName: string | null = null;
 let optimisticAllyTargetId: string | null = null;
 let lastClassPreviewInfoSignature = "";
+let lobbyStatsOpen = false;
 let castBarVisualProgress = 0;
 let autoAttackVisualProgress = 0;
 let pendingGroundAbilitySlot: number | null = null;
@@ -512,6 +518,20 @@ document.querySelector<HTMLButtonElement>("#resetLobbyUpgrades")!.addEventListen
   unlockAudio();
   playUiClickSound();
   send({ type: "reset_lobby_upgrades" });
+});
+function setLobbyStatsOpen(open: boolean) {
+  lobbyStatsOpen = open && Boolean(selectedClassId || (state && state.players[state.you]?.classId));
+  document.body.classList.toggle("lobbyStatsOpen", lobbyStatsOpen);
+  document.querySelector<HTMLButtonElement>("#lobbyStatsToggle")!.setAttribute("aria-expanded", lobbyStatsOpen ? "true" : "false");
+}
+document.querySelector<HTMLButtonElement>("#lobbyStatsToggle")!.addEventListener("click", () => {
+  unlockAudio();
+  playUiClickSound();
+  setLobbyStatsOpen(!lobbyStatsOpen);
+});
+document.querySelector<HTMLButtonElement>("#closeLobbyStats")!.addEventListener("click", () => setLobbyStatsOpen(false));
+window.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && lobbyStatsOpen) setLobbyStatsOpen(false);
 });
 document.querySelectorAll<HTMLButtonElement>("[data-slot]").forEach((button) => {
   button.setAttribute("draggable", "true");
@@ -807,6 +827,7 @@ function renderUi() {
   document.querySelector<HTMLElement>("#hud")!.style.display = state.matchState === "lobby" ? "none" : "block";
   document.querySelector<HTMLElement>("#classPreviewInfo")!.style.display = state.matchState === "lobby" ? "block" : "none";
   if (wasLobby && state.matchState !== "lobby") {
+    setLobbyStatsOpen(false);
     document.querySelector<HTMLElement>("#statTooltip")!.style.display = "none";
     hideStatTooltip();
   }
@@ -833,6 +854,7 @@ function renderUi() {
   const lobbyUpgradePoints = (me?.lobbyUpgradePoints ?? 0);
   const hasClass = Boolean(me?.classId);
   readyButton.disabled = isSpectator || !hasClass || lobbyUpgradePoints > 0;
+  document.querySelector<HTMLButtonElement>("#lobbyStatsToggle")!.disabled = isSpectator || !hasClass;
   document.body.style.setProperty("--selected-class-color", hasClass && me?.classId ? classPresentation[me.classId]?.color || "#d6b66b" : "#d6b66b");
   text("readyStep", !hasClass ? "1 · Choose a class" : lobbyUpgradePoints > 0 ? `2 · Choose ${lobbyUpgradePoints} blessing${lobbyUpgradePoints === 1 ? "" : "s"}` : "3 · Your hero is ready");
   text("readyRequirement", !hasClass ? "Choose a class first" : lobbyUpgradePoints > 0 ? `${lobbyUpgradePoints} upgrade${lobbyUpgradePoints === 1 ? "" : "s"} remaining` : "Join your party");
@@ -1634,10 +1656,24 @@ function renderClassPreviewInfo(classId: string) {
   const profileLabels = ["Toughness", "Damage", "Support", "Mobility"];
   const profile = presentation.profile.map((value, index) => `<div class="powerRow"><span>${profileLabels[index]}</span><i><b style="width:${value}%"></b></i><strong>${powerLabel(value)}</strong></div>`).join("");
   document.querySelector("#classPreviewInfo")!.innerHTML = `<div class="classInfoHeader"><span class="classRole">${presentation.role}</span><span class="classFantasy">${presentation.fantasy}</span><h2>${name}</h2><p>${description}</p></div><div class="classPowerProfile"><div class="detailSectionTitle"><h3>Combat profile</h3><span>Level 1</span></div>${profile}</div><details class="statDetails"><summary>Detailed attributes</summary><div class="classStats">${statRows}</div></details>${abilitiesHtml}`;
+  renderLobbyStatsDrawer(classId, name, statRows);
   const title = document.querySelector<HTMLElement>("#heroTitle")!;
   title.innerHTML = `<span class="heroKicker">${presentation.role}</span><h2>${name}</h2><p>${presentation.fantasy}</p>`;
   title.classList.remove("heroTitleEnter");
   requestAnimationFrame(() => title.classList.add("heroTitleEnter"));
+}
+
+function renderLobbyStatsDrawer(classId: string, name?: string, statRows?: string) {
+  const me = state?.players[state.you];
+  const className = name || state?.classes[classId]?.name || classInfo[classId]?.name || classId;
+  const rows = statRows ?? renderClassStatRows(classId);
+  const pointsLeft = me?.classId === classId ? me.lobbyUpgradePoints ?? 3 : 3;
+  const spent = Math.max(0, 3 - pointsLeft);
+  const blessings = me?.classId === classId ? me.lobbyUpgrades || [] : [];
+  const blessingChips = blessings.length
+    ? blessings.map((upgrade) => `<span>${escapeHtml(upgrade.name)}</span>`).join("")
+    : `<em>No blessings chosen yet</em>`;
+  document.querySelector<HTMLElement>("#lobbyStatsContent")!.innerHTML = `<div class="liveStatsHeader"><span class="panelEyebrow">Live character sheet</span><h2>${escapeHtml(className)}</h2><p>Values update instantly as you choose blessings.</p></div><div class="liveStatsProgress"><span>Build progress</span><b>${spent}/3</b><i><strong style="width:${spent / 3 * 100}%"></strong></i></div><div class="liveStatGrid classStats">${rows}</div><div class="liveBlessings"><h3>Active blessings</h3><div>${blessingChips}</div></div>`;
 }
 
 function powerLabel(value: number) {
