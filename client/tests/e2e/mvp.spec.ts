@@ -161,7 +161,8 @@ test("single player can start, move, target, level, and reach the boss wave", as
   await startMage(page);
   await expect(page.getByTestId("hp-label")).toContainText("HP");
   await expect(page.getByTestId("resource-label")).toContainText("Mana");
-  await expect(page.getByTestId("xp-label")).toContainText("EXP");
+  await expect(page.getByTestId("xp-bar")).toBeAttached();
+  await expect(page.getByTestId("auto-attack-bar")).toBeAttached();
   await expect(page.getByTestId("stats-panel")).toContainText("Spell Power");
   const before = await (await request.get("http://127.0.0.1:8000/debug/state")).json();
   await page.evaluate(() => window.dispatchEvent(new KeyboardEvent("keydown", { code: "KeyW" })));
@@ -402,6 +403,17 @@ test("mobile actions work with a second pointer while joystick movement continue
   const initial = await (await request.get("http://127.0.0.1:8000/debug/state")).json();
   const playerId = Object.values<any>(initial.players).find((player) => player.classId === "mage").id;
 
+  const compactBars = await page.evaluate(() => ({
+    xp: document.querySelector<HTMLElement>(".bar.xp")!.getBoundingClientRect().height,
+    swing: document.querySelector<HTMLElement>(".bar.swing")!.getBoundingClientRect().height,
+    labels: document.querySelectorAll("#xpLabel, #swingLabel").length,
+  }));
+  expect(compactBars).toEqual({ xp: 5, swing: 5, labels: 0 });
+  await page.locator(`[data-testid="party-frame"][data-id="${playerId}"]`).click();
+  await page.waitForTimeout(120);
+  const afterSelfTap = await (await request.get("http://127.0.0.1:8000/debug/state")).json();
+  expect(afterSelfTap.players[playerId].allyTargetId).toBeNull();
+
   await page.evaluate(() => {
     const stick = document.querySelector<HTMLElement>("#moveStick")!;
     const rect = stick.getBoundingClientRect();
@@ -519,10 +531,10 @@ test("low quality mode renders map objects", async ({ page }) => {
   await page.getByTestId("ready-button").click();
   await expect(page.getByTestId("wave-counter")).toContainText("Wave 1", { timeout: 14000 });
   await page.waitForTimeout(500);
-  const wallMeshes = await page.evaluate(() => {
+  const sceneryMeshes = await page.evaluate(() => {
     const canvas = document.querySelector("canvas") as any;
     const scene = canvas?.scene;
-    return scene ? scene.meshes.filter((m: any) => m.name?.toLowerCase().includes("wall")).length : 0;
+    return scene ? scene.meshes.filter((m: any) => /tree|rock/.test(m.name?.toLowerCase())).length : 0;
   });
-  expect(wallMeshes).toBeGreaterThan(0);
+  expect(sceneryMeshes).toBeGreaterThan(0);
 });

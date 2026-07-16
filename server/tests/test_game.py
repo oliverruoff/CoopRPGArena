@@ -20,6 +20,25 @@ def test_trees_and_tubes_block_line_of_sight():
     assert not game._line_of_sight_blocked_locked(0, 4, 4, 4)
 
 
+def test_generated_arena_only_contains_trees_and_rocks():
+    game = Game()
+    game._generate_map_locked()
+    assert game.map_objects
+    assert {item["type"] for item in game.map_objects} == {"tree", "rock"}
+    assert all(item.get("blocksSight") for item in game.map_objects)
+
+
+def test_player_cannot_explicitly_target_self():
+    async def run():
+        game = Game()
+        player = await game.add_player("Self Target")
+        await game.handle_message(player.id, {"type": "select_target", "targetId": player.id})
+        assert player.ally_target_id is None
+        assert player.target_id is None
+
+    asyncio.run(run())
+
+
 def test_every_class_starts_with_exactly_one_ability():
     game = Game()
     assert all(len(class_data["startingAbilities"]) == 1 for class_data in game.classes.values())

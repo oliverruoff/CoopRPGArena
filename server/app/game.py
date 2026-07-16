@@ -258,7 +258,7 @@ class Game:
                 if target_id in self.enemies:
                     player.target_id = target_id
                     player.ally_target_id = None
-                if target_id in self.players:
+                if target_id in self.players and target_id != player.id:
                     player.ally_target_id = target_id
                     player.target_id = None
             elif typ == "cycle_target" and self._is_present_locked(player):
@@ -412,57 +412,20 @@ class Game:
                     extra["variant"] = variant
                 add(type_name, spot[0], spot[1], **extra)
 
-        # Slim ruined stone barriers: readable cover without dominating the arena.
-        wall_count = random.randint(2, 4)
-        for _ in range(wall_count):
-            spot = place_spot(4.5, arena - 2.0, 2.8)
-            if not spot:
-                continue
-            width = round(random.uniform(3.8, 6.8), 2)
-            depth = round(random.uniform(1.15, 1.55), 2)
-            if random.random() > 0.5:
-                width, depth = depth, width
-            add("wall", spot[0], spot[1], width=width, depth=depth, radius=max(width, depth) * 0.7, blocksSight=True)
-
-        # Trees with variants
-        tree_count = random.randint(12, 18)
+        # A sparse forest of varied trees and stones keeps the arena readable.
+        tree_count = random.randint(18, 24)
         for _ in range(tree_count):
             spot = place_spot(2.5, arena, 1.0)
             if not spot:
                 continue
             add("tree", spot[0], spot[1], radius=round(random.uniform(0.85, 1.45), 2), variant=random.randint(0, 7), blocksSight=True)
 
-        # Tubes provide compact sight blockers without adding more wall-like barriers.
-        tube_count = random.randint(4, 7)
-        for _ in range(tube_count):
-            spot = place_spot(3.0, arena - 0.5, 0.95)
-            if not spot:
-                continue
-            add("tube", spot[0], spot[1], radius=round(random.uniform(0.65, 1.1), 2), variant=random.randint(0, 2), blocksSight=True)
-
-        # Bushes
-        bush_count = random.randint(8, 14)
-        for _ in range(bush_count):
-            spot = place_spot(2.0, arena, 0.75)
-            if not spot:
-                continue
-            add("bush", spot[0], spot[1], radius=round(random.uniform(0.55, 1.05), 2), variant=random.randint(0, 2))
-
-        # Rocks
-        rock_count = random.randint(4, 8)
+        rock_count = random.randint(10, 15)
         for _ in range(rock_count):
             spot = place_spot(2.0, arena, 0.8)
             if not spot:
                 continue
-            add("rock", spot[0], spot[1], radius=round(random.uniform(0.55, 1.05), 2), variant=random.randint(0, 2))
-
-        # Ruins (fewer, more sparse)
-        ruin_count = random.randint(2, 4)
-        for _ in range(ruin_count):
-            spot = place_spot(3.0, arena - 1.0, 1.6)
-            if not spot:
-                continue
-            add("ruin", spot[0], spot[1], radius=round(random.uniform(1.3, 2.0), 2), variant=random.randint(0, 2), rotation=round(random.random() * math.pi, 2))
+            add("rock", spot[0], spot[1], radius=round(random.uniform(0.55, 1.2), 2), variant=random.randint(0, 2), blocksSight=True)
 
     def _start_match_locked(self) -> None:
         active = [p for p in self.players.values() if self._is_present_locked(p)]

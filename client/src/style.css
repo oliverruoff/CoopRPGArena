@@ -120,6 +120,7 @@ button:disabled:hover { filter: grayscale(0.35); }
 #res { background: linear-gradient(180deg, #68b6ff, #2563eb); box-shadow: inset 0 2px rgba(255,255,255,0.3), 0 0 10px rgba(59,130,246,0.3); }
 #xp { background: linear-gradient(180deg, #f9d65c, #b88310); box-shadow: inset 0 2px rgba(255,255,255,0.3); }
 #swing { background: linear-gradient(90deg, #64748b, #f8fafc); }
+.bar.xp, .bar.swing { height: 4px; border-radius: 999px; overflow: hidden; box-shadow: 0 2px 7px rgba(0,0,0,.24); }
 #action { position: absolute; bottom: 24px; left: 50%; width: min(1030px, calc(100vw - 24px)); transform: translateX(-50%); display: flex; justify-content: center; gap: 8px; pointer-events: auto; }
 #action button { position: relative; min-width: 76px; height: 58px; background: linear-gradient(145deg, rgba(42,52,75,0.97), rgba(12,17,29,0.97)); border: 1px solid rgba(147,197,253,0.24); box-shadow: inset 0 1px rgba(255,255,255,0.13), 0 7px 20px rgba(0,0,0,0.34); overflow: hidden; cursor: grab; text-shadow: 0 1px 3px #000; }
 .abilityKey { display: block; color: #fde68a; font-size: 11px; line-height: 1; }
@@ -263,6 +264,7 @@ body[data-mode="defeat"] #end { color: #a32020; }
   #bars { bottom: calc(222px + env(safe-area-inset-bottom)); width: calc(100vw - 24px); gap: 3px; }
   #bars #level { font-size: 11px; text-align: center; color: white; text-shadow: 0 1px 3px #000; }
   .bar { height: 14px; }
+  .bar.xp, .bar.swing { height: 3px; }
   .bar b { font-size: 9px; }
   #action {
     bottom: calc(108px + env(safe-area-inset-bottom));

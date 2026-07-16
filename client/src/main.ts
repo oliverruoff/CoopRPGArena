@@ -1,4 +1,4 @@
-import { ArcRotateCamera, Color3, Color4, DefaultRenderingPipeline, DepthOfFieldEffectBlurLevel, DirectionalLight, Engine, HemisphericLight, Matrix, Mesh, MeshBuilder, PointerEventTypes, Scene, StandardMaterial, TransformNode, Vector3, VertexData } from "@babylonjs/core";
+import { ArcRotateCamera, Color3, Color4, DefaultRenderingPipeline, DepthOfFieldEffectBlurLevel, DirectionalLight, Engine, HemisphericLight, HighlightLayer, Matrix, Mesh, MeshBuilder, PointerEventTypes, Scene, StandardMaterial, TransformNode, Vector3, VertexData } from "@babylonjs/core";
 import "./style.css";
 
 type Vec = { x: number; z: number };
@@ -97,8 +97,8 @@ root.innerHTML = `
       <div data-testid="player-level" id="level">Level 1</div>
       <div class="bar"><span id="hp" data-testid="player-health-bar"></span><b id="hpLabel" data-testid="hp-label">HP</b></div>
       <div class="bar resource"><span id="res" data-testid="player-resource-bar"></span><b id="resLabel" data-testid="resource-label">Resource</b></div>
-      <div class="bar xp"><span id="xp" data-testid="xp-bar"></span><b id="xpLabel" data-testid="xp-label">EXP</b></div>
-      <div class="bar swing"><span id="swing" data-testid="auto-attack-bar"></span><b id="swingLabel" data-testid="auto-attack-label">Auto</b></div>
+      <div class="bar xp" aria-label="Experience"><span id="xp" data-testid="xp-bar"></span></div>
+      <div class="bar swing" aria-label="Auto attack timer"><span id="swing" data-testid="auto-attack-bar"></span></div>
     </div>
     <aside id="statsPanel" data-testid="stats-panel">
       <button id="statsToggle" type="button" aria-expanded="false" aria-controls="statsContent"><span>Stats</span><b>‹</b></button>
@@ -151,6 +151,7 @@ const scene = new Scene(engine);
 (canvas as any).engine = engine;
 (canvas as any).scene = scene;
 scene.clearColor = new Color4(0.13, 0.16, 0.17, 1);
+const coverHighlight = new HighlightLayer("cover-highlight", scene, { blurHorizontalSize: 0.8, blurVerticalSize: 0.8 });
 const CAMERA_ALPHA = -Math.PI / 2;
 const CAMERA_BETA = 0.9;
 const DESKTOP_CAMERA_RADIUS = 42;
@@ -376,7 +377,7 @@ function setPlayerName(name: string) {
 }
 
 function targetPartyPlayer(playerId: string) {
-  if (!state?.players[playerId]) return;
+  if (!state?.players[playerId] || playerId === state.you) return;
   optimisticAllyTargetId = playerId;
   const me = state.players[state.you];
   if (me) {
@@ -941,7 +942,6 @@ function renderUi() {
   width("xp", (me.xp % 100) / 100);
   text("hpLabel", `HP ${Math.round(me.hp)}/${Math.round(me.maxHealth)}`);
   text("resLabel", `${resourceLabel(me.resourceType)} ${Math.round(me.resource)}/${Math.round(me.maxResource)}`);
-  text("xpLabel", `EXP ${me.xp}`);
   syncEffectGroups(document.querySelector<HTMLElement>("#selfEffects")!, me.activeEffects || [], "self");
   renderStatsPanel(me);
   const nextWaveIn = state.wave.nextWaveIn;
@@ -1834,12 +1834,10 @@ function updateCastBar() {
 
 function updateAutoAttackBar() {
   const fill = document.querySelector<HTMLElement>("#swing")!;
-  const label = document.querySelector<HTMLElement>("#swingLabel")!;
   const me = state?.players[state.you];
   const canAuto = Boolean(me?.classId);
   if (!me || !canAuto) {
     fill.style.width = "0%";
-    label.textContent = "No auto attack";
     autoAttackVisualProgress = 0;
     return;
   }
@@ -1849,7 +1847,6 @@ function updateAutoAttackBar() {
   const progress = Math.max(0, Math.min(1, 1 - remaining / interval));
   autoAttackVisualProgress = progress < autoAttackVisualProgress - 0.2 ? progress : Math.max(autoAttackVisualProgress, progress);
   fill.style.width = `${autoAttackVisualProgress * 100}%`;
-  label.textContent = remaining > 0 ? `Auto ${remaining.toFixed(1)}s` : "Auto ready";
 }
 
 function renderWorld() {
@@ -1928,6 +1925,46 @@ function renderWorld() {
     updateSelectionRing(node, meTargetKind(e.id));
     updateEnemyFov(node, e);
   }
+  updateCoverHighlights();
+}
+
+let lastCoverHighlightAt = 0;
+const highlightedMeshes = new Set<Mesh>();
+
+function updateCoverHighlights() {
+  const now = performance.now();
+  if (!state || now - lastCoverHighlightAt < 90) return;
+  lastCoverHighlightAt = now;
+  for (const mesh of highlightedMeshes) coverHighlight.removeMesh(mesh);
+  highlightedMeshes.clear();
+  if (state.matchState !== "running") return;
+  for (const [id, node] of meshes) {
+    const actor = state.players[id] || state.enemies[id];
+    if (!actor || ("spectator" in actor && actor.spectator) || !isBehindCover(node.position)) continue;
+    const color = state.enemies[id] ? new Color3(1, 0.22, 0.12) : new Color3(0.18, 0.65, 1);
+    for (const mesh of node.getChildMeshes() as Mesh[]) {
+      if (!mesh.isVisible || mesh.name.endsWith("-ring") || mesh.name.includes("target-arrow")) continue;
+      coverHighlight.addMesh(mesh, color);
+      highlightedMeshes.add(mesh);
+    }
+  }
+}
+
+function isBehindCover(position: Vector3) {
+  const ax = camera.position.x;
+  const az = camera.position.z;
+  const dx = position.x - ax;
+  const dz = position.z - az;
+  const lengthSq = dx * dx + dz * dz;
+  if (lengthSq < 0.01) return false;
+  return (state?.mapObjects || []).some((object) => {
+    if (object.type !== "tree" && object.type !== "rock") return false;
+    const t = ((object.x - ax) * dx + (object.z - az) * dz) / lengthSq;
+    if (t <= 0.08 || t >= 0.96) return false;
+    const closestX = ax + dx * t;
+    const closestZ = az + dz * t;
+    return Math.hypot(object.x - closestX, object.z - closestZ) < (object.radius || 1) * 0.9;
+  });
 }
 
 function updateActiveShield(node: TransformNode, player: PlayerState) {
@@ -2730,10 +2767,6 @@ function createMapObject(object: MapObject) {
     trunk.position.y = trunkHeight / 2;
     trunk.rotation.z = (variant % 3 - 1) * 0.045;
     trunk.material = mat(`${object.id}-trunk-mat`, variant === 7 ? palette.stoneLight.scale(1.08) : palette.bark.scale(0.84 + (variant % 4) * 0.06));
-    const rootA = box(`${object.id}-root-a`, { width: 1.0, height: 0.16, depth: 0.18 }, palette.bark.scale(0.8));
-    rootA.parent = root; rootA.position.set(0.28, 0.1, 0.24); rootA.rotation.y = 0.55;
-    const rootB = box(`${object.id}-root-b`, { width: 0.82, height: 0.14, depth: 0.16 }, palette.bark.scale(0.72));
-    rootB.parent = root; rootB.position.set(-0.26, 0.09, -0.18); rootB.rotation.y = -0.85;
     const crownColor = variant === 2 || variant === 5
       ? palette.leafDark
       : variant === 3 ? palette.leafGold.scale(0.9)
@@ -2816,11 +2849,16 @@ function createMapObject(object: MapObject) {
     addPropGrass(root, object, 2.5, 10);
   } else if (object.type === "rock") {
     const radius = object.radius || 0.8;
+    const variant = (object.variant || 0) % 3;
     addContactShadow(root, `${object.id}-shadow`, radius * 1.85, 0.15);
     const main = MeshBuilder.CreateSphere(`${object.id}-rock-main`, { diameter: radius * 1.45, segments: 6 }, scene);
-    main.parent = root; main.position.y = radius * 0.46; main.scaling.set(1.18, 0.62, 0.86); main.material = mat(`${object.id}-rock-main-mat`, palette.stone);
+    main.parent = root; main.position.y = radius * (variant === 1 ? 0.58 : 0.46);
+    main.scaling.set(variant === 2 ? 0.86 : 1.18, variant === 1 ? 0.9 : 0.62, variant === 2 ? 1.24 : 0.86);
+    main.rotation.y = variant * 0.48;
+    main.material = mat(`${object.id}-rock-main-mat`, palette.stone.scale(0.88 + variant * 0.08));
     const chip = MeshBuilder.CreateSphere(`${object.id}-rock-chip`, { diameter: radius * 0.8, segments: 5 }, scene);
-    chip.parent = root; chip.position.set(radius * 0.42, radius * 0.36, -radius * 0.16); chip.scaling.set(0.82, 0.48, 0.7); chip.material = mat(`${object.id}-rock-chip-mat`, palette.stoneLight.scale(0.9));
+    chip.parent = root; chip.position.set(radius * (variant === 2 ? -0.42 : 0.42), radius * 0.36, -radius * 0.16);
+    chip.scaling.set(0.82, variant === 1 ? 0.7 : 0.48, 0.7); chip.material = mat(`${object.id}-rock-chip-mat`, palette.stoneLight.scale(0.86 + variant * 0.06));
     addPropGrass(root, object, radius * 1.5, 5);
   } else if (object.type === "ruin") {
     const radius = object.radius || 1.5;
