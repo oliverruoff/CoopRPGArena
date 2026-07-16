@@ -3046,6 +3046,39 @@ function animateWorld() {
     const catTailTip = cachedChild(node, "catTailTip", (mesh) => mesh.name.endsWith("-cat-tail-tip"));
     if (catTailBase) catTailBase.rotation.z = -0.28 + Math.sin(t * 3.2 + id.length) * 0.18;
     if (catTailTip) catTailTip.rotation.z = -0.38 + Math.sin(t * 3.2 + id.length + 0.65) * 0.26;
+    const quadrupedRig = node.metadata?.quadrupedRig as {
+      form: "bear" | "cat";
+      front: TransformNode[];
+      back: TransformNode[];
+      paws: TransformNode[];
+      chest?: TransformNode;
+      rump?: TransformNode;
+    } | undefined;
+    if (quadrupedRig) {
+      const stride = quadrupedRig.form === "cat" ? 0.72 : 0.54;
+      const lift = quadrupedRig.form === "cat" ? 0.16 : 0.1;
+      const crouch = quadrupedRig.form === "cat" ? 0.07 : 0.035;
+      quadrupedRig.front.forEach((leg, index) => {
+        const step = Math.sin(gaitPhase + (index === 0 ? 0 : Math.PI));
+        leg.rotation.x = lerpValue(leg.rotation.x, step * stride * moveBlend, poseBlend);
+        leg.rotation.z = lerpValue(leg.rotation.z, (index === 0 ? -1 : 1) * 0.035, poseBlend);
+      });
+      quadrupedRig.back.forEach((leg, index) => {
+        const step = Math.sin(gaitPhase + (index === 0 ? Math.PI : 0));
+        leg.rotation.x = lerpValue(leg.rotation.x, step * stride * 0.92 * moveBlend, poseBlend);
+        leg.rotation.z = lerpValue(leg.rotation.z, (index === 0 ? -1 : 1) * 0.055, poseBlend);
+      });
+      quadrupedRig.paws.forEach((paw, index) => {
+        const diagonalOffset = index === 1 || index === 2 ? Math.PI : 0;
+        const step = Math.sin(gaitPhase + diagonalOffset);
+        paw.rotation.x = lerpValue(paw.rotation.x, Math.max(0, step) * -0.38 * moveBlend, poseBlend);
+        paw.position.y = lerpValue(paw.position.y, lift * Math.max(0, step) * moveBlend, poseBlend);
+      });
+      if (quadrupedRig.chest) quadrupedRig.chest.rotation.x = lerpValue(quadrupedRig.chest.rotation.x, -gait * crouch * moveBlend, poseBlend);
+      if (quadrupedRig.rump) quadrupedRig.rump.rotation.x = lerpValue(quadrupedRig.rump.rotation.x, gait * crouch * moveBlend, poseBlend);
+      if (catTailBase) catTailBase.rotation.x = -1.02 - gait * 0.09 * moveBlend;
+      if (catTailTip) catTailTip.rotation.x = -0.58 + gait * 0.13 * moveBlend;
+    }
     if (leftArm && rightArm) {
       let leftX = gait * 0.55 * moveBlend - 0.06 * (1 - moveBlend);
       let rightX = -gait * 0.55 * moveBlend - 0.06 * (1 - moveBlend);
@@ -3264,6 +3297,7 @@ function createPlayer(p: PlayerState) {
 }
 
 function createDruidFormModel(root: TransformNode, id: string, form: string) {
+  const rig = { form: (form === "bear" ? "bear" : "cat") as "bear" | "cat", front: [] as TransformNode[], back: [] as TransformNode[], paws: [] as TransformNode[], chest: undefined as TransformNode | undefined, rump: undefined as TransformNode | undefined };
   const sphere = (name: string, diameter: number, material: StandardMaterial, x: number, y: number, z: number, sx = 1, sy = 1, sz = 1) => {
     const mesh = MeshBuilder.CreateSphere(name, { diameter, segments: 6 }, scene);
     mesh.parent = root;
@@ -3272,12 +3306,26 @@ function createDruidFormModel(root: TransformNode, id: string, form: string) {
     mesh.material = material;
     return mesh;
   };
-  const limb = (name: string, height: number, diameter: number, material: StandardMaterial, x: number, y: number, z: number) => {
+  const limb = (name: string, height: number, diameter: number, material: StandardMaterial, x: number, y: number, z: number, group: "front" | "back") => {
+    const pivot = new TransformNode(`${name}-pivot`, scene);
+    pivot.parent = root;
+    pivot.position.set(x, y + height * 0.5, z);
     const mesh = MeshBuilder.CreateCylinder(name, { height, diameterTop: diameter * 0.82, diameterBottom: diameter, tessellation: 6 }, scene);
-    mesh.parent = root;
-    mesh.position.set(x, y, z);
+    mesh.parent = pivot;
+    mesh.position.y = -height * 0.5;
     mesh.material = material;
-    return mesh;
+    rig[group].push(pivot);
+    return pivot;
+  };
+  const paw = (name: string, diameter: number, material: StandardMaterial, sx: number, sy: number, sz: number, leg: TransformNode) => {
+    const pivot = new TransformNode(`${name}-pivot`, scene);
+    pivot.parent = leg;
+    const legHeight = Math.abs((leg.getChildMeshes()[0]?.position.y || -0.25) * 2);
+    pivot.position.set(0, -legHeight, 0.07);
+    const mesh = sphere(name, diameter, material, 0, 0, 0.08, sx, sy, sz);
+    mesh.parent = pivot;
+    rig.paws.push(pivot);
+    return pivot;
   };
   if (form === "bear") {
     addContactShadow(root, `${id}-bear-contact-shadow`, 2.15, 0.26, 0.8);
@@ -3287,8 +3335,8 @@ function createDruidFormModel(root: TransformNode, id: string, form: string) {
     const blackMat = mat(`${id}-bear-black-mat`, new Color3(0.035, 0.025, 0.02));
     const body = sphere(`${id}-bear-body`, 1.25, furMat, 0, 0.72, -0.08, 1.08, 0.78, 1.25);
     body.metadata = { baseY: body.position.y };
-    sphere(`${id}-bear-shoulders`, 1.05, darkFurMat, 0, 0.9, 0.32, 1.14, 0.88, 0.92);
-    sphere(`${id}-bear-rump`, 1.02, furMat, 0, 0.73, -0.62, 1.05, 0.84, 0.9);
+    rig.chest = sphere(`${id}-bear-shoulders`, 1.05, darkFurMat, 0, 0.9, 0.32, 1.14, 0.88, 0.92);
+    rig.rump = sphere(`${id}-bear-rump`, 1.02, furMat, 0, 0.73, -0.62, 1.05, 0.84, 0.9);
     const head = sphere(`${id}-bear-head`, 0.76, furMat, 0, 1.08, 0.72, 1.04, 0.92, 1.0);
     head.metadata = { baseY: head.position.y };
     sphere(`${id}-bear-muzzle`, 0.48, muzzleMat, 0, 0.96, 1.03, 1.0, 0.65, 0.78);
@@ -3296,10 +3344,10 @@ function createDruidFormModel(root: TransformNode, id: string, form: string) {
     for (const side of [-1, 1]) {
       sphere(`${id}-bear-ear-${side}`, 0.27, darkFurMat, side * 0.29, 1.39, 0.66, 0.86, 1, 0.5);
       sphere(`${id}-bear-eye-${side}`, 0.09, blackMat, side * 0.21, 1.14, 1.06, 0.8, 1, 0.55);
-      limb(`${id}-bear-front-leg-${side}`, 0.62, 0.3, darkFurMat, side * 0.43, 0.34, 0.43);
-      limb(`${id}-bear-back-leg-${side}`, 0.58, 0.34, furMat, side * 0.46, 0.32, -0.55);
-      sphere(`${id}-bear-front-paw-${side}`, 0.36, darkFurMat, side * 0.43, 0.09, 0.52, 1.05, 0.55, 1.28);
-      sphere(`${id}-bear-back-paw-${side}`, 0.38, darkFurMat, side * 0.46, 0.09, -0.46, 1.08, 0.55, 1.18);
+      const frontLeg = limb(`${id}-bear-front-leg-${side}`, 0.62, 0.3, darkFurMat, side * 0.43, 0.34, 0.43, "front");
+      const backLeg = limb(`${id}-bear-back-leg-${side}`, 0.58, 0.34, furMat, side * 0.46, 0.32, -0.55, "back");
+      paw(`${id}-bear-front-paw-${side}`, 0.36, darkFurMat, 1.05, 0.55, 1.28, frontLeg);
+      paw(`${id}-bear-back-paw-${side}`, 0.38, darkFurMat, 1.08, 0.55, 1.18, backLeg);
     }
   } else {
     addContactShadow(root, `${id}-cat-contact-shadow`, 1.62, 0.21, 0.72);
@@ -3310,8 +3358,8 @@ function createDruidFormModel(root: TransformNode, id: string, form: string) {
     eyeMat.emissiveColor = new Color3(0.18, 0.48, 0.025);
     const body = sphere(`${id}-cat-body`, 0.92, furMat, 0, 0.56, -0.06, 0.9, 0.58, 1.38);
     body.metadata = { baseY: body.position.y };
-    sphere(`${id}-cat-chest`, 0.68, highlightMat, 0, 0.67, 0.43, 0.9, 0.92, 0.86);
-    sphere(`${id}-cat-haunches`, 0.72, furMat, 0, 0.58, -0.57, 1.08, 0.9, 0.88);
+    rig.chest = sphere(`${id}-cat-chest`, 0.68, highlightMat, 0, 0.67, 0.43, 0.9, 0.92, 0.86);
+    rig.rump = sphere(`${id}-cat-haunches`, 0.72, furMat, 0, 0.58, -0.57, 1.08, 0.9, 0.88);
     const head = sphere(`${id}-cat-head`, 0.55, furMat, 0, 0.86, 0.72, 1.04, 0.9, 1.02);
     head.metadata = { baseY: head.position.y };
     sphere(`${id}-cat-muzzle`, 0.3, highlightMat, 0, 0.78, 0.98, 1.02, 0.62, 0.7);
@@ -3324,12 +3372,13 @@ function createDruidFormModel(root: TransformNode, id: string, form: string) {
       const ear = MeshBuilder.CreateCylinder(`${id}-cat-ear-${side}`, { diameterTop: 0, diameterBottom: 0.21, height: 0.34, tessellation: 4 }, scene);
       ear.parent = root; ear.position.set(side * 0.2, 1.17, 0.7); ear.rotation.z = side * -0.3; ear.material = highlightMat;
       sphere(`${id}-cat-eye-${side}`, 0.09, eyeMat, side * 0.16, 0.91, 1.0, 0.72, 1, 0.5);
-      limb(`${id}-cat-front-leg-${side}`, 0.48, 0.17, furMat, side * 0.29, 0.3, 0.42);
-      limb(`${id}-cat-back-leg-${side}`, 0.45, 0.2, highlightMat, side * 0.32, 0.29, -0.5);
-      sphere(`${id}-cat-front-paw-${side}`, 0.22, highlightMat, side * 0.29, 0.08, 0.51, 1.0, 0.5, 1.35);
-      sphere(`${id}-cat-back-paw-${side}`, 0.25, furMat, side * 0.32, 0.08, -0.4, 1.12, 0.5, 1.4);
+      const frontLeg = limb(`${id}-cat-front-leg-${side}`, 0.48, 0.17, furMat, side * 0.29, 0.3, 0.42, "front");
+      const backLeg = limb(`${id}-cat-back-leg-${side}`, 0.45, 0.2, highlightMat, side * 0.32, 0.29, -0.5, "back");
+      paw(`${id}-cat-front-paw-${side}`, 0.22, highlightMat, 1.0, 0.5, 1.35, frontLeg);
+      paw(`${id}-cat-back-paw-${side}`, 0.25, furMat, 1.12, 0.5, 1.4, backLeg);
     }
   }
+  root.metadata = { ...(root.metadata || {}), quadrupedRig: rig };
 }
 
 function playerBuild(classId: string | null) {
