@@ -33,6 +33,25 @@ test("lobby live stats update when blessings are chosen", async ({ page }) => {
   await expect(drawer).toContainText("Max Health +12%");
 });
 
+test("lobby canvas renders sharply at device pixel resolution", async ({ browser }) => {
+  const context = await browser.newContext({ viewport: { width: 640, height: 480 }, deviceScaleFactor: 2 });
+  const page = await context.newPage();
+  try {
+    await page.goto("/");
+    await expect(page.getByTestId("lobby")).toBeVisible();
+    const dimensions = await page.getByTestId("arena").evaluate((canvas: HTMLCanvasElement) => ({
+      bufferWidth: canvas.width,
+      bufferHeight: canvas.height,
+      cssWidth: canvas.getBoundingClientRect().width,
+      cssHeight: canvas.getBoundingClientRect().height,
+    }));
+    expect(dimensions.bufferWidth).toBe(dimensions.cssWidth * 2);
+    expect(dimensions.bufferHeight).toBe(dimensions.cssHeight * 2);
+  } finally {
+    await context.close();
+  }
+});
+
 test("lobby waits for every player to select a class and ready", async ({ browser }) => {
   const contextOne = await browser.newContext();
   const contextTwo = await browser.newContext();
