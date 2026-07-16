@@ -69,7 +69,7 @@ root.innerHTML = `
       ${Object.entries(classPresentation).map(([id, item]) => `<button data-testid="class-${id}" data-class="${id}" style="--class-color:${item.color}" aria-label="${classInfo[id].name}, ${item.role}"><span class="classPortrait"><i>${item.glyph}</i></span><span class="classCardCopy"><b>${classInfo[id].name}</b><small>${item.role}</small></span></button>`).join("")}
     </nav>
     <section id="lobbyUpgrades" class="glassPanel" data-testid="lobby-upgrades">
-      <div class="upgradeHeading"><div><span class="panelEyebrow">Prepare for battle</span><h3>Choose your blessings</h3></div><span class="upgradeCounter"><b id="lobbyUpgradePoints" data-testid="lobby-upgrade-points">3</b> left</span></div>
+      <div class="upgradeHeading"><div><span class="panelEyebrow">Prepare for battle</span><h3>Choose your blessings</h3></div><span class="upgradeSwipeHint">Swipe →</span><span class="upgradeCounter"><b id="lobbyUpgradePoints" data-testid="lobby-upgrade-points">3</b> left</span></div>
       <p>Spend all three points to unlock Ready.</p>
       <div id="lobbyUpgradeChoices" data-testid="lobby-upgrade-choices"></div>
       <button id="resetLobbyUpgrades" data-testid="reset-lobby-upgrades">Reset choices</button>
@@ -165,8 +165,8 @@ const lobbyPipeline = lowSpecMode ? null : new DefaultRenderingPipeline("lobby-b
 if (lobbyPipeline) {
   lobbyPipeline.depthOfFieldBlurLevel = DepthOfFieldEffectBlurLevel.Medium;
   lobbyPipeline.depthOfField.focusDistance = 17_200;
-  lobbyPipeline.depthOfField.focalLength = 85;
-  lobbyPipeline.depthOfField.fStop = 1.8;
+  lobbyPipeline.depthOfField.focalLength = 95;
+  lobbyPipeline.depthOfField.fStop = 1.6;
   lobbyPipeline.depthOfFieldEnabled = true;
 }
 new HemisphericLight("light", new Vector3(0.3, 1, 0.2), scene).intensity = 0.5;
@@ -836,7 +836,7 @@ function renderUi() {
   document.querySelector<HTMLElement>("#lobby")!.style.display = state.matchState === "lobby" ? "block" : "none";
   document.querySelector<HTMLElement>("#hud")!.style.display = state.matchState === "lobby" ? "none" : "block";
   document.querySelector<HTMLElement>("#classPreviewInfo")!.style.display = state.matchState === "lobby" ? "block" : "none";
-  if (lobbyPipeline) lobbyPipeline.depthOfFieldEnabled = state.matchState === "lobby";
+  if (lobbyPipeline) lobbyPipeline.depthOfFieldEnabled = state.matchState === "lobby" && Boolean(classPreview);
   if (wasLobby && state.matchState !== "lobby") {
     setLobbyStatsOpen(false);
     document.querySelector<HTMLElement>("#statTooltip")!.style.display = "none";
@@ -1763,7 +1763,9 @@ function updateLobbyPreviewPlacement() {
   const right = camera.getDirection(Vector3.Right());
   const up = camera.getDirection(Vector3.Up());
   const portrait = document.body.classList.contains("mobilePortrait");
-  classPreview.position = camera.position.add(forward.scale(portrait ? 18.2 : 17.2)).add(right.scale(portrait ? 0 : 0.35)).add(up.scale(portrait ? 1.2 : 0.55));
+  const previewDistance = portrait ? 18.2 : 17.2;
+  classPreview.position = camera.position.add(forward.scale(previewDistance)).add(right.scale(portrait ? 0 : 0.35)).add(up.scale(portrait ? 1.2 : 0.55));
+  if (lobbyPipeline) lobbyPipeline.depthOfField.focusDistance = previewDistance * 1000;
   const elapsed = Math.min(1, (performance.now() - Number(classPreview.metadata?.previewStartedAt || 0)) / 780);
   const eased = 1 - Math.pow(1 - elapsed, 3);
   classPreview.scaling.setAll((portrait ? 1.8 : 2.25) * eased);

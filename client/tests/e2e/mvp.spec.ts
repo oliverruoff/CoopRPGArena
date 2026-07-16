@@ -58,6 +58,26 @@ test("lobby canvas renders sharply at device pixel resolution", async ({ browser
   }
 });
 
+test("mobile lobby keeps class description, blessings, and actions separate", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/");
+  await page.getByTestId("class-mage").click();
+  await expect(page.getByTestId("class-preview-info")).toContainText("Mage");
+  const layout = await page.evaluate(() => {
+    const rect = (selector: string) => {
+      const bounds = document.querySelector<HTMLElement>(selector)!.getBoundingClientRect();
+      return { top: bounds.top, bottom: bounds.bottom };
+    };
+    return {
+      description: rect("#classPreviewInfo .classInfoHeader"),
+      blessings: rect("#lobbyUpgrades"),
+      actions: rect(".lobbyActions"),
+    };
+  });
+  expect(layout.description.bottom).toBeLessThanOrEqual(layout.blessings.top);
+  expect(layout.blessings.bottom).toBeLessThanOrEqual(layout.actions.top);
+});
+
 test("lobby waits for every player to select a class and ready", async ({ browser }) => {
   const contextOne = await browser.newContext();
   const contextTwo = await browser.newContext();

@@ -404,6 +404,7 @@ body[data-mode="lobby"]::after { content: ""; position: fixed; inset: 0; pointer
 .classAbilityEffects { display: none; }
 #lobbyUpgrades { position: absolute; z-index: 5; top: 320px; left: 28px; box-sizing: border-box; width: 264px; max-height: calc(100vh - 420px); margin: 0; padding: 14px; overflow-y: auto; border-radius: 18px; }
 .upgradeHeading { display: flex; justify-content: space-between; gap: 8px; }
+.upgradeSwipeHint { display: none; }
 #lobbyUpgrades h3 { margin: 3px 0 0; color: #fff; font-family: Georgia, serif; font-size: 17px; font-weight: 500; }
 #lobbyUpgrades > p { margin: 7px 0 10px; color: rgba(255,255,255,.42); font-size: 9px; }
 .upgradeCounter { align-self: flex-start; color: rgba(255,255,255,.4); font-size: 8px; white-space: nowrap; }
@@ -459,12 +460,15 @@ body.lobbyStatsOpen[data-mode="lobby"] #lobbyStatsDrawer { display: block; anima
   .stageHint { bottom: calc(45dvh + 6px); font-size: 7px; }
   .classes { right: 0; bottom: calc(34dvh + env(safe-area-inset-bottom)); left: 0; width: auto; padding: 7px 12px; transform: none; border-width: 1px 0; border-radius: 0; scroll-snap-type: x mandatory; }
   .classes button { flex-basis: 70px; min-height: 66px; scroll-snap-align: center; }.classPortrait { width: 32px; height: 32px; }.classCardCopy b { font-size: 9px; }.classCardCopy small { font-size: 6px; }
-  #classPreviewInfo { top: auto; right: 0; bottom: 0; left: 0; width: auto; height: 34dvh; max-height: none; padding: 13px 13px calc(82px + env(safe-area-inset-bottom)); border-width: 1px 0 0; border-radius: 21px 21px 0 0; background: linear-gradient(180deg, rgba(15,22,34,.96), rgba(6,10,18,.98)); }
-  .classInfoHeader { padding-bottom: 8px; }.classInfoHeader .classFantasy { display: none; }#classPreviewInfo .classInfoHeader h2 { display: inline; margin: 0 0 0 8px; font-size: 20px; }#classPreviewInfo .classInfoHeader p { display: -webkit-box; margin-top: 7px; overflow: hidden; font-size: 9px; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
-  .classPowerProfile { display: grid; grid-template-columns: 1fr 1fr; gap: 0 13px; }.classPowerProfile .detailSectionTitle { grid-column: 1 / -1; margin: 9px 0 4px; }.powerRow { grid-template-columns: 48px 1fr 12px; margin: 4px 0; font-size: 7px; }
-  .statDetails, .classAbilities { display: none; }
-  #lobbyUpgrades { z-index: 8; top: auto; right: 8px; bottom: calc(72px + env(safe-area-inset-bottom)); left: 8px; width: auto; max-height: calc(34dvh - 80px); padding: 11px; border-radius: 14px; }
-  #lobbyUpgrades h3 { font-size: 14px; }#lobbyUpgrades > p { display: none; }#lobbyUpgradeChoices { grid-template-columns: repeat(3, 1fr); margin-top: 7px; }#lobbyUpgradeChoices button { min-height: 34px; font-size: 7px; }
+  #classPreviewInfo { top: auto; right: 0; bottom: 0; left: 0; box-sizing: border-box; width: auto; height: 34dvh; max-height: none; padding: 13px 13px calc(196px + env(safe-area-inset-bottom)); overflow: hidden; border-width: 1px 0 0; border-radius: 21px 21px 0 0; background: linear-gradient(180deg, rgba(15,22,34,.96), rgba(6,10,18,.98)); }
+  .classInfoHeader { padding-bottom: 8px; }.classInfoHeader .classFantasy { display: none; }#classPreviewInfo .classInfoHeader h2 { display: inline; margin: 0 0 0 8px; font-size: 20px; }#classPreviewInfo .classInfoHeader p { display: -webkit-box; margin-top: 7px; overflow: hidden; font-size: 10px; line-height: 1.35; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+  .classPowerProfile, .statDetails, .classAbilities { display: none; }
+  #lobbyUpgrades { z-index: 8; top: auto; right: 8px; bottom: calc(72px + env(safe-area-inset-bottom)); left: 8px; box-sizing: border-box; width: auto; max-height: none; padding: 9px 10px 7px; border-radius: 14px; }
+  .upgradeHeading { align-items: center; }.upgradeHeading > div { display: flex; align-items: baseline; gap: 7px; }#lobbyUpgrades .panelEyebrow { font-size: 7px; }#lobbyUpgrades h3 { margin: 0; font-size: 12px; }#lobbyUpgrades > p { display: none; }.upgradeSwipeHint { display: inline; margin-left: auto; color: rgba(255,255,255,.38); font-size: 7px; letter-spacing: .06em; text-transform: uppercase; white-space: nowrap; }.upgradeCounter { font-size: 7px; }.upgradeCounter b { width: 18px; height: 18px; font-size: 9px; }
+  #lobbyUpgradeChoices { display: flex; gap: 6px; margin: 7px 0 4px; overflow-x: auto; overscroll-behavior-x: contain; scroll-snap-type: x mandatory; scrollbar-width: none; touch-action: pan-x; -webkit-overflow-scrolling: touch; }
+  #lobbyUpgradeChoices::-webkit-scrollbar { display: none; }
+  #lobbyUpgradeChoices button { flex: 0 0 112px; min-height: 38px; padding: 6px; font-size: 8px; scroll-snap-align: start; }
+  #resetLobbyUpgrades { display: block; margin-left: auto; font-size: 7px; }
   .lobbyActions { right: 12px; bottom: max(10px, env(safe-area-inset-bottom)); left: 12px; display: grid; grid-template-columns: 1fr 1.25fr; gap: 9px; }
   .lobbyActions { grid-template-columns: auto 1fr 1.25fr; }
   .lobbyStatsToggle { min-width: 47px; min-height: 53px; padding: 7px; font-size: 0; }.lobbyStatsToggle span { margin: 0; font-size: 14px; }
