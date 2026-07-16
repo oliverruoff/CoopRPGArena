@@ -76,6 +76,12 @@ test("single player can start, move, target, level, and reach the boss wave", as
   await page.waitForTimeout(1650);
   await expect(page.getByTestId("floating-damage").first()).toBeVisible();
   await expect(page.getByTestId("enemy-hp-bar").first()).toBeVisible();
+  const targetEffect = page.getByTestId("target-frame").getByTestId("effect-icon").first();
+  await expect(targetEffect).toBeVisible();
+  await expect(targetEffect.locator(".effectTimer")).not.toBeEmpty();
+  await targetEffect.hover();
+  await expect(page.getByTestId("effect-tooltip")).toContainText("Firebolt");
+  await expect(page.getByTestId("effect-tooltip")).toContainText("Debuff");
   const damaged = await (await request.get("http://127.0.0.1:8000/debug/state")).json();
   expect(damaged.enemies[spawn.enemyId].hp).toBeLessThan(damaged.enemies[spawn.enemyId].maxHealth);
 

@@ -73,6 +73,7 @@ class Player:
     shapeshift_multipliers: dict[str, float] = field(default_factory=dict)
     shapeshift_adds: dict[str, float] = field(default_factory=dict)
     stat_buffs: list[dict[str, Any]] = field(default_factory=list)
+    active_effects: list[dict[str, Any]] = field(default_factory=list)
     damage_dealt: float = 0
     healing_done: float = 0
     damage_taken: float = 0
@@ -105,6 +106,7 @@ class Enemy:
     slow_percent: float = 0
     stun_until: float = 0
     dots: list[dict[str, Any]] = field(default_factory=list)
+    active_effects: list[dict[str, Any]] = field(default_factory=list)
     alerted: bool = False
     facing: float = 0
     wander_until: float = 0
@@ -230,6 +232,7 @@ class Game:
                     player.base_stats = dict(data["baseStats"])
                     player.stats = dict(data["baseStats"])
                     player.stat_buffs = []
+                    player.active_effects = []
                     player.lobby_upgrades = []
                     player.lobby_upgrade_points = 3
                     self._update_countdown_locked()
@@ -344,6 +347,7 @@ class Game:
             player.shapeshift_multipliers = {}
             player.shapeshift_adds = {}
             player.stat_buffs = []
+            player.active_effects = []
             player.lobby_upgrades = []
             player.lobby_upgrade_points = 0
             player.damage_dealt = 0
@@ -509,6 +513,7 @@ class Game:
             player.shapeshift_multipliers = {}
             player.shapeshift_adds = {}
             player.stat_buffs = []
+            player.active_effects = []
             player.auto_attack_at = time.monotonic() + player.stats["autoAttackInterval"]
             player.damage_dealt = 0
             player.healing_done = 0
@@ -1008,30 +1013,36 @@ class Game:
                     self._damage_enemy_locked(player, enemy, amount, effect.get("school", "physical"), ability.get("threatMultiplier", 1), ability_id)
             elif effect["type"] == "charge":
                 for enemy in enemy_targets[:1]:
-                    self._charge_locked(player, enemy, effect)
+                    self._charge_locked(player, enemy, effect, ability_id)
                     self._damage_enemy_locked(player, enemy, amount, effect.get("school", "physical"), ability.get("threatMultiplier", 1), ability_id)
             elif effect["type"] == "dot":
                 for target in enemy_targets:
-                    target.dots.append({
+                    dot = {
                         "sourceId": player.id,
+                        "abilityId": ability_id,
                         "amount": amount,
                         "school": effect.get("school", "magical"),
                         "threatMultiplier": ability.get("threatMultiplier", 1),
                         "nextTick": now + effect.get("tickInterval", 1),
                         "endAt": now + effect.get("duration", 3),
                         "tickInterval": effect.get("tickInterval", 1),
-                    })
+                    }
+                    target.dots = [existing for existing in target.dots if not (existing.get("sourceId") == player.id and existing.get("abilityId") == ability_id)]
+                    target.dots.append(dot)
+                    self._upsert_active_effect_locked(target, player.id, ability_id, "debuff", effect.get("duration", 3), now)
                     self._emit_locked({"type": "status", "sourceId": player.id, "targetId": target.id, "abilityId": ability_id, "status": "burning", "duration": effect.get("duration", 3)})
             elif effect["type"] == "slow":
                 for target in enemy_targets:
                     target.slow_percent = max(target.slow_percent, effect.get("slowPercent", 0.3))
                     target.slow_until = max(target.slow_until, now + effect.get("duration", 3))
+                    self._upsert_active_effect_locked(target, player.id, ability_id, "debuff", effect.get("duration", 3), now)
                     self._emit_locked({"type": "status", "sourceId": player.id, "targetId": target.id, "abilityId": ability_id, "status": "slowed", "duration": effect.get("duration", 3)})
             elif effect["type"] == "stun":
                 for target in enemy_targets:
                     target.stun_until = max(target.stun_until, now + effect.get("duration", 2))
                     target.slow_percent = max(target.slow_percent, 1.0)
                     target.slow_until = max(target.slow_until, now + effect.get("duration", 2))
+                    self._upsert_active_effect_locked(target, player.id, ability_id, "debuff", effect.get("duration", 2), now)
                     self._emit_locked({"type": "status", "sourceId": player.id, "targetId": target.id, "abilityId": ability_id, "status": "frozen", "duration": effect.get("duration", 2)})
             elif effect["type"] == "heal":
                 for target in ally_targets:
@@ -1055,7 +1066,10 @@ class Game:
                     self._emit_locked({"type": "heal", "sourceId": player.id, "targetId": target.id, "amount": round(healed, 1), "school": "holy", "abilityId": ability_id})
             elif effect["type"] == "hot":
                 for target in ally_targets:
-                    target.hots.append({"sourceId": player.id, "amount": amount, "nextTick": now + effect.get("tickInterval", 1), "endAt": now + effect.get("duration", 4), "tickInterval": effect.get("tickInterval", 1)})
+                    hot = {"sourceId": player.id, "abilityId": ability_id, "amount": amount, "nextTick": now + effect.get("tickInterval", 1), "endAt": now + effect.get("duration", 4), "tickInterval": effect.get("tickInterval", 1)}
+                    target.hots = [existing for existing in target.hots if not (existing.get("sourceId") == player.id and existing.get("abilityId") == ability_id)]
+                    target.hots.append(hot)
+                    self._upsert_active_effect_locked(target, player.id, ability_id, "buff", effect.get("duration", 4), now)
                     self._emit_locked({"type": "status", "sourceId": player.id, "targetId": target.id, "abilityId": ability_id, "status": "renewing", "duration": effect.get("duration", 4)})
             elif effect["type"] == "revive":
                 for target in ally_targets:
@@ -1070,19 +1084,26 @@ class Game:
                 for target in ally_targets:
                     target.shield = max(target.shield, amount)
                     target.shield_until = max(target.shield_until, now + effect.get("duration", 6))
+                    self._upsert_active_effect_locked(target, player.id, ability_id, "buff", effect.get("duration", 6), now)
                     self._emit_locked({"type": "status", "sourceId": player.id, "targetId": target.id, "abilityId": ability_id, "status": "shielded", "duration": effect.get("duration", 6)})
             elif effect["type"] == "stat_buff":
                 stat = effect.get("stat")
                 if stat:
                     multiplier = effect.get("multiplier", 1)
                     add = effect.get("add", 0)
+                    for existing in list(player.stat_buffs):
+                        if existing.get("abilityId") == ability_id and existing.get("stat") == stat:
+                            player.stats[stat] = existing.get("previous", player.stats.get(stat, 0))
+                            player.stat_buffs.remove(existing)
                     previous = player.stats.get(stat, 0)
                     player.stats[stat] = player.stats.get(stat, 0) * multiplier + add
                     player.stat_buffs.append({"stat": stat, "previous": previous, "endAt": now + effect.get("duration", 4), "abilityId": ability_id})
+                    self._upsert_active_effect_locked(player, player.id, ability_id, "buff", effect.get("duration", 4), now)
                     self._emit_locked({"type": "status", "sourceId": player.id, "targetId": player.id, "abilityId": ability_id, "status": "buffed", "duration": effect.get("duration", 4)})
             elif effect["type"] == "immobilize":
                 player.input = {}
                 player.stat_buffs.append({"endAt": now + effect.get("duration", 4), "abilityId": ability_id})
+                self._upsert_active_effect_locked(player, player.id, ability_id, "buff", effect.get("duration", 4), now)
                 self._emit_locked({"type": "status", "sourceId": player.id, "targetId": player.id, "abilityId": ability_id, "status": "immobilized", "duration": effect.get("duration", 4)})
             elif effect["type"] == "resource":
                 player.resource = min(player.stats.get("maxResource", 100), player.resource + amount)
@@ -1091,6 +1112,7 @@ class Game:
                 player.auto_attack_haste_until = max(player.auto_attack_haste_until, now + effect.get("duration", 3))
                 hasted_interval = player.stats["autoAttackInterval"] / player.auto_attack_haste_multiplier
                 player.auto_attack_at = min(player.auto_attack_at, now + hasted_interval)
+                self._upsert_active_effect_locked(player, player.id, ability_id, "buff", effect.get("duration", 3), now)
                 self._emit_locked({"type": "status", "sourceId": player.id, "targetId": player.id, "abilityId": ability_id, "status": "hasted", "duration": effect.get("duration", 3)})
             elif effect["type"] == "trap":
                 self._ground_effect_seq += 1
@@ -1111,6 +1133,7 @@ class Game:
             elif effect["type"] == "stealth":
                 duration = effect.get("duration", 5)
                 player.stealth_until = max(player.stealth_until, now + duration)
+                self._upsert_active_effect_locked(player, player.id, ability_id, "buff", duration, now)
                 for enemy in self.enemies.values():
                     enemy.threat[player.id] = 0
                     if enemy.target_id == player.id:
@@ -1118,6 +1141,9 @@ class Game:
                 self._emit_locked({"type": "status", "sourceId": player.id, "targetId": player.id, "abilityId": ability_id, "status": "vanished", "duration": duration})
             elif effect["type"] == "shapeshift":
                 self._apply_shapeshift_locked(player, effect)
+                player.active_effects = [active for active in player.active_effects if not active.get("permanent")]
+                if player.shapeshift_form:
+                    self._upsert_active_effect_locked(player, player.id, ability_id, "buff", None, now)
                 status = f"{player.shapeshift_form}_form" if player.shapeshift_form else "humanoid_form"
                 self._emit_locked({"type": "status", "sourceId": player.id, "targetId": player.id, "abilityId": ability_id, "status": status, "duration": 0})
             elif effect["type"] == "aura_damage":
@@ -1131,6 +1157,7 @@ class Game:
                     "endAt": now + effect.get("duration", 3),
                     "tickInterval": effect.get("tickInterval", 0.5),
                 })
+                self._upsert_active_effect_locked(player, player.id, ability_id, "buff", effect.get("duration", 3), now)
                 ground_effect_type = effect.get("groundEffectType")
                 if ground_effect_type:
                     self._ground_effect_seq += 1
@@ -1184,6 +1211,7 @@ class Game:
                     for enemy in targets:
                         enemy.slow_percent = max(enemy.slow_percent, effect.get("slowPercent", 0.45))
                         enemy.slow_until = max(enemy.slow_until, now + effect.get("duration", 3))
+                        self._upsert_active_effect_locked(enemy, player.id, ability_id, "debuff", effect.get("duration", 3), now)
                         self._emit_locked({"type": "status", "sourceId": player.id, "targetId": enemy.id, "abilityId": ability_id, "status": "slowed", "duration": effect.get("duration", 3)})
 
     def _cast_ground_ability_locked(self, player: Player, ability_id: str, position: dict[str, Any] | None) -> None:
@@ -1261,7 +1289,7 @@ class Game:
         dz = enemy.z - player.z
         player.facing = math.atan2(dx, dz)
 
-    def _charge_locked(self, player: Player, enemy: Enemy, effect: dict[str, Any]) -> None:
+    def _charge_locked(self, player: Player, enemy: Enemy, effect: dict[str, Any], ability_id: str) -> None:
         dx = enemy.x - player.x
         dz = enemy.z - player.z
         dist = math.hypot(dx, dz) or 1
@@ -1281,6 +1309,7 @@ class Game:
             enemy.stun_until = max(enemy.stun_until, now + stun)
             enemy.slow_percent = max(enemy.slow_percent, 1.0)
             enemy.slow_until = max(enemy.slow_until, now + stun)
+            self._upsert_active_effect_locked(enemy, player.id, ability_id, "debuff", stun, now)
 
     @staticmethod
     def _is_stealthed_locked(player: Player, now: float) -> bool:
@@ -1349,6 +1378,7 @@ class Game:
                         enemy.stun_until = max(enemy.stun_until, now + effect.get("stunDuration", 1.5))
                         enemy.slow_percent = max(enemy.slow_percent, 1.0)
                         enemy.slow_until = max(enemy.slow_until, now + effect.get("stunDuration", 1.5))
+                        self._upsert_active_effect_locked(enemy, source.id, effect.get("abilityId", "trap"), "debuff", effect.get("stunDuration", 1.5), now)
                         self._emit_locked({"type": "status", "sourceId": source.id, "targetId": enemy.id, "abilityId": effect.get("abilityId"), "status": "trapped", "duration": effect.get("stunDuration", 1.5)})
                     if effect in self.ground_effects:
                         self.ground_effects.remove(effect)
@@ -1397,6 +1427,7 @@ class Game:
                             if effect.get("slowPercent"):
                                 enemy.slow_percent = max(enemy.slow_percent, effect.get("slowPercent", 0))
                                 enemy.slow_until = max(enemy.slow_until, now + effect.get("slowDuration", 1.4))
+                                self._upsert_active_effect_locked(enemy, source.id, effect.get("abilityId", "ground_slow"), "debuff", effect.get("slowDuration", 1.4), now)
                 effect["nextTick"] = now + effect.get("tickInterval", 0.7)
 
     def _summon_totem_locked(self, player: Player, ability_id: str, effect: dict[str, Any]) -> None:
@@ -1478,6 +1509,7 @@ class Game:
                     continue
                 enemy.slow_percent = max(enemy.slow_percent, slow_pct)
                 enemy.slow_until = max(enemy.slow_until, now + slow_dur)
+                self._upsert_active_effect_locked(enemy, source.id, effect.get("abilityId", "shaman_earthbind_totem"), "debuff", slow_dur, now)
         effect["nextTick"] = now + effect.get("tickInterval", 1.0)
         effect["tickCount"] = effect.get("tickCount", 0) + 1
 
@@ -1534,6 +1566,46 @@ class Game:
         if radius is None:
             return [target] if isinstance(target, Player) else []
         return [ally for ally in self.players.values() if self._is_present_locked(ally) and self._distance(center, ally) <= radius]
+
+    @staticmethod
+    def _upsert_active_effect_locked(target: Player | Enemy, source_id: str, ability_id: str, kind: str, duration: float | None, now: float) -> None:
+        """Refresh an effect from the same source; other casters retain their own instance."""
+        target.active_effects = [
+            active for active in target.active_effects
+            if not (active.get("sourceId") == source_id and active.get("abilityId") == ability_id and active.get("kind") == kind)
+        ]
+        target.active_effects.append({
+            "id": f"{kind}:{ability_id}:{source_id}",
+            "abilityId": ability_id,
+            "sourceId": source_id,
+            "kind": kind,
+            "startedAt": now,
+            "endAt": now + duration if duration is not None else None,
+            "duration": duration,
+            "permanent": duration is None,
+            "stacks": 1,
+        })
+
+    def _active_effects_dict(self, target: Player | Enemy, now: float) -> list[dict[str, Any]]:
+        target.active_effects = [active for active in target.active_effects if active.get("permanent") or now < active.get("endAt", 0)]
+        if isinstance(target, Player) and target.shield <= 0:
+            target.active_effects = [
+                active for active in target.active_effects
+                if not any(effect.get("type") == "shield" for effect in self.abilities.get(active.get("abilityId", ""), {}).get("effects", []))
+            ]
+        return [
+            {
+                "id": active["id"],
+                "abilityId": active["abilityId"],
+                "sourceId": active["sourceId"],
+                "kind": active["kind"],
+                "duration": active.get("duration"),
+                "remaining": None if active.get("permanent") else max(0, round(active["endAt"] - now, 1)),
+                "permanent": bool(active.get("permanent")),
+                "stacks": active.get("stacks", 1),
+            }
+            for active in target.active_effects
+        ]
 
     def _tick_hots_locked(self, player: Player, now: float) -> None:
         for hot in list(player.hots):
@@ -1704,6 +1776,7 @@ class Game:
         player.lobby_upgrades = []
         player.stats = dict(player.base_stats)
         player.stat_buffs = []
+        player.active_effects = []
         player.ready = False
         self._update_countdown_locked()
 
@@ -1919,6 +1992,7 @@ class Game:
                 for buff in p.stat_buffs
                 if buff.get("abilityId") and now < buff.get("endAt", 0)
             ],
+            "activeEffects": self._active_effects_dict(p, now),
             "form": p.shapeshift_form,
             "lobbyUpgradePoints": p.lobby_upgrade_points,
             "lobbyUpgrades": p.lobby_upgrades,
@@ -1945,8 +2019,8 @@ class Game:
             "progress": max(0, min(1, 1 - remaining / duration)),
         }
 
-    @staticmethod
-    def _enemy_dict(e: Enemy) -> dict[str, Any]:
+    def _enemy_dict(self, e: Enemy) -> dict[str, Any]:
+        now = time.monotonic()
         return {
             "id": e.id, "type": e.type, "name": e.name, "hp": round(e.hp, 1), "maxHealth": round(e.max_health, 1),
             "targetId": e.target_id, "position": {"x": round(e.x, 2), "z": round(e.z, 2)}, "threat": e.threat,
@@ -1955,6 +2029,7 @@ class Game:
             "facing": round(e.facing, 2),
             "slowed": time.monotonic() < e.slow_until,
             "burning": bool(e.dots),
+            "activeEffects": self._active_effects_dict(e, now),
         }
 
     async def debug_action(self, action: str, payload: dict[str, Any]) -> dict[str, Any]:

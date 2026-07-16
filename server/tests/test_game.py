@@ -541,6 +541,42 @@ async def _mage_fireball_dot_and_frostbolt_slow():
         assert enemy.slow_until > 0
 
 
+def test_active_effect_snapshot_classifies_and_refreshes_effects_per_source():
+    asyncio.run(_active_effect_snapshot_classifies_and_refreshes_effects_per_source())
+
+
+async def _active_effect_snapshot_classifies_and_refreshes_effects_per_source():
+    game = Game()
+    mage = await game.add_player()
+    priest = await game.add_player()
+    await game.handle_message(mage.id, {"type": "select_class", "classId": "mage"})
+    await game.handle_message(priest.id, {"type": "select_class", "classId": "priest"})
+    async with game._lock:
+        game._start_match_locked()
+        game.enemies.clear()
+        game.map_objects.clear()
+        enemy = game.spawn_enemy_locked("brute", {"x": 2, "z": 0})
+        caster = game.players[mage.id]
+        caster.target_id = enemy.id
+        game._finish_cast_locked(caster, "mage_fireball", enemy.id)
+        caster.global_cooldown_until = 0
+        caster.cooldowns.clear()
+        game._finish_cast_locked(caster, "mage_fireball", enemy.id)
+        assert len([effect for effect in enemy.active_effects if effect["abilityId"] == "mage_fireball"]) == 1
+
+        healer = game.players[priest.id]
+        healer.abilities.append("priest_renew")
+        healer.ally_target_id = caster.id
+        healer.x = caster.x = 0
+        healer.z = caster.z = 0
+        game._finish_cast_locked(healer, "priest_renew", caster.id)
+        snapshot = game._snapshot_locked(mage.id)
+        enemy_effect = snapshot["enemies"][enemy.id]["activeEffects"][0]
+        player_effect = snapshot["players"][caster.id]["activeEffects"][0]
+        assert enemy_effect["kind"] == "debuff" and enemy_effect["remaining"] > 0
+        assert player_effect["kind"] == "buff" and player_effect["abilityId"] == "priest_renew"
+
+
 def test_global_cooldown_is_exposed_in_snapshot():
     asyncio.run(_global_cooldown_is_exposed_in_snapshot())
 

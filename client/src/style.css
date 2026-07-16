@@ -75,6 +75,7 @@ button:disabled:hover { filter: grayscale(0.35); }
 .partyFrame.selectedTarget { border-color: #60a5fa; background: rgba(59,130,246,0.36); box-shadow: 0 0 0 2px rgba(96,165,250,0.28); }
 .partyFrame.dead { opacity: 0.72; }
 .partyState { display: block; margin-top: 4px; color: #fca5a5; }
+.partyState[hidden] { display: none; }
 .mini, .bar { height: 12px; background: rgba(0,0,0,0.22); border-radius: 999px; overflow: hidden; }
 .mini { position: relative; margin-top: 4px; }
 .mini > span, .bar > span { display: block; height: 100%; background: #46d06f; }
@@ -84,10 +85,35 @@ button:disabled:hover { filter: grayscale(0.35); }
 .partyResource.focus > span { background: #d98232; }
 .partyResource.resource > span { background: #8b5cf6; }
 .partyMeterLabel { position: absolute; inset: 0; display: grid; place-items: center; color: white; font-size: 8px; line-height: 1; text-shadow: 0 1px 2px #000; }
-#target { position: absolute; top: 20px; left: 50%; transform: translateX(-50%); min-width: 260px; padding: 14px; border-radius: 18px; background: linear-gradient(145deg, rgba(255,255,255,0.94), rgba(224,232,243,0.82)); border: 1px solid rgba(255,255,255,0.72); box-shadow: 0 10px 28px rgba(8,15,28,0.2), inset 0 1px #fff; text-align: center; font-weight: 900; backdrop-filter: blur(10px); }
+#target { position: absolute; top: 20px; left: 50%; transform: translateX(-50%); min-width: 260px; padding: 14px; border-radius: 18px; background: linear-gradient(145deg, rgba(255,255,255,0.94), rgba(224,232,243,0.82)); border: 1px solid rgba(255,255,255,0.72); box-shadow: 0 10px 28px rgba(8,15,28,0.2), inset 0 1px #fff; text-align: center; font-weight: 900; backdrop-filter: blur(10px); pointer-events: auto; }
+.targetSummary { min-height: 1em; }
 #wave { position: absolute; top: 20px; right: 20px; padding: 14px; border-radius: 18px; background: linear-gradient(145deg, rgba(255,255,255,0.94), rgba(224,232,243,0.82)); border: 1px solid rgba(255,255,255,0.72); box-shadow: 0 10px 28px rgba(8,15,28,0.18), inset 0 1px #fff; font-weight: 900; backdrop-filter: blur(10px); }
 #endMatch { display: none; position: absolute; right: 20px; bottom: 24px; padding: 10px 12px; background: rgba(127,29,29,0.88); pointer-events: auto; white-space: nowrap; }
 #bars { position: absolute; bottom: 96px; left: 50%; transform: translateX(-50%); width: min(520px, 80vw); display: grid; gap: 7px; font-weight: 900; }
+#selfEffects { min-height: 0; pointer-events: auto; }
+.effectGroups { display: grid; gap: 3px; }
+.effectRow { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.effectGroups--self .effectRow, .effectGroups--target .effectRow { justify-content: center; }
+.effectGroups--target { margin-top: 7px; }
+.effectGroups--party { margin-top: 6px; }
+.effectGroups--party .effectRow { gap: 2px; }
+.effectIcon { position: relative; display: inline-block; width: 36px; height: 36px; border: 2px solid #c9a85c; border-radius: 5px; background: #111827; box-shadow: 0 2px 5px rgba(0,0,0,.65), inset 0 0 0 1px rgba(255,255,255,.2); cursor: help; pointer-events: auto; }
+.effectIcon--debuff { border-color: #ef4444; box-shadow: 0 0 7px rgba(239,68,68,.58), 0 2px 5px rgba(0,0,0,.65); }
+.effectIcon:focus-visible, .effectIcon:hover { outline: 2px solid #fff; outline-offset: 1px; z-index: 2; }
+.effectArt { position: absolute; inset: 2px; display: grid; place-items: center; overflow: hidden; border-radius: 2px; color: #fff; font-size: 20px; font-style: normal; line-height: 1; text-shadow: 0 1px 3px #000; background: radial-gradient(circle at 35% 28%, hsla(var(--effect-hue), 90%, 67%, .95), hsla(var(--effect-hue), 72%, 31%, .98) 60%, #10131d); }
+.effectIcon--debuff .effectArt { filter: saturate(1.2) brightness(.88); }
+.effectTimer { position: absolute; z-index: 1; left: 50%; bottom: -5px; transform: translateX(-50%); min-width: 24px; padding: 0 2px; color: #fff; font-size: 10px; line-height: 13px; text-align: center; font-variant-numeric: tabular-nums; text-shadow: -1px -1px #000, 1px -1px #000, -1px 1px #000, 1px 1px #000; pointer-events: none; }
+.effectStacks { position: absolute; z-index: 1; right: 1px; top: 0; color: #fff; font-size: 10px; font-style: normal; text-shadow: 0 1px 2px #000; }
+.effectGroups--party .effectIcon { width: 24px; height: 24px; border-width: 1px; border-radius: 3px; }
+.effectGroups--party .effectArt { font-size: 14px; }
+.effectGroups--party .effectTimer { bottom: -5px; font-size: 8px; line-height: 10px; }
+#effectTooltip { display: none; position: fixed; z-index: 30; width: 290px; box-sizing: border-box; padding: 13px; border: 1px solid rgba(201,168,92,.65); border-radius: 8px; background: rgba(8,12,20,.97); color: #fff; box-shadow: 0 14px 38px rgba(0,0,0,.62); pointer-events: none; font-size: 13px; line-height: 1.35; }
+#effectTooltip h3 { margin: 0 0 4px; color: #f8d477; font-size: 16px; }
+#effectTooltip p { margin: 7px 0; color: rgba(255,255,255,.82); }
+#effectTooltip div { color: rgba(255,255,255,.68); }
+.effectTooltipKind { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; }
+.effectTooltipKind--buff { color: #86efac; }
+.effectTooltipKind--debuff { color: #fca5a5; }
 .bar { position: relative; height: 20px; background: rgba(10,15,25,0.56); border: 1px solid rgba(255,255,255,0.28); box-shadow: 0 5px 15px rgba(0,0,0,0.18), inset 0 2px 4px rgba(0,0,0,0.25); }
 .bar b { position: absolute; inset: 0; display: grid; place-items: center; color: #fff; font-size: 12px; font-weight: 1000; text-shadow: 0 1px 3px #000; letter-spacing: 0.02em; }
 #hp { background: linear-gradient(180deg, #ff6b6b, #c9273d); box-shadow: inset 0 2px rgba(255,255,255,0.3), 0 0 10px rgba(239,68,68,0.3); }
@@ -226,6 +252,10 @@ body[data-mode="defeat"] #end { color: #a32020; }
   #party { top: max(8px, env(safe-area-inset-top)); left: 8px; gap: 4px; transform: none; }
   .partyFrame { width: 122px; padding: 6px 7px; border-radius: 10px; font-size: 10px; }
   .partyFrame .mini { height: 7px; }
+  .effectGroups--party .effectIcon { width: 19px; height: 19px; }
+  .effectGroups--party .effectArt { font-size: 11px; }
+  .effectGroups--self .effectIcon, .effectGroups--target .effectIcon { width: 29px; height: 29px; }
+  .effectGroups--self .effectArt, .effectGroups--target .effectArt { font-size: 16px; }
   #target { top: max(8px, env(safe-area-inset-top)); min-width: 0; max-width: 34vw; padding: 8px; border-radius: 12px; font-size: 10px; }
   #wave { top: max(8px, env(safe-area-inset-top)); right: 8px; max-width: 112px; padding: 8px; border-radius: 12px; font-size: 10px; text-align: center; }
   #statsPanel, #endMatch { display: none !important; }

@@ -4,8 +4,9 @@ import "./style.css";
 type Vec = { x: number; z: number };
 type CastState = { abilityId: string; targetId: string | null; duration: number; remaining: number; progress: number };
 type AutoAttackState = { remaining: number; interval: number; progress: number };
-type PlayerState = { id: string; name: string; classId: string | null; ready: boolean; spectator?: boolean; hp: number; maxHealth: number; resource: number; maxResource: number; resourceType: string | null; level: number; xp: number; dead: boolean; targetId: string | null; allyTargetId: string | null; position: Vec; facing: number; jumping: boolean; jumpProgress: number; abilities: string[]; abilitySlots?: Record<string, number>; cooldowns: Record<string, number>; globalCooldown: number; autoAttack: AutoAttackState; pendingUpgrades: Upgrade[]; stats: Record<string, number>; baseStats?: Record<string, number>; shield?: number; shieldRemaining?: number; casting: CastState | null; stealthed?: boolean; stealthRemaining?: number; iceBlocked?: boolean; sprinting?: boolean; activeBuffs?: Array<{ abilityId: string; remaining: number }>; form?: string | null; lobbyUpgradePoints?: number; lobbyUpgrades?: Upgrade[] };
-type EnemyState = { id: string; type: string; name: string; hp: number; maxHealth: number; position: Vec; boss: boolean; alerted?: boolean; facing?: number };
+type ActiveEffect = { id: string; abilityId: string; sourceId: string; kind: "buff" | "debuff"; duration: number | null; remaining: number | null; permanent: boolean; stacks: number };
+type PlayerState = { id: string; name: string; classId: string | null; ready: boolean; spectator?: boolean; hp: number; maxHealth: number; resource: number; maxResource: number; resourceType: string | null; level: number; xp: number; dead: boolean; targetId: string | null; allyTargetId: string | null; position: Vec; facing: number; jumping: boolean; jumpProgress: number; abilities: string[]; abilitySlots?: Record<string, number>; cooldowns: Record<string, number>; globalCooldown: number; autoAttack: AutoAttackState; pendingUpgrades: Upgrade[]; stats: Record<string, number>; baseStats?: Record<string, number>; shield?: number; shieldRemaining?: number; casting: CastState | null; stealthed?: boolean; stealthRemaining?: number; iceBlocked?: boolean; sprinting?: boolean; activeBuffs?: Array<{ abilityId: string; remaining: number }>; activeEffects?: ActiveEffect[]; form?: string | null; lobbyUpgradePoints?: number; lobbyUpgrades?: Upgrade[] };
+type EnemyState = { id: string; type: string; name: string; hp: number; maxHealth: number; position: Vec; boss: boolean; alerted?: boolean; facing?: number; activeEffects?: ActiveEffect[] };
 type MapObject = { id: string; type: string; x: number; z: number; radius?: number; width?: number; depth?: number; blocksSight?: boolean; variant?: number; rotation?: number };
 type GroundEffect = { id: string; type: string; sourceId?: string; abilityId?: string; x: number; z: number; radius: number; remaining?: number; totemType?: string };
 type Upgrade = { id: string; name: string; choiceType?: string; abilityId?: string; description?: string; stat?: string; mode?: string; value?: number };
@@ -63,10 +64,11 @@ root.innerHTML = `
   <div id="statTooltip" data-testid="stat-tooltip"></div>
   <section id="hud">
     <div id="party" data-testid="party"></div>
-    <div id="target" data-testid="target-frame">No target</div>
+    <div id="target" data-testid="target-frame"><div class="targetSummary">No target</div><div id="targetEffects"></div></div>
     <div id="wave" data-testid="wave-counter">Wave 0</div>
     <button id="endMatch" data-testid="end-match-button">End Game</button>
     <div id="bars">
+      <div id="selfEffects" data-testid="self-effects"></div>
       <div data-testid="player-level" id="level">Level 1</div>
       <div class="bar"><span id="hp" data-testid="player-health-bar"></span><b id="hpLabel" data-testid="hp-label">HP</b></div>
       <div class="bar resource"><span id="res" data-testid="player-resource-bar"></span><b id="resLabel" data-testid="resource-label">Resource</b></div>
@@ -104,6 +106,7 @@ root.innerHTML = `
     <div id="overhead"></div>
     <div id="levelPanel" data-testid="level-up-panel"></div>
     <div id="abilityTooltip" data-testid="ability-tooltip"></div>
+    <div id="effectTooltip" data-testid="effect-tooltip"></div>
     <div id="end" data-testid="end-screen">
       <div id="endTitle"></div>
       <div id="endScoreboard"></div>
@@ -379,11 +382,35 @@ document.querySelector<HTMLButtonElement>("#endMatch")!.addEventListener("click"
   send({ type: "restart_match" });
 });
 document.querySelector<HTMLElement>("#party")!.addEventListener("pointerdown", (event) => {
+  if ((event.target as HTMLElement).closest(".effectIcon")) return;
   const frame = (event.target as HTMLElement).closest<HTMLElement>(".partyFrame");
   if (!frame?.dataset.id) return;
   event.preventDefault();
   event.stopPropagation();
   targetPartyPlayer(frame.dataset.id);
+});
+
+const hud = document.querySelector<HTMLElement>("#hud")!;
+hud.addEventListener("pointerover", (event) => {
+  const icon = (event.target as HTMLElement).closest<HTMLElement>(".effectIcon");
+  if (icon && event.pointerType !== "touch") showEffectTooltip(icon);
+});
+hud.addEventListener("pointerout", (event) => {
+  const icon = (event.target as HTMLElement).closest<HTMLElement>(".effectIcon");
+  if (icon && !(event.relatedTarget as HTMLElement | null)?.closest?.(".effectIcon")) hideEffectTooltip();
+});
+hud.addEventListener("focusin", (event) => {
+  const icon = (event.target as HTMLElement).closest<HTMLElement>(".effectIcon");
+  if (icon) showEffectTooltip(icon);
+});
+hud.addEventListener("focusout", (event) => {
+  if ((event.target as HTMLElement).closest(".effectIcon")) hideEffectTooltip();
+});
+hud.addEventListener("pointerdown", (event) => {
+  const icon = (event.target as HTMLElement).closest<HTMLElement>(".effectIcon");
+  if (!icon) { hideEffectTooltip(); return; }
+  event.stopPropagation();
+  showEffectTooltip(icon);
 });
 document.querySelector<HTMLElement>("#party")!.addEventListener("keydown", (event) => {
   if (event.key !== "Enter" && event.key !== " ") return;
@@ -807,6 +834,7 @@ function renderUi() {
   text("hpLabel", `HP ${Math.round(me.hp)}/${Math.round(me.maxHealth)}`);
   text("resLabel", `${resourceLabel(me.resourceType)} ${Math.round(me.resource)}/${Math.round(me.maxResource)}`);
   text("xpLabel", `EXP ${me.xp}`);
+  syncEffectGroups(document.querySelector<HTMLElement>("#selfEffects")!, me.activeEffects || [], "self");
   renderStatsPanel(me);
   const nextWaveIn = state.wave.nextWaveIn;
   if (state.wave.state === "break" && nextWaveIn !== undefined) {
@@ -817,10 +845,13 @@ function renderUi() {
     text("wave", `Wave ${state.wave.number} • ${state.wave.aliveEnemies} enemies`);
   }
   const selectedAllyId = me.allyTargetId || optimisticAllyTargetId;
-  document.querySelector("#party")!.innerHTML = Object.values(state.players).filter((p) => !p.spectator).map((p) => renderPartyFrame(p, selectedAllyId)).join("");
+  syncPartyFrames(Object.values(state.players).filter((p) => !p.spectator), selectedAllyId);
   const target = me.targetId ? state.enemies[me.targetId] : me.allyTargetId ? state.players[me.allyTargetId] : null;
   const pendingGroundAbility = pendingGroundAbilitySlot === null ? null : me.abilities.find((id) => abilitySlot(me, id) === pendingGroundAbilitySlot);
-  text("target", pendingGroundAbility ? `Tap arena to place ${state.abilities[pendingGroundAbility]?.name || "spell"} • tap ability again to cancel` : target ? `${target.name} ${Math.round(target.hp)}/${Math.round(target.maxHealth)}` : "No target");
+  targetFrame.querySelector<HTMLElement>(".targetSummary")!.textContent = pendingGroundAbility
+    ? `Tap arena to place ${state.abilities[pendingGroundAbility]?.name || "spell"} • tap ability again to cancel`
+    : target ? `${target.name} ${Math.round(target.hp)}/${Math.round(target.maxHealth)}` : "No target";
+  syncEffectGroups(document.querySelector<HTMLElement>("#targetEffects")!, pendingGroundAbility ? [] : target?.activeEffects || [], "target");
   for (let slot = 1; slot <= MAX_ABILITY_SLOTS; slot++) {
     const abilityId = me.abilities.find((id) => abilitySlot(me, id) === slot);
     const key = slotKeys[slot];
@@ -1021,12 +1052,98 @@ function renderPartyFrame(player: PlayerState, selectedAllyId: string | null) {
   const resourceType = player.resourceType || "resource";
   const resourceClass = ["mana", "rage", "energy", "focus"].includes(resourceType) ? resourceType : "resource";
   return `<div class="partyFrame${selected ? " selectedTarget" : ""}${player.dead ? " dead" : ""}" role="button" tabindex="0" aria-pressed="${selected}" data-testid="party-frame" data-id="${player.id}">
-    <b>${player.name}</b><br>
-    <span>${player.classId || "No class"}</span>
+    <b class="partyName">${escapeHtml(player.name)}</b><br>
+    <span class="partyClass">${escapeHtml(player.classId || "No class")}</span>
     <div class="mini partyHealth"><span style="width:${hpPercent}%"></span><div class="partyMeterLabel">HP ${Math.round(player.hp)}/${Math.round(player.maxHealth)}</div></div>
     <div class="mini partyResource ${resourceClass}" data-testid="party-resource-bar"><span style="width:${resourcePercent}%"></span><div class="partyMeterLabel">${resourceLabel(player.resourceType)} ${Math.round(player.resource)}/${Math.round(player.maxResource)}</div></div>
-    ${player.dead ? `<span class="partyState">Down</span>` : ""}
+    <span class="partyState"${player.dead ? "" : " hidden"}>Down</span>
+    <div class="partyEffects">${renderEffectGroups(player.activeEffects || [], "party")}</div>
   </div>`;
+}
+
+function syncPartyFrames(players: PlayerState[], selectedAllyId: string | null) {
+  const party = document.querySelector<HTMLElement>("#party")!;
+  const signature = players.map((player) => player.id).join("|");
+  if (party.dataset.playerSignature !== signature) {
+    party.innerHTML = players.map((player) => renderPartyFrame(player, selectedAllyId)).join("");
+    party.dataset.playerSignature = signature;
+  }
+  for (const player of players) {
+    const frame = party.querySelector<HTMLElement>(`.partyFrame[data-id="${CSS.escape(player.id)}"]`);
+    if (!frame) continue;
+    const selected = selectedAllyId === player.id;
+    frame.classList.toggle("selectedTarget", selected);
+    frame.classList.toggle("dead", player.dead);
+    frame.setAttribute("aria-pressed", String(selected));
+    frame.querySelector<HTMLElement>(".partyName")!.textContent = player.name;
+    frame.querySelector<HTMLElement>(".partyClass")!.textContent = player.classId || "No class";
+    frame.querySelector<HTMLElement>(".partyHealth > span")!.style.width = `${Math.max(0, player.hp / player.maxHealth * 100)}%`;
+    frame.querySelector<HTMLElement>(".partyHealth .partyMeterLabel")!.textContent = `HP ${Math.round(player.hp)}/${Math.round(player.maxHealth)}`;
+    const resource = frame.querySelector<HTMLElement>(".partyResource")!;
+    const resourcePercent = player.maxResource > 0 ? Math.max(0, Math.min(100, player.resource / player.maxResource * 100)) : 0;
+    resource.querySelector<HTMLElement>(":scope > span")!.style.width = `${resourcePercent}%`;
+    resource.querySelector<HTMLElement>(".partyMeterLabel")!.textContent = `${resourceLabel(player.resourceType)} ${Math.round(player.resource)}/${Math.round(player.maxResource)}`;
+    frame.querySelector<HTMLElement>(".partyState")!.hidden = !player.dead;
+    syncEffectGroups(frame.querySelector<HTMLElement>(".partyEffects")!, player.activeEffects || [], "party");
+  }
+}
+
+function renderEffectGroups(effects: ActiveEffect[], context: "self" | "target" | "party") {
+  const active = effects.filter((effect) => effect.permanent || (effect.remaining ?? 0) > 0);
+  if (!active.length) return `<div class="effectGroups effectGroups--${context}" data-testid="effect-groups"></div>`;
+  const renderKind = (kind: "buff" | "debuff") => {
+    const entries = active.filter((effect) => effect.kind === kind);
+    if (!entries.length) return "";
+    return `<div class="effectRow effectRow--${kind}" data-effect-kind="${kind}">${entries.map(renderEffectIcon).join("")}</div>`;
+  };
+  return `<div class="effectGroups effectGroups--${context}" data-testid="effect-groups">${renderKind("buff")}${renderKind("debuff")}</div>`;
+}
+
+function syncEffectGroups(container: HTMLElement, effects: ActiveEffect[], context: "self" | "target" | "party") {
+  const active = effects.filter((effect) => effect.permanent || (effect.remaining ?? 0) > 0);
+  const signature = active.map((effect) => `${effect.id}:${effect.kind}`).join("|");
+  if (container.dataset.effectSignature !== signature) {
+    container.innerHTML = renderEffectGroups(active, context);
+    container.dataset.effectSignature = signature;
+  }
+  const byId = new Map(active.map((effect) => [effect.id, effect]));
+  container.querySelectorAll<HTMLElement>(".effectIcon").forEach((icon) => {
+    const effect = byId.get(icon.dataset.effectId || "");
+    if (!effect) return;
+    icon.dataset.remaining = String(effect.remaining ?? "");
+    icon.querySelector<HTMLElement>(".effectTimer")!.textContent = effect.permanent ? "∞" : formatEffectTime(effect.remaining || 0);
+  });
+}
+
+function renderEffectIcon(effect: ActiveEffect) {
+  const ability = state?.abilities[effect.abilityId];
+  const name = ability?.name || effect.abilityId.replaceAll("_", " ");
+  const timer = effect.permanent ? "∞" : formatEffectTime(effect.remaining || 0);
+  const icon = effectIcon(effect.abilityId);
+  return `<span class="effectIcon effectIcon--${effect.kind}" tabindex="0" role="img" data-testid="effect-icon" data-effect-id="${escapeHtml(effect.id)}" data-ability-id="${escapeHtml(effect.abilityId)}" data-source-id="${escapeHtml(effect.sourceId)}" data-kind="${effect.kind}" data-remaining="${effect.remaining ?? ""}" data-permanent="${effect.permanent}" aria-label="${escapeHtml(name)}, ${effect.kind}">
+    <span class="effectArt" style="--effect-hue:${icon.hue}">${icon.symbol}</span>
+    <b class="effectTimer">${timer}</b>${effect.stacks > 1 ? `<i class="effectStacks">${effect.stacks}</i>` : ""}
+  </span>`;
+}
+
+function formatEffectTime(seconds: number) {
+  if (seconds < 10) return seconds.toFixed(1);
+  if (seconds < 60) return String(Math.ceil(seconds));
+  return `${Math.floor(seconds / 60)}m`;
+}
+
+function effectIcon(id: string) {
+  const rules: Array<[RegExp, string, number]> = [
+    [/renew|rejuvenation|wild_growth/, "✚", 115], [/riptide/, "≋", 195], [/shield|barrier|ice_block/, "◆", 205],
+    [/fire|meteor|explosive/, "♨", 18], [/poison/, "☠", 95], [/pain|shadow/, "✦", 278], [/moon/, "☾", 235],
+    [/frost|nova/, "❄", 190], [/stun|slam|justice/, "✹", 45], [/slow|judgement/, "⌛", 210], [/rake|bleed/, "爪", 350],
+    [/sprint|haste|adrenaline/, "➤", 80], [/vanish|stealth/, "◉", 270], [/bear/, "熊", 28], [/cat/, "猫", 320],
+    [/blessing|holy|paladin/, "✥", 48], [/whirlwind|aura/, "◌", 185]
+  ];
+  const match = rules.find(([pattern]) => pattern.test(id));
+  if (match) return { symbol: match[1], hue: match[2] };
+  const hash = [...id].reduce((sum, char) => sum + char.charCodeAt(0), 0);
+  return { symbol: (state?.abilities[id]?.name || id).charAt(0).toUpperCase(), hue: hash % 360 };
 }
 
 function markSelectedPartyFrame(playerId: string) {
@@ -1299,6 +1416,27 @@ function hideAbilityTooltip() {
   hoverRangeRing?.dispose();
   hoverRangeRing = null;
   document.querySelector<HTMLElement>("#abilityTooltip")!.style.display = "none";
+}
+
+function showEffectTooltip(icon: HTMLElement) {
+  if (!state) return;
+  const abilityId = icon.dataset.abilityId || "";
+  const ability = state.abilities[abilityId];
+  const kind = icon.dataset.kind === "debuff" ? "Debuff" : "Buff";
+  const source = state.players[icon.dataset.sourceId || ""]?.name || "Unknown source";
+  const permanent = icon.dataset.permanent === "true";
+  const remaining = Number(icon.dataset.remaining || 0);
+  const tooltip = document.querySelector<HTMLElement>("#effectTooltip")!;
+  tooltip.innerHTML = `<h3>${escapeHtml(ability?.name || abilityId.replaceAll("_", " "))}</h3><b class="effectTooltipKind effectTooltipKind--${kind.toLowerCase()}">${kind}</b><p>${escapeHtml(ability?.description || "Active combat effect.")}</p><div>Source: <b>${escapeHtml(source)}</b></div><div>Remaining: <b>${permanent ? "Permanent" : formatEffectTime(remaining)}</b></div>`;
+  const rect = icon.getBoundingClientRect();
+  const width = 290;
+  tooltip.style.left = `${Math.max(8, Math.min(window.innerWidth - width - 8, rect.left + rect.width / 2 - width / 2))}px`;
+  tooltip.style.top = `${Math.min(window.innerHeight - 170, rect.bottom + 8)}px`;
+  tooltip.style.display = "block";
+}
+
+function hideEffectTooltip() {
+  document.querySelector<HTMLElement>("#effectTooltip")!.style.display = "none";
 }
 
 function updateHoverRangeIndicator() {
