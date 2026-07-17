@@ -211,6 +211,8 @@ arena.position.y = -0.08;
 arena.receiveShadows = false;
 createGroundDressing();
 const lobbyScenery = createLobbyScenery();
+const pvpStartGates: Mesh[] = [];
+let pvpGateAnimationStartedAt: number | null = null;
 if (isPvpMode) {
   scene.meshes.forEach((mesh)=>mesh.setEnabled(false));
   buildUnifiedPvpArena();
@@ -222,7 +224,34 @@ function buildUnifiedPvpArena() {
   const slope=Math.atan2(5,8);for(const [x,rotation] of [[-22,-slope],[22,slope]] as Array<[number,number]>){const ramp=MeshBuilder.CreateBox(`end-ramp-${x}`,{width:Math.sqrt(89),depth:8,height:.5},scene);ramp.position.set(x,2.35,0);ramp.rotation.z=rotation;ramp.material=bridge.material;}
   for(const x of [-7,7])for(const z of [-8.5,8.5]){const ramp=MeshBuilder.CreateBox(`center-ramp-${x}-${z}`,{width:4.6,depth:Math.sqrt(106),height:.45},scene);ramp.position.set(x,2.35,z);ramp.rotation.x=z<0?-Math.atan2(5,9):Math.atan2(5,9);ramp.material=bridge.material;}
   for(const x of [-8,8]){const pillar=MeshBuilder.CreateCylinder(`pillar-${x}`,{diameter:4.1,height:5.2,tessellation:8},scene);pillar.position.set(x,2.55,0);pillar.material=mat(`pillar-${x}-mat`,new Color3(.34,.28,.25));}
-  for(const side of [-1,1]){const gate=MeshBuilder.CreateBox(`gate-${side}`,{width:1,height:5.5,depth:10},scene);gate.position.set(side*24.7,2.7,0);gate.material=mat(`gate-${side}-mat`,side<0?new Color3(.08,.2,.42):new Color3(.48,.08,.06));}
+  for(const side of [-1,1]){
+    const gate=MeshBuilder.CreateBox(`gate-${side}`,{width:.8,height:6.5,depth:10},scene);
+    gate.position.set(side*24.7,3.25,0);
+    gate.rotation.set(0,0,0);
+    gate.rotationQuaternion=null;
+    gate.material=mat(`gate-${side}-mat`,side<0?new Color3(.08,.2,.42):new Color3(.48,.08,.06));
+    pvpStartGates.push(gate);
+  }
+}
+
+function animatePvpStartGates() {
+  if (!isPvpMode || !pvpStartGates.length) return;
+  if (state?.matchState === "lobby") {
+    for (const gate of pvpStartGates) {
+      gate.setEnabled(true);
+      gate.position.y=3.25;
+      gate.visibility=1;
+    }
+    return;
+  }
+  if (pvpGateAnimationStartedAt===null) return;
+  const progress=Math.min(1,(performance.now()-pvpGateAnimationStartedAt)/1400);
+  const eased=1-Math.pow(1-progress,3);
+  for (const gate of pvpStartGates) {
+    gate.position.y=3.25+eased*8;
+    gate.visibility=1-eased;
+    if(progress>=1)gate.setEnabled(false);
+  }
 }
 
 const configuredWsUrl = import.meta.env.VITE_WS_URL as string | undefined;
@@ -364,6 +393,8 @@ function connect() {
     snapshotReceivedAt = performance.now();
     uiDirty = true;
     const matchStarted = previousState?.matchState === "lobby" && state.matchState === "running";
+    if (isPvpMode && state.matchState === "lobby") pvpGateAnimationStartedAt=null;
+    if (isPvpMode && matchStarted) pvpGateAnimationStartedAt=performance.now();
     staticWorldDirty = matchStarted || incomingHasStatic || staticWorldSignature !== lastStaticWorldSignature;
     if (matchStarted) lastStaticWorldSignature = "";
     else lastStaticWorldSignature = staticWorldSignature;
@@ -820,6 +851,7 @@ engine.runRenderLoop(() => {
   renderWorld();
   updateLobbyPreviewPlacement();
   animateWorld();
+  animatePvpStartGates();
   updateHoverRangeIndicator();
   updateCastBar();
   updateAutoAttackBar();
