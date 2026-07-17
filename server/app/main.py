@@ -12,6 +12,7 @@ from .pvp_game import pvp_game
 
 clients: dict[str, WebSocket] = {}
 pvp_clients: dict[str, WebSocket] = {}
+pvp_static_sent_at: dict[str, float] = {}
 client_versions: dict[str, int] = {}
 client_map_revisions: dict[str, int] = {}
 client_static_sent_at: dict[str, float] = {}
@@ -65,10 +66,15 @@ async def broadcast(now: float) -> None:
 async def broadcast_pvp() -> None:
     async def send_snapshot(player_id: str, ws: WebSocket) -> None:
         try:
-            await ws.send_json(await pvp_game.snapshot(player_id))
+            now = time.monotonic()
+            include_static = now - pvp_static_sent_at.get(player_id, 0) >= STATIC_REFRESH_INTERVAL
+            await ws.send_json(await pvp_game.snapshot(player_id, include_static=include_static))
+            if include_static:
+                pvp_static_sent_at[player_id] = now
         except Exception:
             if pvp_clients.get(player_id) is ws:
                 pvp_clients.pop(player_id, None)
+                pvp_static_sent_at.pop(player_id, None)
                 await pvp_game.remove_player(player_id)
 
     await asyncio.gather(*(send_snapshot(player_id, ws) for player_id, ws in list(pvp_clients.items())))
@@ -175,6 +181,7 @@ async def pvp_websocket_endpoint(ws: WebSocket):
                 pass
         pvp_clients[player.id] = ws
         await ws.send_json(await pvp_game.snapshot(player.id))
+        pvp_static_sent_at[player.id] = time.monotonic()
         while True:
             await pvp_game.handle_message(player.id, await ws.receive_json())
     except WebSocketDisconnect:
@@ -182,4 +189,5 @@ async def pvp_websocket_endpoint(ws: WebSocket):
     finally:
         if pvp_clients.get(player.id) is ws:
             pvp_clients.pop(player.id, None)
+            pvp_static_sent_at.pop(player.id, None)
             await pvp_game.remove_player(player.id)

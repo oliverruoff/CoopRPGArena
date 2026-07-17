@@ -1,5 +1,6 @@
 import "./pvp.css";
 import "./pvp-mobile.css";
+import "./pvp-match.css";
 import {
   ArcRotateCamera, Color3, Color4, DirectionalLight, Engine, HemisphericLight,
   Mesh, MeshBuilder, PBRMaterial, Scene, ShadowGenerator, StandardMaterial,
@@ -27,6 +28,9 @@ type PvPState = {
   abilities: Record<string, Ability>; players: Record<string, PvPPlayer>;
   events: Array<Record<string, unknown>>;
 };
+type IncomingPvPState = Omit<PvPState, "attributes" | "classes" | "abilities"> & {
+  attributes?: Record<string, AttributeData>; classes?: Record<string, ClassData>; abilities?: Record<string, Ability>;
+};
 
 document.title = "Klingenklamm · PvP Arena";
 document.querySelector<HTMLDivElement>("#app")!.innerHTML = `
@@ -53,14 +57,11 @@ document.querySelector<HTMLDivElement>("#app")!.innerHTML = `
     <div id="pvpTarget" class="targetFrame">Kein Ziel</div>
     <div id="prepBanner" class="prepBanner"></div>
     <div id="eventFeed" class="eventFeed"></div>
-    <div class="selfHud"><div id="selfName"></div><div class="bar hp"><i id="selfHp"></i><span id="selfHpText"></span></div><div class="bar resource"><i id="selfResource"></i><span id="selfResourceText"></span></div><div id="actionBar" class="actionBar"></div><div id="castBar" class="castBar"><i></i><span></span></div></div>
+    <div class="selfHud"><div id="selfName"></div><div class="bar hp"><i id="selfHp"></i><span id="selfHpText"></span></div><div class="bar resource"><i id="selfResource"></i><span id="selfResourceText"></span></div></div>
+    <div id="actionBar" class="actionBar" data-testid="pvp-action-bar"></div>
+    <div id="castBar" class="castBar"><i></i><span></span></div>
     <div id="mobileControls" data-testid="pvp-mobile-controls">
-      <div class="mobileMovePad" aria-label="Bewegungssteuerung">
-        <button data-move="up" aria-label="Vorwärts">▲</button>
-        <button data-move="left" aria-label="Links">◀</button>
-        <button data-move="down" aria-label="Rückwärts">▼</button>
-        <button data-move="right" aria-label="Rechts">▶</button>
-      </div>
+      <div id="pvpMoveStick" data-testid="pvp-move-stick" aria-label="Charakter bewegen"><span id="pvpMoveStickKnob"></span></div>
       <div class="mobileTargetButtons">
         <button data-cycle="enemy" data-testid="pvp-mobile-enemy-target">Gegner</button>
         <button data-cycle="ally" data-testid="pvp-mobile-ally-target">Verbündeter</button>
@@ -72,19 +73,28 @@ document.querySelector<HTMLDivElement>("#app")!.innerHTML = `
 `;
 
 const canvas = document.querySelector<HTMLCanvasElement>("#pvpCanvas")!;
-const engine = new Engine(canvas, true, { preserveDrawingBuffer: true, stencil: true });
+const touchDevice = navigator.maxTouchPoints > 0 || window.matchMedia("(pointer: coarse)").matches;
+const mobileViewport = window.innerWidth <= 900;
+const reducedRendering = touchDevice || mobileViewport;
+const engine = new Engine(canvas, !reducedRendering, { preserveDrawingBuffer: false, stencil: true });
+engine.setHardwareScalingLevel(1 / (reducedRendering ? 1 : Math.min(window.devicePixelRatio || 1, 1.5)));
 const scene = new Scene(engine);
 (canvas as HTMLCanvasElement & { scene?: Scene }).scene = scene;
 scene.clearColor = new Color4(0.055, 0.045, 0.065, 1);
 scene.fogMode = Scene.FOGMODE_EXP2;
 scene.fogDensity = 0.008;
 scene.fogColor = new Color3(0.12, 0.08, 0.13);
-const camera = new ArcRotateCamera("pvp-camera", -Math.PI / 2, 0.92, 54, new Vector3(0, 2, 0), scene);
-camera.lowerRadiusLimit = 35; camera.upperRadiusLimit = 65; camera.lowerBetaLimit = 0.6; camera.upperBetaLimit = 1.25;
-camera.attachControl(canvas, true);
+const CAMERA_ALPHA = -Math.PI / 2;
+const CAMERA_BETA = 0.9;
+const DESKTOP_CAMERA_RADIUS = 44;
+const MOBILE_CAMERA_RADIUS = 50;
+const camera = new ArcRotateCamera("pvp-camera", CAMERA_ALPHA, CAMERA_BETA, mobileViewport ? MOBILE_CAMERA_RADIUS : DESKTOP_CAMERA_RADIUS, new Vector3(0, 2, 0), scene);
+camera.inputs.clear();
+camera.lowerAlphaLimit = CAMERA_ALPHA; camera.upperAlphaLimit = CAMERA_ALPHA;
+camera.lowerBetaLimit = CAMERA_BETA; camera.upperBetaLimit = CAMERA_BETA;
 new HemisphericLight("sky", new Vector3(0, 1, 0), scene).intensity = 0.72;
 const sun = new DirectionalLight("sun", new Vector3(-0.5, -1, 0.4), scene); sun.position = new Vector3(20, 35, -15); sun.intensity = 1.25;
-const shadows = new ShadowGenerator(1024, sun); shadows.useBlurExponentialShadowMap = true; shadows.blurKernel = 18;
+const shadows = new ShadowGenerator(reducedRendering ? 512 : 1024, sun); shadows.useBlurExponentialShadowMap = !reducedRendering; shadows.blurKernel = reducedRendering ? 4 : 18;
 
 function material(name: string, color: Color3, roughness = 0.88) {
   const m = new PBRMaterial(name, scene); m.albedoColor = color; m.roughness = roughness; m.metallic = 0.02; return m;
@@ -121,10 +131,15 @@ function buildArena() {
   for (const side of [-1, 1]) {
     const gate = MeshBuilder.CreateBox(`gate-${side}`, { width: 1, height: 5.5, depth: 10 }, scene); gate.position.set(side * 24.7, 2.7, 0); gate.material = side < 0 ? material("blue-gate", new Color3(0.08, 0.2, 0.42), 0.45) : material("red-gate", new Color3(0.48, 0.08, 0.06), 0.45);
   }
-  for (let i = 0; i < 55; i++) {
-    const angle = i / 55 * Math.PI * 2; const radius = 32 + (i % 5) * 1.2;
-    const rock = MeshBuilder.CreatePolyhedron(`rim-rock-${i}`, { type: i % 2, size: 2.6 + (i % 4) }, scene);
-    rock.position.set(Math.cos(angle) * radius, 0.7 + (i % 3), Math.sin(angle) * radius * 0.62); rock.scaling.y = 1.7; rock.rotation.y = angle; rock.material = rockMat;
+  const rimRockCount = reducedRendering ? 30 : 48;
+  for (let i = 0; i < rimRockCount; i++) {
+    const angle = i / rimRockCount * Math.PI * 2; const radius = 32 + (i % 5) * 1.2;
+    // Keep the Blade's Edge silhouette without letting nearby scenery cover
+    // players when the fixed co-op camera follows either spawn side.
+    const size = 1.8 + (i % 4) * 0.35;
+    const rock = MeshBuilder.CreatePolyhedron(`rim-rock-${i}`, { type: i % 2, size }, scene);
+    rock.position.set(Math.cos(angle) * radius, 0.25, Math.sin(angle) * radius * 0.62);
+    rock.scaling.y = 1.15; rock.rotation.y = angle; rock.material = rockMat;
   }
   for (const x of [-27, 27]) for (const z of [-11, 11]) {
     const brazier = MeshBuilder.CreateCylinder(`brazier-${x}-${z}`, { diameter: 1.2, height: 2.4, tessellation: 6 }, scene); brazier.position.set(x, 1.2, z); brazier.material = metalMat;
@@ -135,6 +150,8 @@ function buildArena() {
 buildArena();
 
 let state: PvPState | null = null;
+let previousState: PvPState | null = null;
+let snapshotReceivedAt = 0;
 let ws: WebSocket;
 let activeTab: "spells" | "stats" = "spells";
 let lobbySignature = "";
@@ -153,7 +170,15 @@ function connect() {
   ws.onopen = () => document.querySelector("#connectionStatus")?.classList.add("hidden");
   ws.onclose = () => { document.querySelector("#connectionStatus")?.classList.remove("hidden"); setTimeout(connect, 1200); };
   ws.onmessage = (event) => {
-    state = JSON.parse(event.data) as PvPState;
+    const incoming = JSON.parse(event.data) as IncomingPvPState;
+    previousState = state;
+    state = {
+      ...incoming,
+      attributes: incoming.attributes ?? state?.attributes ?? {},
+      classes: incoming.classes ?? state?.classes ?? {},
+      abilities: incoming.abilities ?? state?.abilities ?? {},
+    };
+    snapshotReceivedAt = performance.now();
     if (state.reconnectToken) localStorage.setItem("coop-rpg-pvp-token", state.reconnectToken);
     render();
   };
@@ -184,7 +209,6 @@ function render() {
   document.body.classList.toggle("matchOver", state.matchState === "victory");
   if (state.matchState === "lobby") renderLobby();
   else renderCombat();
-  syncPlayers();
   renderEvents();
 }
 
@@ -238,21 +262,26 @@ function renderCombat() {
   (document.querySelector("#selfHp") as HTMLElement).style.width = `${me.hp / Math.max(1, me.maxHealth) * 100}%`; document.querySelector("#selfHpText")!.textContent = `${Math.ceil(me.hp)} HP${me.shield ? ` + ${Math.ceil(me.shield)}` : ""}`;
   (document.querySelector("#selfResource") as HTMLElement).style.width = `${me.resource / Math.max(1, me.maxResource) * 100}%`; document.querySelector("#selfResourceText")!.textContent = `${Math.ceil(me.resource)} ${me.resourceType || ""}`;
   const slots = Array.from({ length: 10 }, (_, i) => i + 1);
+  const slotKeys = ["1", "2", "3", "4", "Q", "E", "R", "F", "G", "C"];
   const slotAbilities = slots.map(slot => Object.entries(me.abilitySlots).find(([, assigned]) => assigned === slot)?.[0] || "");
   const nextActionBarSignature = slotAbilities.join("|");
   if (nextActionBarSignature !== actionBarSignature) {
     actionBarSignature = nextActionBarSignature;
     document.querySelector("#actionBar")!.innerHTML = slots.map((slot, index) => {
       const abilityId = slotAbilities[index]; const a = abilityId ? state!.abilities[abilityId] : null;
-      return `<button data-slot="${slot}" data-ability-id="${abilityId}" ${a ? "" : "disabled"}><kbd>${slot === 10 ? 0 : slot}</kbd><b>${a?.name || ""}</b><i hidden></i></button>`;
+      const hue = a ? abilityHue(a) : 215;
+      return `<button data-slot="${slot}" data-ability-id="${abilityId}" style="--ability-hue:${hue}" ${a ? "" : "disabled"} data-testid="pvp-ability-slot-${slot}"><span class="abilityArt">${a ? abilityGlyph(a) : ""}</span><span class="abilityKey">${slotKeys[index]}</span><span class="abilityName">${a?.name || "Leer"}</span><span class="cooldownOverlay" hidden></span><span class="cooldownText"></span></button>`;
     }).join("");
     document.querySelectorAll<HTMLButtonElement>("#actionBar button[data-slot]").forEach(button => button.onclick = () => castSlot(Number(button.dataset.slot)));
   }
   document.querySelectorAll<HTMLButtonElement>("#actionBar button[data-ability-id]").forEach(button => {
     const cooldown = me.cooldowns[button.dataset.abilityId || ""] || 0;
-    const overlay = button.querySelector<HTMLElement>("i")!;
-    overlay.hidden = cooldown <= 0;
-    overlay.textContent = cooldown > 0 ? cooldown.toFixed(1) : "";
+    const overlay = button.querySelector<HTMLElement>(".cooldownOverlay")!;
+    const cooldownText = button.querySelector<HTMLElement>(".cooldownText")!;
+    const shownCooldown = Math.max(cooldown, me.globalCooldown || 0);
+    button.classList.toggle("onCooldown", shownCooldown > 0);
+    overlay.hidden = shownCooldown <= 0;
+    cooldownText.textContent = shownCooldown > 0 ? shownCooldown.toFixed(1) : "";
   });
   const cast = document.querySelector<HTMLElement>("#castBar")!; cast.classList.toggle("visible", Boolean(me.casting));
   if (me.casting) { const progress = 1 - me.casting.remaining / Math.max(0.01, me.casting.duration); (cast.querySelector("i") as HTMLElement).style.width = `${progress * 100}%`; cast.querySelector("span")!.textContent = state.abilities[me.casting.abilityId]?.name || "Wirken"; }
@@ -270,10 +299,24 @@ function syncPlayers() {
   for (const [id, node] of playerNodes) if (!live.has(id) || state!.players[id].spectator || state!.matchState === "lobby") { node.dispose(); playerNodes.delete(id); }
   if (state.matchState === "lobby") return;
   for (const p of Object.values(state.players)) {
-    if (p.spectator) continue; let node = playerNodes.get(p.id); if (!node) { node = createPlayer(p); playerNodes.set(p.id, node); }
-    const target = new Vector3(p.position.x, p.position.y, p.position.z); node.position = Vector3.Lerp(node.position, target, 0.32); node.rotation.y = p.facing; node.scaling.y = p.dead ? 0.28 : 1; node.setEnabled(true);
+    if (p.spectator) continue; let node = playerNodes.get(p.id); if (!node) { node = createPlayer(p); node.position.copyFromFloats(p.position.x, p.position.y, p.position.z); playerNodes.set(p.id, node); }
+    const position = interpolatedPlayerPosition(p.id, p.position);
+    node.position.copyFromFloats(position.x, position.y, position.z);
+    node.rotation.y += Math.atan2(Math.sin(p.facing - node.rotation.y), Math.cos(p.facing - node.rotation.y)) * 0.28;
+    node.scaling.y += ((p.dead ? 0.28 : 1) - node.scaling.y) * 0.22; node.setEnabled(true);
     const ring = node.getChildMeshes().find(m => m.name.endsWith("-ring")); if (ring) ring.isVisible = p.id === state.players[state.you]?.targetId || p.id === state.players[state.you]?.allyTargetId;
   }
+}
+
+function interpolatedPlayerPosition(id: string, current: Vec3): Vec3 {
+  const previous = previousState?.players[id]?.position;
+  if (!previous || !snapshotReceivedAt) return current;
+  const alpha = Math.min(1, Math.max(0, (performance.now() - snapshotReceivedAt) / (1000 / 15)));
+  return {
+    x: previous.x + (current.x - previous.x) * alpha,
+    y: previous.y + (current.y - previous.y) * alpha,
+    z: previous.z + (current.z - previous.z) * alpha,
+  };
 }
 
 function createPlayer(p: PvPPlayer) {
@@ -289,25 +332,44 @@ function createPlayer(p: PvPPlayer) {
 scene.onPointerDown = (_, info) => { const id = (info?.pickedMesh as Mesh | undefined)?.metadata?.playerId as string | undefined; if (id) send({ type: "select_target", targetId: id }); };
 const movement: Record<string, boolean> = {};
 const keyMap: Record<string, string> = { KeyW: "up", KeyS: "down", KeyA: "left", KeyD: "right" };
+const abilityKeyMap: Record<string, number> = { Digit1: 1, Digit2: 2, Digit3: 3, Digit4: 4, KeyQ: 5, KeyE: 6, KeyR: 7, KeyF: 8, KeyG: 9, KeyC: 10 };
 window.addEventListener("keydown", event => {
   if (!state || state.matchState !== "running" || (event.target as HTMLElement).matches("input,select")) return;
   if (keyMap[event.code] && !movement[keyMap[event.code]]) { movement[keyMap[event.code]] = true; send({ type: "input", movement }); }
   if (event.code === "Tab") { event.preventDefault(); send({ type: "cycle_target", ally: event.shiftKey }); }
-  if (/^Digit[0-9]$/.test(event.code)) { const n = Number(event.code.slice(5)); castSlot(n === 0 ? 10 : n); }
+  if (abilityKeyMap[event.code]) castSlot(abilityKeyMap[event.code]);
 });
 window.addEventListener("keyup", event => { if (keyMap[event.code]) { movement[keyMap[event.code]] = false; send({ type: "input", movement }); } });
-document.querySelectorAll<HTMLButtonElement>("#mobileControls [data-move]").forEach(button => {
-  const direction = button.dataset.move!;
-  const update = (active: boolean) => {
-    movement[direction] = active;
-    button.classList.toggle("pressed", active);
-    send({ type: "input", movement });
-  };
-  button.addEventListener("pointerdown", event => { event.preventDefault(); button.setPointerCapture(event.pointerId); update(true); });
-  button.addEventListener("pointerup", () => update(false));
-  button.addEventListener("pointercancel", () => update(false));
-  button.addEventListener("lostpointercapture", () => { if (movement[direction]) update(false); });
-});
+setInterval(() => { if (state?.matchState === "running" && !state.players[state.you]?.spectator) send({ type: "input", movement }); }, 50);
+
+const moveStick = document.querySelector<HTMLElement>("#pvpMoveStick")!;
+const moveStickKnob = document.querySelector<HTMLElement>("#pvpMoveStickKnob")!;
+let movePointerId: number | null = null;
+function updateTouchMovement(event: PointerEvent) {
+  const rect = moveStick.getBoundingClientRect();
+  const radius = rect.width * 0.34;
+  let dx = event.clientX - (rect.left + rect.width / 2);
+  let dy = event.clientY - (rect.top + rect.height / 2);
+  const distance = Math.hypot(dx, dy);
+  if (distance > radius) { dx = dx / distance * radius; dy = dy / distance * radius; }
+  moveStickKnob.style.transform = `translate(${dx}px, ${dy}px)`;
+  const deadZone = radius * 0.22;
+  movement.left = dx < -deadZone; movement.right = dx > deadZone;
+  movement.up = dy < -deadZone; movement.down = dy > deadZone;
+  send({ type: "input", movement });
+}
+function stopTouchMovement(pointerId?: number) {
+  if (pointerId !== undefined && movePointerId !== pointerId) return;
+  movePointerId = null;
+  movement.up = movement.down = movement.left = movement.right = false;
+  moveStickKnob.style.transform = "translate(0, 0)";
+  send({ type: "input", movement });
+}
+moveStick.addEventListener("pointerdown", event => { if (state?.matchState !== "running") return; event.preventDefault(); movePointerId = event.pointerId; updateTouchMovement(event); });
+window.addEventListener("pointermove", event => { if (event.pointerId === movePointerId) { event.preventDefault(); updateTouchMovement(event); } }, { passive: false });
+window.addEventListener("pointerup", event => stopTouchMovement(event.pointerId));
+window.addEventListener("pointercancel", event => stopTouchMovement(event.pointerId));
+window.addEventListener("blur", () => { if (movePointerId !== null) stopTouchMovement(); });
 document.querySelector<HTMLButtonElement>("[data-cycle=enemy]")!.addEventListener("click", () => send({ type: "cycle_target", ally: false }));
 document.querySelector<HTMLButtonElement>("[data-cycle=ally]")!.addEventListener("click", () => send({ type: "cycle_target", ally: true }));
 function castSlot(slot: number) { const me = state?.players[state.you]; const target = me ? state?.players[me.targetId || ""] : null; send({ type: "cast_ability", abilitySlot: slot, groundPosition: target?.position || me?.position }); }
@@ -325,8 +387,33 @@ function renderEvents() {
 function classIcon(id: string) { return ({ warrior: "⚔", hunter: "➶", priest: "✦", mage: "✧", rogue: "◆", druid: "♣", shaman: "ϟ", paladin: "☀" } as Record<string, string>)[id] || "◇"; }
 function classColour(id: string) { const c: Record<string, Color3> = { warrior: new Color3(.55,.38,.28), hunter: new Color3(.35,.55,.2), priest: new Color3(.85,.78,.65), mage: new Color3(.18,.5,.85), rogue: new Color3(.65,.58,.16), druid: new Color3(.72,.3,.08), shaman: new Color3(.12,.32,.8), paladin: new Color3(.9,.38,.6) }; return c[id] || new Color3(.5,.5,.5); }
 function abilityGlyph(a: Ability) { const t = a.effects?.[0]?.type || ""; return t.includes("heal") || a.targetType === "ally" ? "✦" : t.includes("damage") ? "✹" : t.includes("shield") ? "⬡" : "◆"; }
+function abilityHue(a: Ability) { const school = a.effects?.map(effect => (effect as { school?: string }).school).find(Boolean); return ({ fire: 16, frost: 202, arcane: 278, holy: 48, shadow: 282, nature: 122, physical: 28 } as Record<string, number>)[school || ""] ?? (a.targetType === "ally" ? 142 : 215); }
 function attributeText(a: AttributeData) { const amount = a.mode === "mult" ? `${Math.round(Math.abs(a.value - 1) * 100)}%` : a.stat === "critChance" || a.stat === "cooldownReduction" ? `${Math.round(a.value * 100)}%` : String(a.value); return `${a.value < 1 ? "−" : "+"}${amount}`; }
 function escapeHtml(text: string) { const div = document.createElement("div"); div.textContent = text; return div.innerHTML; }
 
-engine.runRenderLoop(() => scene.render());
-window.addEventListener("resize", () => engine.resize());
+function resizeGame() {
+  engine.resize();
+  camera.radius = window.innerWidth <= 900 && window.innerHeight >= window.innerWidth ? MOBILE_CAMERA_RADIUS : DESKTOP_CAMERA_RADIUS;
+}
+engine.runRenderLoop(() => {
+  syncPlayers();
+  const currentState = state;
+  if (currentState && currentState.matchState !== "lobby") {
+    const me = currentState.players[currentState.you];
+    if (me && !me.spectator) {
+      const position = interpolatedPlayerPosition(me.id, me.position);
+      camera.alpha = CAMERA_ALPHA; camera.beta = CAMERA_BETA;
+      camera.target.copyFromFloats(position.x, Math.min(2.2, position.y * 0.28), position.z);
+    } else {
+      const active = Object.values(currentState.players).filter(player => !player.spectator);
+      if (active.length) {
+        camera.target.copyFromFloats(active.reduce((sum, player) => sum + player.position.x, 0) / active.length, 1.2, active.reduce((sum, player) => sum + player.position.z, 0) / active.length);
+      }
+    }
+  }
+  scene.render();
+});
+window.addEventListener("resize", resizeGame);
+window.addEventListener("orientationchange", resizeGame);
+window.visualViewport?.addEventListener("resize", resizeGame);
+resizeGame();

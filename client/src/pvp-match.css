@@ -1,0 +1,224 @@
+body.inMatch #pvpCanvas {
+  touch-action: none;
+}
+
+body.inMatch #pvpHud {
+  position: fixed;
+  inset: 0;
+  z-index: 4;
+  color: #111827;
+  font-family: Inter, system-ui, sans-serif;
+  pointer-events: none;
+}
+
+body.inMatch .combatTeam {
+  position: absolute;
+  top: 20px;
+  display: grid;
+  gap: 8px;
+  width: 190px;
+  pointer-events: auto;
+}
+
+body.inMatch .blueFrames { left: 20px; }
+body.inMatch .redFrames { right: 20px; }
+
+body.inMatch .combatFrame {
+  position: relative;
+  box-sizing: border-box;
+  width: 190px;
+  min-height: 68px;
+  padding: 9px 10px 16px;
+  overflow: hidden;
+  border: 2px solid transparent;
+  border-radius: 14px;
+  background: rgba(20, 26, 38, .86);
+  color: #fff;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, .26);
+  text-align: left;
+  cursor: pointer;
+  user-select: none;
+}
+
+body.inMatch .combatFrame:hover,
+body.inMatch .combatFrame.targeted {
+  border-color: #60a5fa;
+  background: rgba(37, 65, 112, .9);
+  box-shadow: 0 0 0 2px rgba(96, 165, 250, .24), 0 8px 20px rgba(0, 0, 0, .3);
+}
+
+body.inMatch .redFrames .combatFrame.targeted {
+  border-color: #f87171;
+  background: rgba(103, 38, 48, .9);
+  box-shadow: 0 0 0 2px rgba(248, 113, 113, .22), 0 8px 20px rgba(0, 0, 0, .3);
+}
+
+body.inMatch .combatFrame div,
+body.inMatch .combatFrame b,
+body.inMatch .combatFrame small {
+  display: block;
+}
+
+body.inMatch .combatFrame b { font-size: 12px; }
+body.inMatch .combatFrame small { margin-top: 2px; color: rgba(255, 255, 255, .58); font-size: 9px; }
+body.inMatch .combatFrame > span { position: absolute; right: 9px; bottom: 16px; z-index: 2; color: #fff; font-size: 8px; text-shadow: 0 1px 2px #000; }
+body.inMatch .combatFrame > i { position: absolute; right: 8px; bottom: 7px; left: 8px; height: 8px; border-radius: 999px; background: linear-gradient(180deg, #62dc82, #29934c); box-shadow: inset 0 1px rgba(255,255,255,.35); }
+body.inMatch .redFrames .combatFrame > i { background: linear-gradient(180deg, #ff7272, #c9273d); }
+body.inMatch .combatFrame.dead { opacity: .58; filter: grayscale(.85); }
+
+body.inMatch .targetFrame {
+  position: absolute;
+  top: 20px;
+  left: 50%;
+  min-width: 260px;
+  padding: 14px;
+  transform: translateX(-50%);
+  border: 1px solid rgba(255,255,255,.72);
+  border-radius: 18px;
+  background: linear-gradient(145deg, rgba(255,255,255,.94), rgba(224,232,243,.84));
+  color: #111827;
+  box-shadow: 0 10px 28px rgba(8,15,28,.2), inset 0 1px #fff;
+  text-align: center;
+  font-weight: 900;
+  pointer-events: auto;
+}
+
+body.inMatch .targetFrame b,
+body.inMatch .targetFrame span { display: block; }
+body.inMatch .targetFrame span { margin-top: 3px; color: #536173; font-size: 10px; }
+
+body.inMatch .selfHud {
+  position: absolute;
+  bottom: 96px;
+  left: 50%;
+  display: grid;
+  gap: 7px;
+  width: min(520px, 80vw);
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+body.inMatch #selfName {
+  color: #fff;
+  text-align: center;
+  text-shadow: 0 1px 3px #000;
+}
+
+body.inMatch #selfName b { font-size: 12px; }
+body.inMatch #selfName span { margin-left: 7px; color: rgba(255,255,255,.7); font-size: 10px; }
+
+body.inMatch .selfHud .bar {
+  position: relative;
+  width: 100%;
+  height: 20px;
+  margin: 0;
+  overflow: hidden;
+  border: 1px solid rgba(255,255,255,.28);
+  border-radius: 999px;
+  background: rgba(10,15,25,.62);
+  box-shadow: 0 5px 15px rgba(0,0,0,.18), inset 0 2px 4px rgba(0,0,0,.25);
+}
+
+body.inMatch .selfHud .bar i { display: block; height: 100%; transition: width 80ms linear; }
+body.inMatch .selfHud .bar.hp i { background: linear-gradient(180deg, #ff6b6b, #c9273d); box-shadow: inset 0 2px rgba(255,255,255,.3); }
+body.inMatch .selfHud .bar.resource i { background: linear-gradient(180deg, #68b6ff, #2563eb); box-shadow: inset 0 2px rgba(255,255,255,.3); }
+body.inMatch .selfHud .bar span { position: absolute; inset: 0; display: grid; place-items: center; color: #fff; font-size: 11px; font-weight: 900; text-shadow: 0 1px 3px #000; }
+
+body.inMatch .actionBar {
+  position: absolute;
+  bottom: 24px;
+  left: 50%;
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  width: min(1030px, calc(100vw - 24px));
+  margin: 0;
+  transform: translateX(-50%);
+  pointer-events: auto;
+}
+
+body.inMatch .actionBar button {
+  position: relative;
+  min-width: 76px;
+  height: 58px;
+  padding: 4px 5px;
+  overflow: hidden;
+  border: 1px solid rgba(147,197,253,.24);
+  border-radius: 8px;
+  background: linear-gradient(145deg, rgba(42,52,75,.97), rgba(12,17,29,.97));
+  color: #fff;
+  box-shadow: inset 0 1px rgba(255,255,255,.13), 0 7px 20px rgba(0,0,0,.34);
+  cursor: pointer;
+  text-shadow: 0 1px 3px #000;
+  touch-action: manipulation;
+}
+
+body.inMatch .actionBar button:disabled { opacity: .48; cursor: default; }
+body.inMatch .actionBar button:not(:disabled):hover { border-color: rgba(250,204,21,.72); box-shadow: inset 0 1px rgba(255,255,255,.22), 0 0 18px rgba(250,204,21,.2), 0 8px 20px rgba(0,0,0,.38); }
+body.inMatch .actionBar .abilityArt { position: absolute; inset: 3px; display: grid; place-items: center; border-radius: 5px; background: radial-gradient(circle at 34% 25%, hsla(var(--ability-hue),90%,68%,.95), hsla(var(--ability-hue),68%,28%,.94) 58%, #10131d); color: #fff; font: 21px Georgia,serif; opacity: .52; }
+body.inMatch .actionBar .abilityKey { position: relative; z-index: 2; display: block; color: #fde68a; font-size: 11px; font-weight: 900; line-height: 1; text-align: left; }
+body.inMatch .actionBar .abilityName { position: relative; z-index: 2; display: -webkit-box; margin-top: 17px; overflow: hidden; color: #fff; font-size: 10px; font-weight: 800; line-height: 1.05; text-align: center; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+body.inMatch .actionBar .cooldownOverlay { position: absolute; z-index: 3; inset: 0; background: rgba(15,23,42,.7); }
+body.inMatch .actionBar .cooldownText { position: absolute; z-index: 4; inset: 0; display: grid; place-items: center; color: #fff; font-size: 22px; font-weight: 1000; text-shadow: 0 2px 4px #000; pointer-events: none; }
+body.inMatch .actionBar button.onCooldown { filter: grayscale(.72); }
+
+body.inMatch .castBar {
+  position: absolute;
+  bottom: 205px;
+  left: 50%;
+  display: none;
+  width: 280px;
+  height: 18px;
+  margin: 0;
+  overflow: hidden;
+  transform: translateX(-50%);
+  border: 2px solid rgba(255,255,255,.8);
+  border-radius: 999px;
+  background: rgba(17,24,39,.72);
+  box-shadow: 0 8px 24px rgba(0,0,0,.28);
+}
+
+body.inMatch .castBar.visible { display: block; }
+body.inMatch .castBar i { display: block; height: 100%; background: linear-gradient(90deg,#f6d365,#fda085 72%,#fff3b0); }
+body.inMatch .castBar span { position: absolute; inset: 0; display: grid; place-items: center; color: #111827; font-size: 11px; font-weight: 900; }
+
+body.inMatch .prepBanner { top: 42%; color: #fff; font-family: Georgia,serif; font-size: 30px; text-shadow: 0 3px 14px #000; }
+body.inMatch .eventFeed { color: #fff; }
+
+body.inMatch #mobileControls { display: none; }
+
+@media (max-width: 900px) and (orientation: portrait) {
+  body.inMatch .combatTeam { top: max(8px, env(safe-area-inset-top)); width: 122px; gap: 4px; }
+  body.inMatch .blueFrames { left: 8px; }
+  body.inMatch .redFrames { right: 8px; }
+  body.inMatch .combatFrame { width: 122px; min-height: 50px; padding: 6px 7px 13px; border-radius: 10px; }
+  body.inMatch .combatFrame b { overflow: hidden; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+  body.inMatch .combatFrame small { font-size: 7px; }
+  body.inMatch .combatFrame > span { right: 6px; bottom: 11px; font-size: 6px; }
+  body.inMatch .combatFrame > i { right: 6px; bottom: 5px; left: 6px; height: 6px; }
+  body.inMatch .targetFrame { top: max(8px, env(safe-area-inset-top)); min-width: 0; max-width: 32vw; padding: 8px; border-radius: 12px; font-size: 9px; }
+  body.inMatch .targetFrame span { font-size: 7px; }
+
+  body.inMatch .selfHud { bottom: calc(222px + env(safe-area-inset-bottom)); width: calc(100vw - 24px); gap: 3px; }
+  body.inMatch #selfName b { font-size: 10px; }
+  body.inMatch #selfName span { font-size: 8px; }
+  body.inMatch .selfHud .bar { height: 14px; }
+  body.inMatch .selfHud .bar span { font-size: 9px; }
+
+  body.inMatch .actionBar { bottom: calc(108px + env(safe-area-inset-bottom)); display: grid; grid-template-columns: repeat(6,minmax(0,1fr)); gap: 4px; width: calc(100vw - 16px); }
+  body.inMatch .actionBar button { min-width: 0; width: 100%; height: 48px; padding: 3px 2px; border-radius: 10px; }
+  body.inMatch .actionBar .abilityArt { inset: 2px; font-size: 17px; }
+  body.inMatch .actionBar .abilityKey { padding-left: 2px; font-size: 10px; }
+  body.inMatch .actionBar .abilityName { margin-top: 13px; font-size: 7px; overflow-wrap: anywhere; }
+  body.inMatch .actionBar .cooldownText { font-size: 17px; }
+  body.inMatch .castBar { bottom: calc(280px + env(safe-area-inset-bottom)); width: min(260px,72vw); }
+
+  body.inMatch #mobileControls { position: absolute; inset: 0; display: block; pointer-events: none; }
+  body.inMatch #pvpMoveStick { position: absolute; left: max(14px,env(safe-area-inset-left)); bottom: max(12px,env(safe-area-inset-bottom)); width: 92px; height: 92px; border: 2px solid rgba(255,255,255,.5); border-radius: 50%; background: rgba(15,23,42,.5); box-shadow: inset 0 0 24px rgba(255,255,255,.08); pointer-events: auto; touch-action: none; }
+  body.inMatch #pvpMoveStickKnob { position: absolute; top: 28px; left: 28px; width: 36px; height: 36px; border-radius: 50%; background: rgba(255,255,255,.88); box-shadow: 0 4px 14px rgba(0,0,0,.35); pointer-events: none; }
+  body.inMatch .mobileTargetButtons { position: absolute; right: max(12px,env(safe-area-inset-right)); bottom: max(18px,env(safe-area-inset-bottom)); display: grid; grid-template-columns: repeat(2,62px); gap: 7px; pointer-events: auto; }
+  body.inMatch .mobileTargetButtons button { width: 62px; height: 54px; min-width: 0; min-height: 0; padding: 5px 3px; border: 2px solid rgba(183,198,211,.62); border-radius: 8px; background: linear-gradient(145deg,#536173,#303b4c 48%,#182131); color: #f8fafc; box-shadow: inset 0 3px rgba(255,255,255,.14),inset 0 -4px rgba(4,9,18,.42),0 5px 0 #0b1220,0 8px 16px rgba(0,0,0,.3); font-size: 8px; font-weight: 1000; text-transform: uppercase; text-shadow: 0 2px 2px #000; touch-action: none; }
+  body.inMatch [data-cycle="enemy"] { border-color: rgba(248,113,113,.78); background: linear-gradient(145deg,#8f4848,#632c35 52%,#351723); }
+  body.inMatch [data-cycle="ally"] { border-color: rgba(96,165,250,.78); background: linear-gradient(145deg,#446b91,#263d5c 55%,#14243b); }
+  body.inMatch .prepBanner { top: 40%; width: 100%; font-size: 23px; text-align: center; }
+}

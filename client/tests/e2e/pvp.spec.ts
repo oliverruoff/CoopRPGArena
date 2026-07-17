@@ -23,9 +23,18 @@ test("pvp has an isolated team and ten-point lobby at /pvp", async ({ page }) =>
       lowerFloor: Boolean(babylonScene?.getMeshByName("lower-arena")),
       pillarLeft: Boolean(babylonScene?.getMeshByName("pillar--8")),
       centralRamp: Boolean(babylonScene?.getMeshByName("center-ramp--7--8.5")),
+      cameraInputCount: Object.keys((babylonScene as any)?.activeCamera?.inputs?.attached || {}).length,
+      cameraAlpha: (babylonScene as any)?.activeCamera?.alpha,
+      cameraBeta: (babylonScene as any)?.activeCamera?.beta,
     };
   });
-  expect(scene).toEqual({ bridge: true, lowerFloor: true, pillarLeft: true, centralRamp: true });
+  expect(scene.bridge).toBe(true);
+  expect(scene.lowerFloor).toBe(true);
+  expect(scene.pillarLeft).toBe(true);
+  expect(scene.centralRamp).toBe(true);
+  expect(scene.cameraInputCount).toBe(0);
+  expect(scene.cameraAlpha).toBeCloseTo(-Math.PI / 2);
+  expect(scene.cameraBeta).toBeCloseTo(0.9);
 });
 
 
@@ -90,9 +99,11 @@ test("mobile match supports touch movement, enemy targeting, and ability buttons
   await page.goto("/pvp");
   await page.getByTestId("team-blue").click();
   await page.getByTestId("pvp-class-mage").click();
-  await page.getByTestId("pvp-spell-mage_fireball").click();
+  for (const spell of ["mage_fireball", "mage_frostbolt", "mage_frost_nova", "mage_meteor", "mage_arcane_blast"]) {
+    await page.getByTestId(`pvp-spell-${spell}`).click();
+  }
   await page.getByRole("button", { name: "Attribute" }).click();
-  for (let i = 0; i < 9; i++) await page.getByTestId("pvp-stat-max_health").click();
+  for (let i = 0; i < 5; i++) await page.getByTestId("pvp-stat-max_health").click();
 
   await request.post("http://127.0.0.1:8000/debug/pvp/action", {
     data: { action: "add_bot", payload: { team: "red", classId: "warrior", name: "Touch Bot", ready: true } },
@@ -100,17 +111,23 @@ test("mobile match supports touch movement, enemy targeting, and ability buttons
   await page.getByTestId("pvp-ready").click();
   await expect(page.getByTestId("pvp-hud")).toBeVisible({ timeout: 7000 });
   await expect(page.getByTestId("pvp-mobile-controls")).toBeVisible();
-  await expect(page.locator("#actionBar button[data-slot='1']")).toContainText("Firebolt");
+  await expect(page.getByTestId("pvp-ability-slot-1")).toContainText("1");
+  await expect(page.getByTestId("pvp-ability-slot-1")).toContainText("Firebolt");
+  await expect(page.getByTestId("pvp-ability-slot-5")).toContainText("Q");
+  await expect(page.getByTestId("pvp-ability-slot-5")).toContainText("Arcane Blast");
   await expect(page.locator("#prepBanner")).toBeEmpty({ timeout: 7000 });
 
   const before = await (await request.get("http://127.0.0.1:8000/debug/pvp/state")).json();
   const player = Object.values<any>(before.players).find((candidate) => candidate.team === "blue");
   const bot = Object.values<any>(before.players).find((candidate) => candidate.team === "red");
-  const up = page.locator("#mobileControls [data-move='up']");
-  const upBox = await up.boundingBox();
-  expect(upBox).not.toBeNull();
-  await page.mouse.move(upBox!.x + upBox!.width / 2, upBox!.y + upBox!.height / 2);
+  const stick = page.getByTestId("pvp-move-stick");
+  const stickBox = await stick.boundingBox();
+  expect(stickBox).not.toBeNull();
+  const centerX = stickBox!.x + stickBox!.width / 2;
+  const centerY = stickBox!.y + stickBox!.height / 2;
+  await page.mouse.move(centerX, centerY);
   await page.mouse.down();
+  await page.mouse.move(centerX, centerY - stickBox!.height * 0.3, { steps: 4 });
   await page.waitForTimeout(350);
   await page.mouse.up();
   await expect.poll(async () => {

@@ -752,13 +752,13 @@ class PvPGame:
                     return False
         return True
 
-    async def snapshot(self, player_id: str | None = None) -> dict[str, Any]:
+    async def snapshot(self, player_id: str | None = None, include_static: bool = True) -> dict[str, Any]:
         async with self._lock:
-            return self._snapshot_locked(player_id)
+            return self._snapshot_locked(player_id, include_static)
 
-    def _snapshot_locked(self, player_id: str | None = None) -> dict[str, Any]:
+    def _snapshot_locked(self, player_id: str | None = None, include_static: bool = True) -> dict[str, Any]:
         now = time.monotonic()
-        return {
+        snapshot = {
             "type": "pvp_state_snapshot",
             "you": player_id,
             "reconnectToken": self.players[player_id].reconnect_token if player_id in self.players else None,
@@ -769,14 +769,16 @@ class PvPGame:
             "selectedArena": self.selected_arena,
             "maxTeamSize": MAX_TEAM_SIZE,
             "buildPoints": BUILD_POINTS,
-            "attributes": PVP_ATTRIBUTES,
-            "classes": self.classes,
-            "abilities": self.abilities,
             "players": {pid: self._player_dict_locked(p, now) for pid, p in self.players.items()},
-            "arena": self._arena_dict(),
             "groundEffects": [{**e, "remaining": max(0, round(e["expiresAt"] - now, 1))} for e in self.ground_effects],
             "events": self.events[-30:],
         }
+        if include_static:
+            snapshot["attributes"] = PVP_ATTRIBUTES
+            snapshot["classes"] = self.classes
+            snapshot["abilities"] = self.abilities
+            snapshot["arena"] = self._arena_dict()
+        return snapshot
 
     def _player_dict_locked(self, p: PvPPlayer, now: float) -> dict[str, Any]:
         return {

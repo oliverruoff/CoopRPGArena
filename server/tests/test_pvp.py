@@ -115,3 +115,14 @@ def test_pvp_reset_does_not_touch_coop_singleton():
     configured_player(pvp, "blue")
     asyncio.run(pvp.reset())
     assert coop_game.match_state == original_state
+
+
+def test_dynamic_snapshot_reuses_static_catalogs():
+    game = PvPGame()
+    player = configured_player(game, "blue", "mage")
+    full = asyncio.run(game.snapshot(player.id))
+    dynamic = asyncio.run(game.snapshot(player.id, include_static=False))
+
+    assert {"abilities", "attributes", "classes", "arena"} <= full.keys()
+    assert not ({"abilities", "attributes", "classes", "arena"} & dynamic.keys())
+    assert dynamic["players"][player.id]["classId"] == "mage"
