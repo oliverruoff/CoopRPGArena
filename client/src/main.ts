@@ -60,7 +60,7 @@ root.innerHTML = `
       <div class="heroAura"></div>
       <div class="heroTitle" id="heroTitle">
         <span class="heroKicker">Choose your hero</span>
-        <h2>Who answers the call?</h2>
+        <h2>Select your class</h2>
         <p>Select a class to reveal their strengths.</p>
       </div>
       <div class="stageHint"><span>↔</span> Swipe or use arrow keys</div>
@@ -2564,7 +2564,7 @@ function createGroundDressing() {
 function createArenaTorches() {
   const count = lowSpecMode ? 10 : 16;
   const flames: Array<{ mesh: Mesh; phase: number }> = [];
-  const smoke: Array<{ mesh: Mesh; phase: number; baseY: number }> = [];
+  const smoke: Array<{ mesh: Mesh; phase: number; baseX: number; baseZ: number; size: number; drift: number }> = [];
   const fire = new Color3(1, 0.2, 0.015);
   const hot = new Color3(1, 0.78, 0.08);
   for (let i = 0; i < count; i++) {
@@ -2585,12 +2585,16 @@ function createArenaTorches() {
       flame.material = flameMat; flame.isPickable = false;
       flames.push({ mesh: flame, phase: i * 0.71 + layer * 1.9 });
     }
-    const smokeCount = lowSpecMode ? 1 : 2;
+    const smokeCount = lowSpecMode ? 2 : 4;
     for (let puff = 0; puff < smokeCount; puff++) {
-      const cloud = MeshBuilder.CreateSphere(`arena-torch-${i}-smoke-${puff}`, { diameter: 0.34 + puff * 0.12, segments: 6 }, scene);
-      cloud.parent = root; cloud.position.set((puff ? 1 : -1) * 0.08, 3.08 + puff * 0.45, 0);
-      cloud.material = transparentMat(`arena-torch-${i}-smoke-${puff}-mat`, new Color3(0.16, 0.14, 0.13), 0.2); cloud.isPickable = false;
-      smoke.push({ mesh: cloud, phase: i * 0.43 + puff * 2.4, baseY: cloud.position.y });
+      const size = 0.26 + (puff % 3) * 0.07;
+      const cloud = MeshBuilder.CreateBox(`arena-torch-${i}-smoke-${puff}`, { size: 1 }, scene);
+      const baseX = (puff % 2 ? 1 : -1) * (0.035 + (puff % 3) * 0.025);
+      const baseZ = ((puff + 1) % 3 - 1) * 0.055;
+      cloud.parent = root; cloud.position.set(baseX, 3.02, baseZ); cloud.scaling.set(size, size * 0.78, size);
+      const shade = 0.13 + (puff % 3) * 0.025;
+      cloud.material = transparentMat(`arena-torch-${i}-smoke-${puff}-mat`, new Color3(shade, shade * 0.94, shade * 0.88), 0); cloud.isPickable = false;
+      smoke.push({ mesh: cloud, phase: (i * 0.137 + puff / smokeCount) % 1, baseX, baseZ, size, drift: (puff % 2 ? 1 : -1) * (0.22 + (puff % 3) * 0.07) });
     }
   }
   scene.onBeforeRenderObservable.add(() => {
@@ -2601,11 +2605,17 @@ function createArenaTorches() {
       entry.mesh.rotation.y += 0.025;
     }
     for (const entry of smoke) {
-      const cycle = (time * 0.24 + entry.phase) % 1;
-      entry.mesh.position.y = entry.baseY + cycle * 0.9;
-      entry.mesh.position.x = Math.sin(time * 0.9 + entry.phase) * 0.13;
-      entry.mesh.scaling.setAll(0.65 + cycle * 0.8);
-      (entry.mesh.material as StandardMaterial).alpha = 0.2 * (1 - cycle);
+      const cycle = (time * 0.19 + entry.phase) % 1;
+      const billow = Math.sin(cycle * Math.PI);
+      entry.mesh.position.y = 3.02 + cycle * 2.65;
+      entry.mesh.position.x = entry.baseX + entry.drift * cycle + Math.sin(time * 1.15 + entry.phase * 17) * (0.035 + cycle * 0.11);
+      entry.mesh.position.z = entry.baseZ + Math.cos(time * 0.82 + entry.phase * 13) * (0.025 + cycle * 0.08);
+      const spread = entry.size * (0.82 + cycle * 1.85);
+      entry.mesh.scaling.set(spread * (1 + Math.sin(entry.phase * 31) * 0.12), spread * (0.72 + cycle * 0.38), spread);
+      entry.mesh.rotation.x = cycle * 0.7 + entry.phase;
+      entry.mesh.rotation.y = cycle * 1.15 + entry.phase * 2.3;
+      entry.mesh.rotation.z = Math.sin(time * 0.55 + entry.phase * 9) * 0.24;
+      (entry.mesh.material as StandardMaterial).alpha = 0.34 * Math.min(1, cycle * 7) * Math.pow(1 - cycle, 0.72) * (0.72 + billow * 0.28);
     }
   });
 }

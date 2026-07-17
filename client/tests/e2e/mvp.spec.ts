@@ -592,6 +592,7 @@ test("low quality mode renders map objects", async ({ page }) => {
       torches: names.filter((name: string) => /^arena-torch-\d+-post$/.test(name)).length,
       flames: names.filter((name: string) => /arena-torch-\d+-flame-\d+$/.test(name)).length,
       smoke: names.filter((name: string) => /arena-torch-\d+-smoke-\d+$/.test(name)).length,
+      smokeMaxY: Math.max(...scene.meshes.filter((mesh: any) => /arena-torch-\d+-smoke-\d+$/.test(mesh.name)).map((mesh: any) => mesh.position.y)),
       rockCenterY: rock?.position.y ?? null,
     };
   });
@@ -599,7 +600,8 @@ test("low quality mode renders map objects", async ({ page }) => {
   expect(arenaDressing.edgeStones).toBe(0);
   expect(arenaDressing.torches).toBe(10);
   expect(arenaDressing.flames).toBe(20);
-  expect(arenaDressing.smoke).toBe(10);
+  expect(arenaDressing.smoke).toBe(20);
+  expect(arenaDressing.smokeMaxY).toBeGreaterThan(4.5);
   expect(arenaDressing.rockCenterY).not.toBeNull();
   expect(arenaDressing.rockCenterY).toBeLessThan(0.4);
 });
