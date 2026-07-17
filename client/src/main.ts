@@ -1,4 +1,4 @@
-import { ArcRotateCamera, Color3, Color4, DefaultRenderingPipeline, DepthOfFieldEffectBlurLevel, DirectionalLight, Engine, HemisphericLight, HighlightLayer, Matrix, Mesh, MeshBuilder, PointerEventTypes, Scene, StandardMaterial, TransformNode, Vector3, VertexData } from "@babylonjs/core";
+import { ArcRotateCamera, Color3, Color4, DefaultRenderingPipeline, DepthOfFieldEffectBlurLevel, DirectionalLight, Engine, HemisphericLight, Matrix, Mesh, MeshBuilder, PointerEventTypes, Scene, StandardMaterial, TransformNode, Vector3, VertexData } from "@babylonjs/core";
 import "./style.css";
 
 type Vec = { x: number; z: number };
@@ -151,7 +151,6 @@ const scene = new Scene(engine);
 (canvas as any).engine = engine;
 (canvas as any).scene = scene;
 scene.clearColor = new Color4(0.13, 0.16, 0.17, 1);
-const coverHighlight = new HighlightLayer("cover-highlight", scene, { blurHorizontalSize: 0.8, blurVerticalSize: 0.8 });
 const CAMERA_ALPHA = -Math.PI / 2;
 const CAMERA_BETA = 0.9;
 const DESKTOP_CAMERA_RADIUS = 42;
@@ -1901,7 +1900,8 @@ function renderWorld() {
     node.rotation.y = visualFacing;
     node.rotation.x = lerpValue(node.rotation.x, p.dead ? Math.PI / 2 : 0, 0.22);
     node.metadata = { ...(node.metadata || {}), x: position.x, z: position.z, moving, visualFacing, entityId: p.id, classId: p.classId, form: p.form || null };
-    updateSelectionRing(node, p.id === state.you ? "self" : meTargetKind(p.id));
+    const targetKind = meTargetKind(p.id);
+    updateSelectionRing(node, targetKind === "ally" ? "ally" : p.id === state.you ? "self" : "none");
     updateActiveShield(node, p);
     updateIceBlockVisual(node, p);
     updateSprintTrail(node, p, moving);
@@ -1930,35 +1930,59 @@ function renderWorld() {
 }
 
 let lastCoverHighlightAt = 0;
-const highlightedMeshes = new Set<Mesh>();
+const fadedCoverMaterials = new Map<StandardMaterial, { alpha: number; transparencyMode: number | null }>();
 
 function updateCoverHighlights(force = false) {
   const now = performance.now();
   if (!state || (!force && now - lastCoverHighlightAt < 90)) return;
   lastCoverHighlightAt = now;
-  for (const mesh of highlightedMeshes) coverHighlight.removeMesh(mesh);
-  highlightedMeshes.clear();
+  for (const [material, original] of fadedCoverMaterials) {
+    material.unfreeze();
+    material.alpha = original.alpha;
+    material.transparencyMode = original.transparencyMode;
+  }
+  fadedCoverMaterials.clear();
+  for (const node of meshes.values()) {
+    for (const mesh of (node.metadata?.coverMeshes || []) as Mesh[]) mesh.renderOutline = false;
+  }
   if (state.matchState !== "running") return;
+  const occluderIds = new Set<string>();
   for (const [id, node] of meshes) {
     const actor = state.players[id] || state.enemies[id];
-    if (!actor || ("spectator" in actor && actor.spectator) || !isBehindCover(node.position)) continue;
-    const color = state.enemies[id] ? new Color3(1, 0.22, 0.12) : new Color3(0.18, 0.65, 1);
+    if (!actor || ("spectator" in actor && actor.spectator)) continue;
+    const blockers = coverObjectsBetween(node.position);
+    if (!blockers.length) continue;
+    blockers.forEach((object) => occluderIds.add(object.id));
     for (const mesh of (node.metadata?.coverMeshes || []) as Mesh[]) {
       if (mesh.isDisposed() || !mesh.isVisible) continue;
-      coverHighlight.addMesh(mesh, color);
-      highlightedMeshes.add(mesh);
+      mesh.renderOutline = true;
+      mesh.outlineColor = new Color3(0.75, 0.92, 1);
+      mesh.outlineWidth = 0.055;
+    }
+  }
+  for (const id of occluderIds) {
+    const cover = mapMeshes.get(id);
+    if (!cover) continue;
+    for (const mesh of cover.getChildMeshes() as Mesh[]) {
+      if (mesh.name.endsWith("-shadow")) continue;
+      const material = mesh.material as StandardMaterial | null;
+      if (!material) continue;
+      if (!fadedCoverMaterials.has(material)) fadedCoverMaterials.set(material, { alpha: material.alpha, transparencyMode: material.transparencyMode });
+      material.unfreeze();
+      material.alpha = 0.28;
+      material.transparencyMode = StandardMaterial.MATERIAL_ALPHABLEND;
     }
   }
 }
 
-function isBehindCover(position: Vector3) {
+function coverObjectsBetween(position: Vector3) {
   const ax = camera.position.x;
   const az = camera.position.z;
   const dx = position.x - ax;
   const dz = position.z - az;
   const lengthSq = dx * dx + dz * dz;
-  if (lengthSq < 0.01) return false;
-  return (state?.mapObjects || []).some((object) => {
+  if (lengthSq < 0.01) return [];
+  return (state?.mapObjects || []).filter((object) => {
     if (object.type !== "tree" && object.type !== "rock") return false;
     const t = ((object.x - ax) * dx + (object.z - az) * dz) / lengthSq;
     if (t <= 0.08 || t >= 0.96) return false;
@@ -1967,7 +1991,6 @@ function isBehindCover(position: Vector3) {
     return Math.hypot(object.x - closestX, object.z - closestZ) < (object.radius || 1) * 0.9;
   });
 }
-(canvas as any).coverHighlight = coverHighlight;
 (canvas as any).updateCoverHighlights = updateCoverHighlights;
 
 function updateActiveShield(node: TransformNode, player: PlayerState) {

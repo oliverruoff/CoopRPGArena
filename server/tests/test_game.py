@@ -26,6 +26,7 @@ def test_generated_arena_only_contains_trees_and_rocks():
     assert game.map_objects
     assert {item["type"] for item in game.map_objects} == {"tree", "rock"}
     assert all(item.get("blocksSight") for item in game.map_objects)
+    assert 27 <= sum(item["type"] == "tree" for item in game.map_objects) <= 36
 
 
 def test_player_can_explicitly_target_self():

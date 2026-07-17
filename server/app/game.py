@@ -413,7 +413,7 @@ class Game:
                 add(type_name, spot[0], spot[1], **extra)
 
         # A sparse forest of varied trees and stones keeps the arena readable.
-        tree_count = random.randint(18, 24)
+        tree_count = random.randint(27, 36)
         for _ in range(tree_count):
             spot = place_spot(2.5, arena, 1.0)
             if not spot:

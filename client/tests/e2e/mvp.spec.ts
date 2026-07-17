@@ -424,14 +424,17 @@ test("cover highlighting outlines actors without including enemy view cones", as
     player.position.set(tree.position.x + dx / distance * 3, 0, tree.position.z + dz / distance * 3);
     canvas.updateCoverHighlights(true);
     const bodyMeshes = player.metadata.coverMeshes as any[];
+    const fadedTree = tree.getChildMeshes().some((mesh: any) => mesh.material?.alpha < 0.5);
     const result = {
-      outlined: bodyMeshes.some((mesh) => canvas.coverHighlight.hasMesh(mesh)),
+      outlined: bodyMeshes.some((mesh) => mesh.renderOutline),
+      fadedTree,
       containsFov: bodyMeshes.some((mesh) => mesh.name.endsWith("-fov")),
+      fovOutlined: scene.meshes.some((mesh: any) => mesh.name.endsWith("-fov") && mesh.renderOutline),
     };
     player.position.copyFrom(original);
     return result;
   });
-  expect(highlightState).toEqual({ outlined: true, containsFov: false });
+  expect(highlightState).toEqual({ outlined: true, fadedTree: true, containsFov: false, fovOutlined: false });
 });
 
 test("mobile actions work with a second pointer while joystick movement continues", async ({ page, request }) => {
@@ -451,6 +454,10 @@ test("mobile actions work with a second pointer while joystick movement continue
   const afterSelfTap = await (await request.get("http://127.0.0.1:8000/debug/state")).json();
   expect(afterSelfTap.players[playerId].allyTargetId).toBe(playerId);
   await expect(page.getByTestId("target-frame")).toContainText(afterSelfTap.players[playerId].name);
+  await expect.poll(() => page.evaluate((id) => {
+    const scene = (document.querySelector<HTMLCanvasElement>("#renderCanvas") as any).scene;
+    return Boolean(scene.getTransformNodeByName(`${id}-target-arrow`));
+  }, playerId)).toBe(true);
 
   await page.evaluate(() => {
     const stick = document.querySelector<HTMLElement>("#moveStick")!;
