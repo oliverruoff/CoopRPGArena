@@ -4,9 +4,7 @@
   <img src="media/gameplay.gif" alt="Coop RPG Arena in-game combat preview" width="640" />
 </p>
 
-A browser-based cooperative RPG arena — up to 5 players fight waves of enemies together, choose class upgrades, and combine abilities in real-time.
-
-The game also includes an isolated PvP mode at [`/pvp`](http://localhost:5173/pvp): choose Team Blue or Team Red, spend ten freely mixable build points on spells and attributes, and fight 1v1 through 3v3 in the multi-level voxel arena Klingenklamm. Uneven teams are supported, friendly fire is blocked, and allied resurrection remains available.
+A browser-based RPG arena with two game modes: team up with as many as five players to survive enemy waves, or forge a custom build and battle other players in the PvP arena.
 
 ## Gameplay
 
@@ -15,6 +13,21 @@ The game also includes an isolated PvP mode at [`/pvp`](http://localhost:5173/pv
 - **Level Up** — Earn XP by defeating enemies. On level-up, choose **one** reward: improve a stat or learn a new ability from your class tree.
 - **Abilities** — Each class has multiple learnable spells with unique effects: AoE damage, shields, stuns, traps, HoTs, cones, and more. Abilities are mapped to keys 1–4, Q, E, R.
 - **Combat** — Real-time action with a global cooldown (triggers on cast start, cancelled on interrupt). Enemy HP bars, damage numbers, and spell effects provide constant feedback.
+
+## Arena Mode (PvP)
+
+<p align="center">
+  <img src="media/pvp-arena.gif" alt="Three-versus-three PvP combat in the Klingenklamm arena" width="720" />
+</p>
+
+Enter the dedicated PvP mode at [`/pvp`](http://localhost:5173/pvp), choose Team Blue or Team Red, and fight across **Klingenklamm** — a multi-level voxel arena with ramps, bridges, pillars, and open lower ground.
+
+- **Flexible teams** — Play anything from 1v1 to 3v3. Uneven team sizes are supported.
+- **Custom builds** — Spend ten points on any mix of class spells and attributes before readying up.
+- **Eight classes** — Every class brings its own resource, ability pool, strengths, and counters into the arena.
+- **Team rules** — Friendly fire is disabled, while healing, shielding, and allied resurrection remain available.
+- **Arena combat** — Use terrain and line of sight to close distance, kite opponents, protect allies, or set up area effects.
+- **Controls** — Move with WASD, cycle enemy targets with Tab, cycle allies with Shift+Tab, and cast abilities with 1–4, Q, E, R, F, G, and C. Touch controls are available on mobile.
 
 ## Classes
 
@@ -239,6 +252,12 @@ Open the game at:
 
 ```text
 http://localhost:5173
+```
+
+Open Arena Mode at:
+
+```text
+http://localhost:5173/pvp
 ```
 
 Backend health:
