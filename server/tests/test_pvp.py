@@ -126,3 +126,53 @@ def test_dynamic_snapshot_reuses_static_catalogs():
     assert {"abilities", "attributes", "classes", "arena"} <= full.keys()
     assert not ({"abilities", "attributes", "classes", "arena"} & dynamic.keys())
     assert dynamic["players"][player.id]["classId"] == "mage"
+
+
+def test_druid_abilities_use_the_same_form_requirements_as_coop():
+    game = PvPGame()
+    druid, enemy = start_duel(game, "druid", "warrior")
+    assert game._ability_form_allowed_locked(druid, game.abilities["druid_moonfire"])
+    assert not game._ability_form_allowed_locked(druid, game.abilities["druid_maul"])
+    druid.shapeshift_form = "bear"
+    assert game._ability_form_allowed_locked(druid, game.abilities["druid_maul"])
+    assert not game._ability_form_allowed_locked(druid, game.abilities["druid_moonfire"])
+
+
+def test_training_bot_completes_the_opposing_team_and_is_ready():
+    game = PvPGame()
+    human = configured_player(game, "blue", "mage")
+    bot = game._add_bot_locked("red", "warrior", "Trainingsbot", True)
+    assert bot.is_bot
+    assert bot.team == "red"
+    assert bot.ready
+    assert len(bot.build) == BUILD_POINTS
+    human.ready = True
+    assert game._all_ready_locked()
+
+
+def test_training_bot_can_be_removed_from_lobby():
+    game = PvPGame()
+    human = configured_player(game, "blue", "mage")
+    game._add_bot_locked("red", "warrior", "Trainingsbot", True)
+    asyncio.run(game.handle_message(human.id, {"type": "remove_training_bot"}))
+    assert all(not player.is_bot for player in game.players.values())
+    assert game.countdown_until is None
+
+
+def test_training_bot_stays_ready_after_returning_to_lobby():
+    game = PvPGame()
+    human, bot = start_duel(game, "mage", "warrior")
+    bot.is_bot = True
+    game.match_state = "victory"
+    game._restart_lobby_locked()
+    assert not human.ready
+    assert bot.ready
+
+
+def test_pvp_jump_uses_the_coop_duration_and_snapshot_progress():
+    game = PvPGame()
+    human, _ = start_duel(game, "mage", "warrior")
+    asyncio.run(game.handle_message(human.id, {"type": "jump"}))
+    snapshot = asyncio.run(game.snapshot(human.id))
+    assert snapshot["players"][human.id]["jumping"]
+    assert 0 <= snapshot["players"][human.id]["jumpProgress"] <= 1

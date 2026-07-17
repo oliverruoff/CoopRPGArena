@@ -87,6 +87,8 @@ class PvPPlayer:
     kills: int = 0
     deaths: int = 0
     revives: int = 0
+    is_bot: bool = False
+    jump_until: float = 0
 
 
 class PvPGame:
@@ -187,12 +189,25 @@ class PvPGame:
             elif typ == "ready" and self.match_state == "lobby" and not player.spectator:
                 player.ready = bool(msg.get("ready")) and self._valid_build_locked(player)
                 self._update_countdown_locked()
+            elif typ == "add_training_bot" and self.match_state == "lobby" and not player.spectator:
+                if player.team not in {"blue", "red"}:
+                    return
+                team = "red" if player.team != "red" else "blue"
+                if not any(p.is_bot and p.team == team for p in self.players.values()):
+                    self._add_bot_locked(team, str(msg.get("classId", "warrior")), "Training Bot", True)
+            elif typ == "remove_training_bot" and self.match_state == "lobby":
+                for bot_id in [pid for pid, candidate in self.players.items() if candidate.is_bot]:
+                    self.players.pop(bot_id, None)
+                self._update_countdown_locked()
             elif typ == "input" and self.match_state == "running" and not player.dead and not player.spectator:
                 movement = msg.get("movement", {})
                 player.input = movement if isinstance(movement, dict) else {}
                 if player.casting and any(player.input.values()):
                     self._emit_locked({"type": "cast_cancelled", "sourceId": player.id, "abilityId": player.casting["abilityId"]})
                     player.casting = None
+            elif typ == "jump" and self.match_state == "running" and not player.dead and not player.spectator:
+                if time.monotonic() >= player.stun_until:
+                    player.jump_until = time.monotonic() + 0.36
             elif typ == "select_target" and self.match_state == "running":
                 self._select_target_locked(player, str(msg.get("targetId", "")))
             elif typ == "cycle_target" and self.match_state == "running":
@@ -293,6 +308,7 @@ class PvPGame:
                 player.stealth_until = 0
                 player.shapeshift_form = None
                 player.shapeshift_previous.clear()
+                player.jump_until = 0
                 player.damage_dealt = player.healing_done = player.damage_taken = 0
                 player.kills = player.deaths = player.revives = 0
 
@@ -305,7 +321,7 @@ class PvPGame:
         for player_id in [pid for pid, p in self.players.items() if p.disconnected_at is not None]:
             self.players.pop(player_id, None)
         for player in self.players.values():
-            player.ready = False
+            player.ready = player.is_bot
             player.dead = False
             player.hp = max(1, player.stats.get("maxHealth", 1))
             player.input = {}
@@ -329,6 +345,8 @@ class PvPGame:
             return
         self._expire_buffs_locked(player, now)
         self._tick_periodics_locked(player, now)
+        if player.is_bot:
+            self._drive_bot_locked(player)
         if player.shield_until and now >= player.shield_until:
             player.shield = 0
             player.shield_until = 0
@@ -358,6 +376,23 @@ class PvPGame:
             cast = player.casting
             player.casting = None
             self._finish_cast_locked(player, cast["abilityId"], cast.get("targetId"), cast.get("groundPosition"), True)
+
+    def _drive_bot_locked(self, player: PvPPlayer) -> None:
+        """Small deterministic sparring AI for testing the arena without a second browser."""
+        enemies = [p for p in self.players.values() if self._is_enemy_locked(player, p) and not p.dead]
+        if not enemies:
+            player.input = {}
+            return
+        target = min(enemies, key=lambda candidate: self._distance(player, candidate))
+        player.target_id, player.ally_target_id = target.id, None
+        distance = self._distance(player, target)
+        desired_range = max(1.7, min(8.0, player.stats.get("autoAttackRange", 2) * 0.85))
+        player.input = {
+            "right": target.x > player.x + 0.25 and distance > desired_range,
+            "left": target.x < player.x - 0.25 and distance > desired_range,
+            "up": target.z > player.z + 0.25 and distance > desired_range,
+            "down": target.z < player.z - 0.25 and distance > desired_range,
+        }
 
     def _resolve_arena_position_locked(self, player: PvPPlayer, dt: float) -> None:
         player.x = max(-29, min(29, player.x))
@@ -419,6 +454,8 @@ class PvPGame:
             return
         ability = self.abilities[ability_id]
         now = time.monotonic()
+        if not self._ability_form_allowed_locked(player, ability):
+            return
         if now < player.global_cooldown_until or now < player.cooldowns.get(ability_id, 0):
             return
         cost = ability.get("resourceCost", {}).get("amount", 0) * player.stats.get("resourceCostMultiplier", 1)
@@ -455,6 +492,16 @@ class PvPGame:
             target = self.players.get(player.ally_target_id or "") or player
             return target if target.team == player.team else player
         return None
+
+    @staticmethod
+    def _ability_form_allowed_locked(player: PvPPlayer, ability: dict[str, Any]) -> bool:
+        """Keep druid form requirements identical to the cooperative ruleset."""
+        required = ability.get("requiredForm")
+        if required is None:
+            return True
+        if required == "none":
+            return player.shapeshift_form is None
+        return player.shapeshift_form == required
 
     def _finish_cast_locked(self, player: PvPPlayer, ability_id: str, target_id: str | None, ground: dict[str, Any] | None, started: bool) -> None:
         ability = self.abilities[ability_id]
@@ -794,6 +841,8 @@ class PvPGame:
             "globalCooldown": max(0, round(p.global_cooldown_until - now, 1)),
             "casting": None if not p.casting else {"abilityId": p.casting["abilityId"], "remaining": max(0, round(p.casting["endAt"] - now, 2)), "duration": p.casting["duration"]},
             "stunned": now < p.stun_until, "slowed": now < p.slow_until,
+            "jumping": now < p.jump_until,
+            "jumpProgress": max(0, min(1, 1 - max(0, p.jump_until - now) / 0.36)) if now < p.jump_until else 0,
             "stealthed": now < p.stealth_until, "form": p.shapeshift_form,
             "activeEffects": [{**e, "remaining": max(0, round(e["endAt"] - now, 1))} for e in p.active_effects],
             "statsSummary": {"damage": round(p.damage_dealt, 1), "healing": round(p.healing_done, 1), "kills": p.kills, "deaths": p.deaths, "revives": p.revives},
@@ -802,7 +851,7 @@ class PvPGame:
     @staticmethod
     def _arena_dict() -> dict[str, Any]:
         return {
-            "id": "blade_ridge", "name": "Klingenklamm",
+            "id": "blade_ridge", "name": "Blade Gorge",
             "bounds": {"minX": -29, "maxX": 29, "minZ": -17, "maxZ": 17},
             "bridge": {"x": 0, "z": 0, "width": 36, "depth": 8, "height": 5},
             "pillars": [{"x": -8, "z": 0, "radius": 2}, {"x": 8, "z": 0, "radius": 2}],
@@ -818,17 +867,7 @@ class PvPGame:
             if action == "reset_match":
                 self.players.clear(); self.match_state = "lobby"; self.countdown_until = None; self.gates_open_at = None; self.winner = None; self.events.clear(); self.ground_effects.clear()
             elif action == "add_bot":
-                player = self.add_player_locked()
-                player.name = payload.get("name", player.name)
-                player.team = payload.get("team", "blue")
-                player.class_id = payload.get("classId", "warrior")
-                spells = [aid for aid, ability in self.abilities.items() if ability.get("classId") == player.class_id][:BUILD_POINTS]
-                player.build = [f"spell:{aid}" for aid in spells]
-                while len(player.build) < BUILD_POINTS:
-                    player.build.append("stat:max_health")
-                self._preview_stats_locked(player)
-                player.ready = bool(payload.get("ready", False))
-                self._update_countdown_locked()
+                player = self._add_bot_locked(payload.get("team", "blue"), payload.get("classId", "warrior"), payload.get("name", "Training Bot"), bool(payload.get("ready", False)))
                 return {"ok": True, "playerId": player.id}
             elif action == "start_match":
                 for p in self.players.values(): p.ready = self._valid_build_locked(p)
@@ -845,6 +884,21 @@ class PvPGame:
                 p = self.players[payload["playerId"]]; p.x = float(payload.get("x", p.x)); p.y = float(payload.get("y", p.y)); p.z = float(payload.get("z", p.z))
             self._check_winner_locked()
             return {"ok": True}
+
+    def _add_bot_locked(self, team: str, class_id: str, name: str, ready: bool) -> PvPPlayer:
+        player = self.add_player_locked()
+        player.name = name[:18]
+        player.team = team if team in {"blue", "red"} else "red"
+        player.class_id = class_id if class_id in self.classes else "warrior"
+        spells = [aid for aid, ability in self.abilities.items() if ability.get("classId") == player.class_id][:BUILD_POINTS]
+        player.build = [f"spell:{aid}" for aid in spells]
+        while len(player.build) < BUILD_POINTS:
+            player.build.append("stat:max_health")
+        player.is_bot = True
+        self._preview_stats_locked(player)
+        player.ready = ready
+        self._update_countdown_locked()
+        return player
 
     def _emit_locked(self, event: dict[str, Any]) -> None:
         self._event_seq += 1

@@ -1,6 +1,7 @@
 import "./pvp.css";
 import "./pvp-mobile.css";
 import "./pvp-match.css";
+import { renderSharedPartyFrame, updateSmoothCastBar } from "./shared-combat-ui";
 import {
   ArcRotateCamera, Color3, Color4, DirectionalLight, Engine, HemisphericLight,
   Mesh, MeshBuilder, PBRMaterial, Scene, ShadowGenerator, StandardMaterial,
@@ -8,6 +9,8 @@ import {
 } from "@babylonjs/core";
 
 type Vec3 = { x: number; y: number; z: number };
+type ActiveEffect = { id: string; abilityId: string; sourceId: string; kind: "buff" | "debuff"; remaining: number; permanent?: boolean; stacks?: number };
+type GroundEffect = { id: string; type: string; abilityId: string; sourceId: string; x: number; y: number; z: number; radius: number; remaining: number; friendly?: boolean };
 type PvPPlayer = {
   id: string; name: string; team: "blue" | "red" | null; classId: string | null; ready: boolean;
   spectator: boolean; disconnected: boolean; build: string[]; stats: Record<string, number>;
@@ -16,6 +19,8 @@ type PvPPlayer = {
   dead: boolean; targetId: string | null; allyTargetId: string | null; shield: number;
   cooldowns: Record<string, number>; globalCooldown: number; casting: { abilityId: string; remaining: number; duration: number } | null;
   stunned: boolean; slowed: boolean; statsSummary: { damage: number; healing: number; kills: number; deaths: number; revives: number };
+  activeEffects?: ActiveEffect[]; form?: string | null;
+  jumping?: boolean; jumpProgress?: number;
 };
 type Ability = { id: string; name: string; classId: string; targetType: string; range: number; cooldown: number; castTime?: number; description?: string; effects?: Array<{ type: string }> };
 type ClassData = { id: string; name: string; description: string; resourceType: string };
@@ -27,6 +32,7 @@ type PvPState = {
   attributes: Record<string, AttributeData>; classes: Record<string, ClassData>;
   abilities: Record<string, Ability>; players: Record<string, PvPPlayer>;
   events: Array<Record<string, unknown>>;
+  groundEffects?: GroundEffect[];
 };
 type IncomingPvPState = Omit<PvPState, "attributes" | "classes" | "abilities"> & {
   attributes?: Record<string, AttributeData>; classes?: Record<string, ClassData>; abilities?: Record<string, Ability>;
@@ -36,7 +42,7 @@ document.title = "Klingenklamm · PvP Arena";
 document.querySelector<HTMLDivElement>("#app")!.innerHTML = `
   <canvas id="pvpCanvas" data-testid="pvp-arena"></canvas>
   <div id="pvpLobby" data-testid="pvp-lobby">
-    <header class="pvpBrand"><div class="brandMark">⚔</div><div><span>COOP RPG ARENA</span><h1>Klingenklamm</h1><p>Player versus Player · Schergrat-inspirierte Voxel-Arena</p></div><a href="/">Koop-Modus</a></header>
+    <header class="pvpBrand"><div class="brandMark"><img src="/favicon.svg" alt="" /></div><div><span>COOP RPG ARENA · PVP</span><h1>Klingenklamm</h1><p>Dieselben Helden. Dieselben Zauber. Eine andere Schlacht.</p></div><a href="/">Koop-Modus</a></header>
     <main class="lobbyGrid">
       <section class="teamPanel bluePanel"><div class="panelTitle"><span class="teamOrb"></span><h2>Team Blau</h2><b id="blueCount">0/3</b></div><div id="bluePlayers" class="teamPlayers"></div><button class="joinTeam blue" data-team="blue" data-testid="team-blue">Team Blau beitreten</button></section>
       <section class="buildPanel">
@@ -46,23 +52,24 @@ document.querySelector<HTMLDivElement>("#app")!.innerHTML = `
         <div class="sectionHeading"><span>2</span><div><h2>Build schmieden</h2><p>Zauber und Attribute kosten jeweils einen Punkt.</p></div><strong><b id="pointsUsed">0</b>/10</strong></div>
         <div class="buildTabs"><button class="active" data-tab="spells">Zauber</button><button data-tab="stats">Attribute</button><button id="resetBuild">Zurücksetzen</button></div>
         <div id="buildChoices" class="buildChoices" data-testid="pvp-build-choices"></div>
-        <div class="readyRow"><span id="readyHint">Wähle Team, Klasse und zehn Punkte.</span><button id="pvpReady" data-testid="pvp-ready">Bereit</button></div>
+        <div class="readyRow"><button id="addTrainingBot" type="button" data-testid="pvp-add-bot">+ Trainingsbot</button><span id="readyHint">Wähle Team, Klasse und zehn Punkte.</span><button id="pvpReady" data-testid="pvp-ready">Bereit</button></div>
       </section>
       <section class="teamPanel redPanel"><div class="panelTitle"><span class="teamOrb"></span><h2>Team Rot</h2><b id="redCount">0/3</b></div><div id="redPlayers" class="teamPlayers"></div><button class="joinTeam red" data-team="red" data-testid="team-red">Team Rot beitreten</button></section>
     </main>
     <div id="lobbyCountdown" data-testid="pvp-countdown"></div>
   </div>
   <div id="pvpHud" data-testid="pvp-hud" style="min-width:1px;min-height:1px">
-    <div id="blueFrames" class="combatTeam blueFrames"></div><div id="redFrames" class="combatTeam redFrames"></div>
-    <div id="pvpTarget" class="targetFrame">Kein Ziel</div>
+    <div id="blueFrames" class="combatTeam blueFrames" aria-label="Team Blau"></div><div id="redFrames" class="combatTeam redFrames" aria-label="Team Rot"></div>
+    <div id="pvpTarget" class="targetFrame"><div class="targetSummary">Kein Ziel</div><div class="targetHealth mini"><span></span><div class="partyMeterLabel"></div></div><div id="targetEffects"></div></div>
     <div id="prepBanner" class="prepBanner"></div>
     <div id="eventFeed" class="eventFeed"></div>
-    <div class="selfHud"><div id="selfName"></div><div class="bar hp"><i id="selfHp"></i><span id="selfHpText"></span></div><div class="bar resource"><i id="selfResource"></i><span id="selfResourceText"></span></div></div>
+    <div class="selfHud"><div id="selfEffects" class="effectRow"></div><div id="selfName"></div><div class="bar hp"><i id="selfHp"></i><span id="selfHpText"></span></div><div class="bar resource"><i id="selfResource"></i><span id="selfResourceText"></span></div></div>
     <div id="actionBar" class="actionBar" data-testid="pvp-action-bar"></div>
     <div id="castBar" class="castBar"><i></i><span></span></div>
     <div id="mobileControls" data-testid="pvp-mobile-controls">
       <div id="pvpMoveStick" data-testid="pvp-move-stick" aria-label="Charakter bewegen"><span id="pvpMoveStickKnob"></span></div>
       <div class="mobileTargetButtons">
+        <button id="pvpJump" data-testid="pvp-jump-button">Springen</button>
         <button data-cycle="enemy" data-testid="pvp-mobile-enemy-target">Gegner</button>
         <button data-cycle="ally" data-testid="pvp-mobile-ally-target">Verbündeter</button>
       </div>
@@ -157,7 +164,11 @@ let activeTab: "spells" | "stats" = "spells";
 let lobbySignature = "";
 let actionBarSignature = "";
 let lastEventId = 0;
+let castBarVisualProgress = 0;
+let visualCastAbilityId = "";
 const playerNodes = new Map<string, TransformNode>();
+const groundEffectNodes = new Map<string, TransformNode>();
+const JUMP_DURATION_SECONDS = 0.36;
 
 function wsUrl() {
   const override = new URLSearchParams(location.search).get("backend");
@@ -220,6 +231,12 @@ function renderLobby() {
   const teamPlayers = (team: string) => Object.values(state!.players).filter(p => p.team === team && !p.spectator);
   const playerCard = (p: PvPPlayer) => `<div class="lobbyPlayer ${p.id === state!.you ? "you" : ""}"><span>${p.ready ? "✓" : "·"}</span><div><b>${escapeHtml(p.name)}</b><small>${p.classId ? state!.classes[p.classId]?.name : "Keine Klasse"}</small></div><em>${p.build.length}/10</em></div>`;
   const blue = teamPlayers("blue"), red = teamPlayers("red");
+  const opposingTeam = me.team === "blue" ? "red" : me.team === "red" ? "blue" : null;
+  const botButton = document.querySelector<HTMLButtonElement>("#addTrainingBot")!;
+  const hasTrainingBot = Object.values(state.players).some(player => player.name === "Trainingsbot");
+  botButton.disabled = !opposingTeam;
+  botButton.textContent = hasTrainingBot ? "− Trainingsbot entfernen" : "+ Trainingsbot";
+  botButton.onclick = () => send({ type: hasTrainingBot ? "remove_training_bot" : "add_training_bot", classId: "warrior" });
   document.querySelector("#bluePlayers")!.innerHTML = blue.map(playerCard).join("") || `<div class="emptyTeam">Warte auf Kämpfer …</div>`;
   document.querySelector("#redPlayers")!.innerHTML = red.map(playerCard).join("") || `<div class="emptyTeam">Warte auf Kämpfer …</div>`;
   document.querySelector("#blueCount")!.textContent = `${blue.length}/${state.maxTeamSize}`;
@@ -249,16 +266,22 @@ function renderLobby() {
 
 function renderCombat() {
   if (!state) return; const me = state.players[state.you]; if (!me) return;
-  const frame = (p: PvPPlayer) => `<button data-player-id="${p.id}" class="combatFrame ${p.dead ? "dead" : ""} ${p.id === me.targetId || p.id === me.allyTargetId ? "targeted" : ""}"><div><b>${escapeHtml(p.name)}</b><small>${p.classId ? state!.classes[p.classId]?.name : ""}</small></div><span>${Math.ceil(p.hp)} / ${Math.ceil(p.maxHealth)}</span><i style="width:${p.hp / Math.max(1, p.maxHealth) * 100}%"></i></button>`;
+  const frame = (p: PvPPlayer) => renderSharedPartyFrame(p,p.id===me.targetId||p.id===me.allyTargetId,renderEffects(p.activeEffects),"button").replace("<button ",`<button data-player-id="${p.id}" `);
   const blue = Object.values(state.players).filter(p => p.team === "blue" && !p.spectator), red = Object.values(state.players).filter(p => p.team === "red" && !p.spectator);
   document.querySelector("#blueFrames")!.innerHTML = blue.map(frame).join(""); document.querySelector("#redFrames")!.innerHTML = red.map(frame).join("");
   document.querySelectorAll<HTMLButtonElement>(".combatFrame").forEach(button => button.onclick = () => send({ type: "select_target", targetId: button.dataset.playerId }));
   const target = state.players[me.targetId || me.allyTargetId || ""];
-  document.querySelector("#pvpTarget")!.innerHTML = target ? `<b>${escapeHtml(target.name)}</b><span>${target.dead ? "TOT · wiederbelebbar" : `${Math.ceil(target.hp)} / ${Math.ceil(target.maxHealth)}`}</span>` : "Kein Ziel";
+  const targetFrame=document.querySelector<HTMLElement>("#pvpTarget")!;
+  targetFrame.querySelector<HTMLElement>(".targetSummary")!.textContent=target ? `${target.name} ${Math.round(target.hp)}/${Math.round(target.maxHealth)}` : "Kein Ziel";
+  const targetHealth=targetFrame.querySelector<HTMLElement>(".targetHealth")!; targetHealth.style.display=target?"block":"none";
+  targetHealth.querySelector<HTMLElement>(":scope > span")!.style.width=`${target ? Math.max(0,target.hp/Math.max(1,target.maxHealth)*100):0}%`;
+  targetHealth.querySelector<HTMLElement>(".partyMeterLabel")!.textContent=target ? `HP ${Math.round(target.hp)}/${Math.round(target.maxHealth)}` : "";
+  document.querySelector("#targetEffects")!.innerHTML=target ? renderEffects(target.activeEffects) : "";
   document.querySelector("#prepBanner")!.textContent = state.preparation > 0 ? `Tore öffnen in ${Math.ceil(state.preparation)}` : "";
   scene.getMeshByName("gate--1")?.setEnabled(state.preparation > 0);
   scene.getMeshByName("gate-1")?.setEnabled(state.preparation > 0);
   document.querySelector("#selfName")!.innerHTML = `<b>${escapeHtml(me.name)}</b><span>${state.classes[me.classId || ""]?.name || ""}</span>`;
+  document.querySelector("#selfEffects")!.innerHTML = renderEffects(me.activeEffects);
   (document.querySelector("#selfHp") as HTMLElement).style.width = `${me.hp / Math.max(1, me.maxHealth) * 100}%`; document.querySelector("#selfHpText")!.textContent = `${Math.ceil(me.hp)} HP${me.shield ? ` + ${Math.ceil(me.shield)}` : ""}`;
   (document.querySelector("#selfResource") as HTMLElement).style.width = `${me.resource / Math.max(1, me.maxResource) * 100}%`; document.querySelector("#selfResourceText")!.textContent = `${Math.ceil(me.resource)} ${me.resourceType || ""}`;
   const slots = Array.from({ length: 10 }, (_, i) => i + 1);
@@ -270,7 +293,7 @@ function renderCombat() {
     document.querySelector("#actionBar")!.innerHTML = slots.map((slot, index) => {
       const abilityId = slotAbilities[index]; const a = abilityId ? state!.abilities[abilityId] : null;
       const hue = a ? abilityHue(a) : 215;
-      return `<button data-slot="${slot}" data-ability-id="${abilityId}" style="--ability-hue:${hue}" ${a ? "" : "disabled"} data-testid="pvp-ability-slot-${slot}"><span class="abilityArt">${a ? abilityGlyph(a) : ""}</span><span class="abilityKey">${slotKeys[index]}</span><span class="abilityName">${a?.name || "Leer"}</span><span class="cooldownOverlay" hidden></span><span class="cooldownText"></span></button>`;
+      return `<button data-slot="${slot}" data-ability-id="${abilityId}" style="--ability-hue:${hue}" ${a ? "" : "disabled"} data-testid="pvp-ability-slot-${slot}"><span class="abilityKey">${slotKeys[index]}</span><span class="abilityName">${a?.name || "Leer"}</span><span class="cooldownOverlay" hidden></span><span class="cooldownText"></span></button>`;
     }).join("");
     document.querySelectorAll<HTMLButtonElement>("#actionBar button[data-slot]").forEach(button => button.onclick = () => castSlot(Number(button.dataset.slot)));
   }
@@ -283,8 +306,6 @@ function renderCombat() {
     overlay.hidden = shownCooldown <= 0;
     cooldownText.textContent = shownCooldown > 0 ? shownCooldown.toFixed(1) : "";
   });
-  const cast = document.querySelector<HTMLElement>("#castBar")!; cast.classList.toggle("visible", Boolean(me.casting));
-  if (me.casting) { const progress = 1 - me.casting.remaining / Math.max(0.01, me.casting.duration); (cast.querySelector("i") as HTMLElement).style.width = `${progress * 100}%`; cast.querySelector("span")!.textContent = state.abilities[me.casting.abilityId]?.name || "Wirken"; }
   if (state.matchState === "victory") renderVictory();
 }
 
@@ -301,7 +322,10 @@ function syncPlayers() {
   for (const p of Object.values(state.players)) {
     if (p.spectator) continue; let node = playerNodes.get(p.id); if (!node) { node = createPlayer(p); node.position.copyFromFloats(p.position.x, p.position.y, p.position.z); playerNodes.set(p.id, node); }
     const position = interpolatedPlayerPosition(p.id, p.position);
-    node.position.copyFromFloats(position.x, position.y, position.z);
+    const jumpElapsed=Math.max(0,(performance.now()-snapshotReceivedAt)/1000);
+    const jumpProgress=p.jumping?Math.min(1,Math.max(0,p.jumpProgress||0)+jumpElapsed/JUMP_DURATION_SECONDS):1;
+    const jumpY=p.jumping?4*jumpProgress*(1-jumpProgress)*.9:0;
+    node.position.copyFromFloats(position.x, position.y+jumpY, position.z);
     node.rotation.y += Math.atan2(Math.sin(p.facing - node.rotation.y), Math.cos(p.facing - node.rotation.y)) * 0.28;
     node.scaling.y += ((p.dead ? 0.28 : 1) - node.scaling.y) * 0.22; node.setEnabled(true);
     const ring = node.getChildMeshes().find(m => m.name.endsWith("-ring")); if (ring) ring.isVisible = p.id === state.players[state.you]?.targetId || p.id === state.players[state.you]?.allyTargetId;
@@ -321,12 +345,44 @@ function interpolatedPlayerPosition(id: string, current: Vec3): Vec3 {
 
 function createPlayer(p: PvPPlayer) {
   const root = new TransformNode(`player-${p.id}`, scene); const teamColor = p.team === "blue" ? new Color3(0.08, 0.38, 1) : new Color3(0.95, 0.08, 0.05); const classColor = classColour(p.classId || "");
-  const body = MeshBuilder.CreateBox(`${p.id}-body`, { width: 0.85, height: 1.35, depth: 0.55 }, scene); body.position.y = 1.05; body.parent = root; body.material = material(`${p.id}-class`, classColor); body.metadata = { playerId: p.id }; shadows.addShadowCaster(body);
-  const head = MeshBuilder.CreateBox(`${p.id}-head`, { size: 0.62 }, scene); head.position.y = 2.02; head.parent = root; head.material = material(`${p.id}-skin`, new Color3(0.65, 0.45, 0.3)); head.metadata = { playerId: p.id }; shadows.addShadowCaster(head);
-  const shoulders = MeshBuilder.CreateBox(`${p.id}-shoulders`, { width: 1.25, height: 0.28, depth: 0.72 }, scene); shoulders.position.y = 1.58; shoulders.parent = root; shoulders.material = material(`${p.id}-team`, teamColor, 0.4); shoulders.metadata = { playerId: p.id };
+  const build = playerBuild(p.classId);
+  const body = modelBox(`${p.id}-body`, build.body, classColor, root, 0, .72, 0);
+  const head = modelBox(`${p.id}-head`, build.head, build.skin, root, 0, 1.47, 0);
+  const leftArm = modelBox(`${p.id}-left-arm`, build.arm, classColor.scale(.84), root, -build.armX, .94, 0); leftArm.rotation.z = -.16;
+  const rightArm = modelBox(`${p.id}-right-arm`, build.arm, classColor.scale(.84), root, build.armX, .94, 0); rightArm.rotation.z = .16;
+  addClassModel(root, p.id, p.classId, classColor, leftArm, rightArm);
+  [body, head, leftArm, rightArm].forEach(mesh => { mesh.metadata = { playerId: p.id }; shadows.addShadowCaster(mesh); });
   const ringMat = new StandardMaterial(`${p.id}-ring-mat`, scene); ringMat.emissiveColor = teamColor; ringMat.diffuseColor = teamColor;
   const ring = MeshBuilder.CreateTorus(`${p.id}-ring`, { diameter: 1.65, thickness: 0.08, tessellation: 32 }, scene); ring.parent = root; ring.position.y = 0.06; ring.material = ringMat; ring.isVisible = false;
+  root.getChildMeshes().forEach(mesh => mesh.metadata = { ...(mesh.metadata || {}), playerId: p.id });
   return root;
+}
+
+function playerBuild(classId: string | null) {
+  const specs: Record<string, [number,number,number,number,number,number,number,number,number,number,number,number]> = {
+    warrior:[.92,1.02,.52,.56,.54,.26,.78,.26,.68,.78,.55,.38], hunter:[.72,.96,.42,.48,.5,.18,.76,.2,.52,.84,.62,.43], priest:[.82,1.06,.48,.5,.5,.2,.72,.22,.58,.88,.68,.5],
+    rogue:[.66,.92,.38,.46,.46,.16,.72,.18,.5,.78,.56,.42], druid:[.76,1,.46,.5,.5,.2,.74,.22,.56,.76,.56,.38], shaman:[.78,1.02,.48,.5,.5,.2,.78,.22,.58,.74,.56,.4], paladin:[.9,1.04,.54,.54,.52,.24,.78,.24,.66,.82,.62,.44], mage:[.74,.98,.44,.5,.5,.18,.74,.2,.54,.84,.64,.48]
+  };
+  const s=specs[classId || "mage"] || specs.mage;
+  return { body:{width:s[0],height:s[1],depth:s[2]},head:{width:s[3],height:.45,depth:s[4]},arm:{width:s[5],height:s[6],depth:s[7]},armX:s[8],skin:new Color3(s[9],s[10],s[11]) };
+}
+function modelBox(name: string, size: { width: number; height: number; depth: number }, color: Color3, parent: TransformNode, x: number, y: number, z: number) {
+  const mesh = MeshBuilder.CreateBox(name, size, scene); mesh.parent = parent; mesh.position.set(x, y, z); mesh.material = material(`${name}-mat`, color); return mesh;
+}
+function addClassModel(root: TransformNode, id: string, classId: string | null, color: Color3, leftArm: Mesh, rightArm: Mesh) {
+  const part = (name: string, size: { width: number; height: number; depth: number }, tint: Color3, x: number, y: number, z: number, parent: TransformNode = root) => modelBox(`${id}-${name}`, size, tint, parent, x, y, z);
+  if (classId === "warrior") {
+    const ls=part("left-shoulder",{width:.46,height:.24,depth:.46},new Color3(.42,.42,.46),-.63,1.24,0);ls.rotation.z=-.12; const rs=part("right-shoulder",{width:.32,height:.18,depth:.38},new Color3(.32,.31,.33),.62,1.22,0);rs.rotation.z=.18;
+    const strap=part("chest-strap",{width:.18,height:1.1,depth:.54},new Color3(.22,.11,.04),-.08,.77,-.03);strap.rotation.z=-.48; part("belt",{width:.96,height:.14,depth:.56},new Color3(.18,.1,.04),0,.43,0);
+    const sword=part("sword",{width:.12,height:1.18,depth:.08},new Color3(.8,.82,.86),.06,-.52,-.18,rightArm);sword.rotation.z=-.18; const shield=part("shield",{width:.5,height:.64,depth:.12},new Color3(.24,.26,.32),-.12,-.12,-.16,leftArm);shield.rotation.z=.18; part("shield-crest",{width:.18,height:.42,depth:.13},new Color3(.95,.78,.16),0,0,-.08,shield);
+  }
+  else if (classId === "hunter") { part("cloak",{width:.66,height:.9,depth:.08},new Color3(.04,.18,.08),0,.76,.31); const quiver=part("quiver",{width:.28,height:.86,depth:.24},new Color3(.32,.18,.08),-.28,.95,-.34);quiver.rotation.z=.25; const path=Array.from({length:17},(_,i)=>{const a=-Math.PI*.72+Math.PI*1.44*i/16;return new Vector3(Math.cos(a)*.24,Math.sin(a)*.72,0)});const bow=MeshBuilder.CreateTube(`${id}-bow`,{path,radius:.035,tessellation:8},scene);bow.parent=rightArm;bow.position.set(.12,-.12,-.16);bow.material=material(`${id}-bow-mat`,new Color3(.42,.24,.1)); }
+  else if (classId === "priest") { const skirt=MeshBuilder.CreateCylinder(`${id}-robe-skirt`,{diameterTop:.76,diameterBottom:.98,height:.62,tessellation:6},scene); skirt.parent=root; skirt.position.y=.34; skirt.material=material(`${id}-robe-skirt-mat`,new Color3(.93,.9,.78)); const halo=MeshBuilder.CreateTorus(`${id}-halo`,{diameter:.68,thickness:.035,tessellation:36},scene); halo.parent=root; halo.position.y=1.85; halo.rotation.x=Math.PI/2; halo.material=material(`${id}-halo-mat`,new Color3(1,.86,.28)); const sash=part("sash",{width:.14,height:1.08,depth:.48},new Color3(.95,.78,.22),0,.72,0);sash.rotation.z=-.28; part("book",{width:.34,height:.24,depth:.1},new Color3(.42,.18,.09),-.18,-.12,-.14,leftArm); }
+  else if (classId === "mage") { const collar=MeshBuilder.CreateCylinder(`${id}-collar`,{diameterTop:.92,diameterBottom:.6,height:.28,tessellation:5},scene);collar.parent=root;collar.position.y=1.22;collar.rotation.y=Math.PI/5;collar.material=material(`${id}-collar-mat`,new Color3(.1,.07,.28)); const hat=MeshBuilder.CreateCylinder(`${id}-hat`,{diameterTop:.08,diameterBottom:.72,height:.72,tessellation:4},scene);hat.parent=root;hat.position.y=1.95;hat.rotation.y=Math.PI/4;hat.material=material(`${id}-hat-mat`,color.scale(.7)); part("hat-band",{width:.62,height:.08,depth:.62},new Color3(.86,.26,.08),0,1.65,0).rotation.y=Math.PI/4; const staff=part("staff",{width:.08,height:1.45,depth:.08},new Color3(.38,.2,.08),.2,-.12,.06,rightArm);staff.rotation.z=.16; const gem=MeshBuilder.CreateSphere(`${id}-staff-gem`,{diameter:.22,segments:8},scene);gem.parent=staff;gem.position.set(.12,.72,0);gem.material=material(`${id}-staff-gem-mat`,new Color3(.45,.95,1)); part("cape",{width:.72,height:.92,depth:.08},color.scale(.48),0,.78,.33).rotation.x=-.12; }
+  else if (classId === "rogue") { part("hood",{width:.58,height:.32,depth:.54},color.scale(.55),0,1.64,0); for(const side of [-1,1]) part(`dagger-${side}`,{width:.06,height:.72,depth:.05},new Color3(.82,.84,.88),side*.06,-.5,-.16,side<0?leftArm:rightArm); }
+  else if (classId === "druid") { for(const side of [-1,1]) { const antler=MeshBuilder.CreateCylinder(`${id}-antler-${side}`,{diameter:.08,height:.65,tessellation:6},scene); antler.parent=root; antler.position.set(side*.3,1.88,0); antler.rotation.z=side*.3; antler.material=material(`${id}-antler-${side}-mat`,new Color3(.35,.2,.08)); } }
+  else if (classId === "shaman") { part("shoulders",{width:1.18,height:.22,depth:.54},new Color3(.24,.38,.46),0,1.23,0); const orb=MeshBuilder.CreateSphere(`${id}-storm-orb`,{diameter:.24,segments:8},scene); orb.parent=rightArm; orb.position.set(.05,-.5,-.15); orb.material=material(`${id}-orb-mat`,new Color3(.2,.72,1)); }
+  else if (classId === "paladin") { part("pauldrons",{width:1.35,height:.24,depth:.65},new Color3(.72,.66,.44),0,1.24,0); part("mace",{width:.14,height:1.22,depth:.14},new Color3(.55,.52,.42),.08,-.5,-.16,rightArm); const halo=MeshBuilder.CreateTorus(`${id}-holy-ring`,{diameter:.72,thickness:.04,tessellation:28},scene); halo.parent=root; halo.position.y=1.86; halo.rotation.x=Math.PI/2; halo.material=material(`${id}-holy-ring-mat`,new Color3(1,.75,.18)); }
 }
 
 scene.onPointerDown = (_, info) => { const id = (info?.pickedMesh as Mesh | undefined)?.metadata?.playerId as string | undefined; if (id) send({ type: "select_target", targetId: id }); };
@@ -337,6 +393,7 @@ window.addEventListener("keydown", event => {
   if (!state || state.matchState !== "running" || (event.target as HTMLElement).matches("input,select")) return;
   if (keyMap[event.code] && !movement[keyMap[event.code]]) { movement[keyMap[event.code]] = true; send({ type: "input", movement }); }
   if (event.code === "Tab") { event.preventDefault(); send({ type: "cycle_target", ally: event.shiftKey }); }
+  if (event.code === "Space") { event.preventDefault(); send({ type: "jump" }); }
   if (abilityKeyMap[event.code]) castSlot(abilityKeyMap[event.code]);
 });
 window.addEventListener("keyup", event => { if (keyMap[event.code]) { movement[keyMap[event.code]] = false; send({ type: "input", movement }); } });
@@ -372,19 +429,45 @@ window.addEventListener("pointercancel", event => stopTouchMovement(event.pointe
 window.addEventListener("blur", () => { if (movePointerId !== null) stopTouchMovement(); });
 document.querySelector<HTMLButtonElement>("[data-cycle=enemy]")!.addEventListener("click", () => send({ type: "cycle_target", ally: false }));
 document.querySelector<HTMLButtonElement>("[data-cycle=ally]")!.addEventListener("click", () => send({ type: "cycle_target", ally: true }));
+document.querySelector<HTMLButtonElement>("#pvpJump")!.addEventListener("click", () => send({ type: "jump" }));
 function castSlot(slot: number) { const me = state?.players[state.you]; const target = me ? state?.players[me.targetId || ""] : null; send({ type: "cast_ability", abilitySlot: slot, groundPosition: target?.position || me?.position }); }
 
 function renderEvents() {
   if (!state) return; const events = state.events.filter(e => Number(e.id) > lastEventId); if (!events.length) return; lastEventId = Math.max(lastEventId, ...events.map(e => Number(e.id)));
   const feed = document.querySelector("#eventFeed")!;
   for (const event of events.slice(-4)) {
+    playCombatEffect(event);
     const line = document.createElement("div"); const source = state.players[String(event.sourceId || "")]; const target = state.players[String(event.targetId || "")];
     line.textContent = event.type === "damage" ? `${source?.name || "?"} → ${target?.name || "?"}: ${event.amount}` : event.type === "heal" ? `${source?.name || "?"} heilt ${target?.name || "?"}: ${event.amount}` : event.type === "revive" ? `${source?.name || "?"} belebt ${target?.name || "?"} wieder` : event.type === "death" ? `${target?.name || "?"} fällt` : "";
     if (line.textContent) { feed.appendChild(line); setTimeout(() => line.remove(), 4000); }
   }
 }
 
+function renderEffects(effects: ActiveEffect[] = []) {
+  return `<span class="effectIcons">${effects.slice(0, 8).map(effect => { const ability = state?.abilities[effect.abilityId]; const hue = ability ? abilityHue(ability) : effect.kind === "buff" ? 120 : 0; return `<i class="effectIcon ${effect.kind}" style="--ability-hue:${hue}" title="${escapeHtml(ability?.name || effect.abilityId)}">${ability ? abilityGlyph(ability) : "◆"}<b>${effect.permanent ? "∞" : Math.ceil(effect.remaining)}</b></i>`; }).join("")}</span>`;
+}
+function entityWorldPosition(id: unknown) { const p = state?.players[String(id || "")]; return p ? new Vector3(p.position.x, p.position.y + 1.05, p.position.z) : null; }
+function playCombatEffect(event: Record<string, unknown>) {
+  const source = entityWorldPosition(event.sourceId), target = entityWorldPosition(event.targetId); const ability = state?.abilities[String(event.abilityId || "")];
+  if (event.type === "cast" && source) pulse(source, ability ? abilityHue(ability) : 48, .55);
+  if ((event.type === "cast_complete" || event.type === "auto_attack") && source && target) projectile(source, target, ability ? abilityHue(ability) : 28);
+  if ((event.type === "damage" || event.type === "heal") && target) pulse(target, event.type === "heal" ? 125 : ability ? abilityHue(ability) : 8, event.type === "heal" ? .8 : .55);
+}
+function pulse(position: Vector3, hue: number, alpha: number) {
+  const ring=MeshBuilder.CreateTorus("combat-pulse",{diameter:1.4,thickness:.08,tessellation:32},scene); ring.position=position.clone(); ring.rotation.x=Math.PI/2; const c=Color3.FromHSV(hue, .75, 1); const m=new StandardMaterial("combat-pulse-mat",scene); m.diffuseColor=c; m.emissiveColor=c; m.alpha=alpha; ring.material=m; const start=performance.now(); const observer=scene.onBeforeRenderObservable.add(()=>{ const t=(performance.now()-start)/420; ring.scaling.setAll(1+t*1.8); m.alpha=alpha*(1-t); if(t>=1){scene.onBeforeRenderObservable.remove(observer);ring.dispose();}});
+}
+function projectile(from: Vector3, to: Vector3, hue: number) {
+  const orb=MeshBuilder.CreateSphere("spell-projectile",{diameter:.28,segments:8},scene); orb.position=from.clone(); const c=Color3.FromHSV(hue,.78,1); const m=new StandardMaterial("spell-projectile-mat",scene);m.diffuseColor=c;m.emissiveColor=c;orb.material=m; const start=performance.now(); const observer=scene.onBeforeRenderObservable.add(()=>{const t=Math.min(1,(performance.now()-start)/260);Vector3.LerpToRef(from,to,t,orb.position);orb.position.y+=Math.sin(t*Math.PI)*.65;if(t>=1){scene.onBeforeRenderObservable.remove(observer);orb.dispose();}});
+}
+function syncGroundEffects() {
+  const effects=state?.groundEffects || []; const live=new Set(effects.map(effect=>effect.id));
+  for(const [id,node] of groundEffectNodes) if(!live.has(id)){node.dispose();groundEffectNodes.delete(id);}
+  for(const effect of effects){ let node=groundEffectNodes.get(effect.id); if(!node){node=new TransformNode(effect.id,scene);const disc=MeshBuilder.CreateCylinder(`${effect.id}-disc`,{diameter:effect.radius*2,height:.035,tessellation:48},scene);disc.parent=node;disc.position.y=.05;const ability=state?.abilities[effect.abilityId];const hue=ability?abilityHue(ability):effect.friendly?125:18;const c=Color3.FromHSV(hue,.72,1);const m=new StandardMaterial(`${effect.id}-mat`,scene);m.diffuseColor=c;m.emissiveColor=c.scale(.45);m.alpha=.24;disc.material=m;const rim=MeshBuilder.CreateTorus(`${effect.id}-rim`,{diameter:effect.radius*2,thickness:.07,tessellation:48},scene);rim.parent=node;rim.position.y=.1;rim.rotation.x=Math.PI/2;rim.material=m;groundEffectNodes.set(effect.id,node);} node.position.set(effect.x,effect.y,effect.z); }
+}
+
 function classIcon(id: string) { return ({ warrior: "⚔", hunter: "➶", priest: "✦", mage: "✧", rogue: "◆", druid: "♣", shaman: "ϟ", paladin: "☀" } as Record<string, string>)[id] || "◇"; }
+function resourceClass(type: string | null) { return (type || "resource").toLowerCase(); }
+function resourceLabel(type: string | null) { return type ? type[0].toUpperCase() + type.slice(1) : "Resource"; }
 function classColour(id: string) { const c: Record<string, Color3> = { warrior: new Color3(.55,.38,.28), hunter: new Color3(.35,.55,.2), priest: new Color3(.85,.78,.65), mage: new Color3(.18,.5,.85), rogue: new Color3(.65,.58,.16), druid: new Color3(.72,.3,.08), shaman: new Color3(.12,.32,.8), paladin: new Color3(.9,.38,.6) }; return c[id] || new Color3(.5,.5,.5); }
 function abilityGlyph(a: Ability) { const t = a.effects?.[0]?.type || ""; return t.includes("heal") || a.targetType === "ally" ? "✦" : t.includes("damage") ? "✹" : t.includes("shield") ? "⬡" : "◆"; }
 function abilityHue(a: Ability) { const school = a.effects?.map(effect => (effect as { school?: string }).school).find(Boolean); return ({ fire: 16, frost: 202, arcane: 278, holy: 48, shadow: 282, nature: 122, physical: 28 } as Record<string, number>)[school || ""] ?? (a.targetType === "ally" ? 142 : 215); }
@@ -395,8 +478,17 @@ function resizeGame() {
   engine.resize();
   camera.radius = window.innerWidth <= 900 && window.innerHeight >= window.innerWidth ? MOBILE_CAMERA_RADIUS : DESKTOP_CAMERA_RADIUS;
 }
+function updateCastBar() {
+  const cast=document.querySelector<HTMLElement>("#castBar")!;
+  const me=state?.players[state.you];
+  const casting=me?.spectator ? null : me?.casting || null;
+  const visual=updateSmoothCastBar({container:cast,fill:cast.querySelector<HTMLElement>("i")!,label:cast.querySelector<HTMLElement>("span")!,casting,snapshotReceivedAt,previousProgress:castBarVisualProgress,previousAbilityId:visualCastAbilityId,abilityName:casting ? state?.abilities[casting.abilityId]?.name || "Wirken":""});
+  castBarVisualProgress=visual.progress; visualCastAbilityId=visual.abilityId;
+}
 engine.runRenderLoop(() => {
   syncPlayers();
+  syncGroundEffects();
+  updateCastBar();
   const currentState = state;
   if (currentState && currentState.matchState !== "lobby") {
     const me = currentState.players[currentState.you];

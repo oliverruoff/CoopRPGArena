@@ -2,6 +2,11 @@ body.inMatch #pvpCanvas {
   touch-action: none;
 }
 
+.pvpBrand .brandMark img { width: 72%; height: 72%; object-fit: contain; filter: drop-shadow(0 2px 5px rgba(0,0,0,.35)); }
+#addTrainingBot { margin: 0 12px 0 0; padding: 10px 14px; border-color: rgba(96,165,250,.65); background: linear-gradient(#365f8c,#203b5d); font-family: Inter,system-ui,sans-serif; }
+#addTrainingBot:disabled { opacity: .45; cursor: default; }
+.readyRow #readyHint { flex: 1; }
+
 body.inMatch #pvpHud {
   position: fixed;
   inset: 0;
@@ -65,6 +70,22 @@ body.inMatch .combatFrame > span { position: absolute; right: 9px; bottom: 16px;
 body.inMatch .combatFrame > i { position: absolute; right: 8px; bottom: 7px; left: 8px; height: 8px; border-radius: 999px; background: linear-gradient(180deg, #62dc82, #29934c); box-shadow: inset 0 1px rgba(255,255,255,.35); }
 body.inMatch .redFrames .combatFrame > i { background: linear-gradient(180deg, #ff7272, #c9273d); }
 body.inMatch .combatFrame.dead { opacity: .58; filter: grayscale(.85); }
+/* PvP consumes the same frame vocabulary and spacing as the cooperative HUD. */
+body.inMatch .combatFrame.partyFrame { display: block; width: 190px; min-height: 0; padding: 10px; border: 2px solid transparent; border-radius: 14px; background: rgba(17,24,39,.78); color: #fff; font-size: 12px; font-weight: 800; }
+body.inMatch .combatFrame.partyFrame.selectedTarget { border-color: #60a5fa; background: rgba(59,130,246,.36); box-shadow: 0 0 0 2px rgba(96,165,250,.28); }
+body.inMatch .redFrames .combatFrame.partyFrame.selectedTarget { border-color: #ef4444; background: rgba(127,29,29,.48); box-shadow: 0 0 0 2px rgba(239,68,68,.25); }
+body.inMatch .combatFrame .partyName, body.inMatch .combatFrame .partyClass { display: block; }
+body.inMatch .combatFrame .partyClass { color: rgba(255,255,255,.66); font-size: 10px; }
+body.inMatch .combatFrame .mini { position: relative; height: 12px; margin-top: 4px; overflow: hidden; border-radius: 999px; background: rgba(0,0,0,.22); }
+body.inMatch .combatFrame .mini > span { display: block; height: 100%; background: #46d06f; }
+body.inMatch .combatFrame .partyResource.mana > span { background:#3288e6; } body.inMatch .combatFrame .partyResource.rage > span { background:#d73b36; } body.inMatch .combatFrame .partyResource.energy > span { background:#e4c832; } body.inMatch .combatFrame .partyResource.focus > span { background:#d98232; }
+body.inMatch .combatFrame .partyMeterLabel { position:absolute; inset:0; display:grid; place-items:center; color:#fff; font-size:8px; line-height:1; text-shadow:0 1px 2px #000; }
+body.inMatch .effectIcons { position: relative; z-index: 3; display: flex; gap: 3px; margin-top: 5px; }
+body.inMatch .effectIcon { position: relative; display: grid; width: 22px; height: 22px; place-items: center; border: 1px solid #d7b45f; border-radius: 3px; background: radial-gradient(circle at 35% 25%,hsla(var(--ability-hue),90%,67%,.96),hsla(var(--ability-hue),70%,26%,.98)); color: #fff; font: normal 12px Georgia,serif; box-shadow: 0 2px 5px rgba(0,0,0,.55); }
+body.inMatch .effectIcon.debuff { border-color: #ef4444; }
+body.inMatch .effectIcon b { position: absolute; right: 1px; bottom: -3px; color: #fff; font: 700 7px Inter,sans-serif; text-shadow: 0 1px 2px #000; }
+body.inMatch #selfEffects { min-height: 0; justify-content: center; pointer-events: auto; }
+body.inMatch #pvpTarget .effectIcons { justify-content: center; }
 
 body.inMatch .targetFrame {
   position: absolute;
@@ -155,9 +176,8 @@ body.inMatch .actionBar button {
 
 body.inMatch .actionBar button:disabled { opacity: .48; cursor: default; }
 body.inMatch .actionBar button:not(:disabled):hover { border-color: rgba(250,204,21,.72); box-shadow: inset 0 1px rgba(255,255,255,.22), 0 0 18px rgba(250,204,21,.2), 0 8px 20px rgba(0,0,0,.38); }
-body.inMatch .actionBar .abilityArt { position: absolute; inset: 3px; display: grid; place-items: center; border-radius: 5px; background: radial-gradient(circle at 34% 25%, hsla(var(--ability-hue),90%,68%,.95), hsla(var(--ability-hue),68%,28%,.94) 58%, #10131d); color: #fff; font: 21px Georgia,serif; opacity: .52; }
 body.inMatch .actionBar .abilityKey { position: relative; z-index: 2; display: block; color: #fde68a; font-size: 11px; font-weight: 900; line-height: 1; text-align: left; }
-body.inMatch .actionBar .abilityName { position: relative; z-index: 2; display: -webkit-box; margin-top: 17px; overflow: hidden; color: #fff; font-size: 10px; font-weight: 800; line-height: 1.05; text-align: center; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+body.inMatch .actionBar .abilityName { position: relative; z-index: 2; display: block; margin-top: 4px; overflow: hidden; color: #fff; font-size: 11px; font-weight: 800; line-height: 1.08; text-align: center; }
 body.inMatch .actionBar .cooldownOverlay { position: absolute; z-index: 3; inset: 0; background: rgba(15,23,42,.7); }
 body.inMatch .actionBar .cooldownText { position: absolute; z-index: 4; inset: 0; display: grid; place-items: center; color: #fff; font-size: 22px; font-weight: 1000; text-shadow: 0 2px 4px #000; pointer-events: none; }
 body.inMatch .actionBar button.onCooldown { filter: grayscale(.72); }
@@ -179,7 +199,9 @@ body.inMatch .castBar {
 }
 
 body.inMatch .castBar.visible { display: block; }
-body.inMatch .castBar i { display: block; height: 100%; background: linear-gradient(90deg,#f6d365,#fda085 72%,#fff3b0); }
+body.inMatch .castBar i { display: block; width:100%; height: 100%; transform:scaleX(0); transform-origin:left center; background: linear-gradient(90deg,#f6d365,#fda085 72%,#fff3b0); box-shadow:0 0 14px rgba(253,160,133,.75); will-change:transform; }
+body.inMatch .targetHealth { position:relative; display:none; height:12px; margin-top:7px; overflow:hidden; border-radius:999px; background:rgba(0,0,0,.22); }
+body.inMatch .targetHealth > span { display:block; height:100%; background:linear-gradient(180deg,#ff6b6b,#c9273d); }
 body.inMatch .castBar span { position: absolute; inset: 0; display: grid; place-items: center; color: #111827; font-size: 11px; font-weight: 900; }
 
 body.inMatch .prepBanner { top: 42%; color: #fff; font-family: Georgia,serif; font-size: 30px; text-shadow: 0 3px 14px #000; }
@@ -188,6 +210,7 @@ body.inMatch .eventFeed { color: #fff; }
 body.inMatch #mobileControls { display: none; }
 
 @media (max-width: 900px) and (orientation: portrait) {
+  body.inMatch .effectIcon { width: 18px; height: 18px; font-size: 10px; }
   body.inMatch .combatTeam { top: max(8px, env(safe-area-inset-top)); width: 122px; gap: 4px; }
   body.inMatch .blueFrames { left: 8px; }
   body.inMatch .redFrames { right: 8px; }
@@ -216,7 +239,7 @@ body.inMatch #mobileControls { display: none; }
   body.inMatch #mobileControls { position: absolute; inset: 0; display: block; pointer-events: none; }
   body.inMatch #pvpMoveStick { position: absolute; left: max(14px,env(safe-area-inset-left)); bottom: max(12px,env(safe-area-inset-bottom)); width: 92px; height: 92px; border: 2px solid rgba(255,255,255,.5); border-radius: 50%; background: rgba(15,23,42,.5); box-shadow: inset 0 0 24px rgba(255,255,255,.08); pointer-events: auto; touch-action: none; }
   body.inMatch #pvpMoveStickKnob { position: absolute; top: 28px; left: 28px; width: 36px; height: 36px; border-radius: 50%; background: rgba(255,255,255,.88); box-shadow: 0 4px 14px rgba(0,0,0,.35); pointer-events: none; }
-  body.inMatch .mobileTargetButtons { position: absolute; right: max(12px,env(safe-area-inset-right)); bottom: max(18px,env(safe-area-inset-bottom)); display: grid; grid-template-columns: repeat(2,62px); gap: 7px; pointer-events: auto; }
+  body.inMatch .mobileTargetButtons { position: absolute; right: max(12px,env(safe-area-inset-right)); bottom: max(18px,env(safe-area-inset-bottom)); display: grid; grid-template-columns: repeat(3,62px); gap: 7px; pointer-events: auto; }
   body.inMatch .mobileTargetButtons button { width: 62px; height: 54px; min-width: 0; min-height: 0; padding: 5px 3px; border: 2px solid rgba(183,198,211,.62); border-radius: 8px; background: linear-gradient(145deg,#536173,#303b4c 48%,#182131); color: #f8fafc; box-shadow: inset 0 3px rgba(255,255,255,.14),inset 0 -4px rgba(4,9,18,.42),0 5px 0 #0b1220,0 8px 16px rgba(0,0,0,.3); font-size: 8px; font-weight: 1000; text-transform: uppercase; text-shadow: 0 2px 2px #000; touch-action: none; }
   body.inMatch [data-cycle="enemy"] { border-color: rgba(248,113,113,.78); background: linear-gradient(145deg,#8f4848,#632c35 52%,#351723); }
   body.inMatch [data-cycle="ally"] { border-color: rgba(96,165,250,.78); background: linear-gradient(145deg,#446b91,#263d5c 55%,#14243b); }

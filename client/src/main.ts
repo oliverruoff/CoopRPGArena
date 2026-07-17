@@ -1,5 +1,8 @@
 import { ArcRotateCamera, Color3, Color4, DefaultRenderingPipeline, DepthOfFieldEffectBlurLevel, DirectionalLight, Engine, HemisphericLight, Matrix, Mesh, MeshBuilder, PointerEventTypes, Scene, StandardMaterial, TransformNode, Vector3, VertexData } from "@babylonjs/core";
 import "./style.css";
+import { renderSharedPartyFrame, updateSmoothCastBar } from "./shared-combat-ui";
+import { adaptPvpSnapshot, installPvpLobby, isPvpMode, pvpWsUrl, renderPvpLobby } from "./pvp-mode";
+import "./pvp-unified.css";
 
 type Vec = { x: number; z: number };
 type CastState = { abilityId: string; targetId: string | null; duration: number; remaining: number; progress: number };
@@ -140,6 +143,7 @@ root.innerHTML = `
   </section>
 `;
 
+if (isPvpMode) queueMicrotask(() => installPvpLobby(send));
 const canvas = document.querySelector<HTMLCanvasElement>("#renderCanvas")!;
 const urlParams = new URLSearchParams(window.location.search);
 const qualityOverride = (urlParams.get("quality") || urlParams.get("q") || "").toLowerCase();
@@ -207,6 +211,19 @@ arena.position.y = -0.08;
 arena.receiveShadows = false;
 createGroundDressing();
 const lobbyScenery = createLobbyScenery();
+if (isPvpMode) {
+  scene.meshes.forEach((mesh)=>mesh.setEnabled(false));
+  buildUnifiedPvpArena();
+}
+
+function buildUnifiedPvpArena() {
+  const floor=MeshBuilder.CreateGround("lower-arena",{width:60,height:36,subdivisions:2},scene);floor.material=mat("pvp-dirt",new Color3(.35,.18,.11));floor.receiveShadows=true;
+  const bridge=MeshBuilder.CreateBox("high-bridge",{width:36,depth:8,height:.75},scene);bridge.position.y=4.65;bridge.material=mat("pvp-bridge",new Color3(.28,.22,.19));
+  const slope=Math.atan2(5,8);for(const [x,rotation] of [[-22,-slope],[22,slope]] as Array<[number,number]>){const ramp=MeshBuilder.CreateBox(`end-ramp-${x}`,{width:Math.sqrt(89),depth:8,height:.5},scene);ramp.position.set(x,2.35,0);ramp.rotation.z=rotation;ramp.material=bridge.material;}
+  for(const x of [-7,7])for(const z of [-8.5,8.5]){const ramp=MeshBuilder.CreateBox(`center-ramp-${x}-${z}`,{width:4.6,depth:Math.sqrt(106),height:.45},scene);ramp.position.set(x,2.35,z);ramp.rotation.x=z<0?-Math.atan2(5,9):Math.atan2(5,9);ramp.material=bridge.material;}
+  for(const x of [-8,8]){const pillar=MeshBuilder.CreateCylinder(`pillar-${x}`,{diameter:4.1,height:5.2,tessellation:8},scene);pillar.position.set(x,2.55,0);pillar.material=mat(`pillar-${x}-mat`,new Color3(.34,.28,.25));}
+  for(const side of [-1,1]){const gate=MeshBuilder.CreateBox(`gate-${side}`,{width:1,height:5.5,depth:10},scene);gate.position.set(side*24.7,2.7,0);gate.material=mat(`gate-${side}-mat`,side<0?new Color3(.08,.2,.42):new Color3(.48,.08,.06));}
+}
 
 const configuredWsUrl = import.meta.env.VITE_WS_URL as string | undefined;
 const defaultWsUrl = `${window.location.protocol === "https:" ? "wss" : "ws"}://${window.location.hostname}:8000/ws`;
@@ -252,6 +269,7 @@ let optimisticAllyTargetId: string | null = null;
 let lastClassPreviewInfoSignature = "";
 let lobbyStatsOpen = false;
 let castBarVisualProgress = 0;
+let visualCastAbilityId = "";
 let autoAttackVisualProgress = 0;
 let pendingGroundAbilitySlot: number | null = null;
 let statsPanelExpanded = false;
@@ -313,6 +331,7 @@ function getWsUrl(): string {
   const base = configuredWsUrl && !isLocalhostOnlyUrl(configuredWsUrl) ? configuredWsUrl : defaultWsUrl;
   // A reconnect identity belongs to one tab. localStorage is shared between
   // tabs and caused two lobby tabs to repeatedly take over the same player.
+  if (isPvpMode) return pvpWsUrl(base);
   const token = sessionStorage.getItem("cooprpg_reconnect_token");
   if (!token) return base;
   const sep = base.includes("?") ? "&" : "?";
@@ -335,9 +354,9 @@ function connect() {
   });
   ws.addEventListener("message", (event) => {
     previousState = state;
-    const incoming = JSON.parse(event.data) as IncomingSnapshot;
+    const incoming = adaptPvpSnapshot(JSON.parse(event.data), state) as IncomingSnapshot;
     if (incoming.reconnectToken) {
-      sessionStorage.setItem("cooprpg_reconnect_token", incoming.reconnectToken);
+      sessionStorage.setItem(isPvpMode ? "cooprpg_pvp_reconnect_token" : "cooprpg_reconnect_token", incoming.reconnectToken);
     }
     const incomingHasStatic = incoming.mapObjects !== undefined;
     state = mergeSnapshot(incoming);
@@ -378,11 +397,12 @@ function setPlayerName(name: string) {
 
 function targetPartyPlayer(playerId: string) {
   if (!state?.players[playerId]) return;
-  optimisticAllyTargetId = playerId;
   const me = state.players[state.you];
+  const enemyPlayer = isPvpMode && Boolean((me as any)?.team) && (state.players[playerId] as any).team !== (me as any).team;
+  optimisticAllyTargetId = enemyPlayer ? null : playerId;
   if (me) {
-    me.allyTargetId = playerId;
-    me.targetId = null;
+    me.allyTargetId = enemyPlayer ? null : playerId;
+    me.targetId = enemyPlayer ? playerId : null;
   }
   markSelectedPartyFrame(playerId);
   unlockAudio();
@@ -844,9 +864,9 @@ function renderUi() {
   document.body.dataset.spectator = isSpectator ? "true" : "false";
   document.querySelector<HTMLElement>("#lobby")!.style.display = state.matchState === "lobby" ? "block" : "none";
   document.querySelector<HTMLElement>("#hud")!.style.display = state.matchState === "lobby" ? "none" : "block";
-  document.querySelector<HTMLElement>("#classPreviewInfo")!.style.display = state.matchState === "lobby" ? "block" : "none";
+  document.querySelector<HTMLElement>("#classPreviewInfo")!.style.display = !isPvpMode && state.matchState === "lobby" ? "block" : "none";
   if (lobbyPipeline) lobbyPipeline.depthOfFieldEnabled = state.matchState === "lobby" && Boolean(classPreview);
-  lobbyScenery.setEnabled(state.matchState === "lobby");
+  lobbyScenery.setEnabled(!isPvpMode && state.matchState === "lobby");
   if (wasLobby && state.matchState !== "lobby") {
     setLobbyStatsOpen(false);
     document.querySelector<HTMLElement>("#statTooltip")!.style.display = "none";
@@ -854,6 +874,8 @@ function renderUi() {
   }
   if (classPreview) classPreview.setEnabled(state.matchState === "lobby" && !isSpectator);
   text("countdown", state.countdown ? `Starting in ${Math.ceil(state.countdown)}` : "");
+  if (isPvpMode) renderPvpLobby(state as any, send);
+  if (!isPvpMode) {
   const currentState = state;
   document.querySelector("#lobbyPlayers")!.innerHTML = `<h3 data-testid="lobby-player-count">Players connected: ${Object.keys(currentState.players).length}</h3>` + Object.values(currentState.players).map((p) => {
     const isYou = p.id === you;
@@ -909,6 +931,7 @@ function renderUi() {
   if (state.matchState === "lobby") {
     text("connection", isSpectator ? "Spectator mode — waiting for the next match" : "Connected");
   }
+  }
   if (!me) return;
   const bars = document.querySelector<HTMLElement>("#bars")!;
   const action = document.querySelector<HTMLElement>("#action")!;
@@ -953,8 +976,8 @@ function renderUi() {
     text("wave", `Wave ${state.wave.number} • ${state.wave.aliveEnemies} enemies`);
   }
   const selectedAllyId = me.allyTargetId || optimisticAllyTargetId;
-  syncPartyFrames(Object.values(state.players).filter((p) => !p.spectator), selectedAllyId);
-  const target = me.targetId ? state.enemies[me.targetId] : me.allyTargetId ? state.players[me.allyTargetId] : null;
+  syncPartyFrames(Object.values(state.players).filter((p) => !p.spectator && (!isPvpMode || (p as any).team === (me as any).team)), selectedAllyId);
+  const target = me.targetId ? state.enemies[me.targetId] || state.players[me.targetId] : me.allyTargetId ? state.players[me.allyTargetId] : null;
   const pendingGroundAbility = pendingGroundAbilitySlot === null ? null : me.abilities.find((id) => abilitySlot(me, id) === pendingGroundAbilitySlot);
   targetFrame.querySelector<HTMLElement>(".targetSummary")!.textContent = pendingGroundAbility
     ? `Tap arena to place ${state.abilities[pendingGroundAbility]?.name || "spell"} • tap ability again to cancel`
@@ -1154,19 +1177,7 @@ function renderLevelChoice(choice: Upgrade) {
 }
 
 function renderPartyFrame(player: PlayerState, selectedAllyId: string | null) {
-  const selected = selectedAllyId === player.id;
-  const hpPercent = Math.max(0, player.hp / player.maxHealth * 100);
-  const resourcePercent = player.maxResource > 0 ? Math.max(0, Math.min(100, player.resource / player.maxResource * 100)) : 0;
-  const resourceType = player.resourceType || "resource";
-  const resourceClass = ["mana", "rage", "energy", "focus"].includes(resourceType) ? resourceType : "resource";
-  return `<div class="partyFrame${selected ? " selectedTarget" : ""}${player.dead ? " dead" : ""}" role="button" tabindex="0" aria-pressed="${selected}" data-testid="party-frame" data-id="${player.id}">
-    <b class="partyName">${escapeHtml(player.name)}</b><br>
-    <span class="partyClass">${escapeHtml(player.classId || "No class")}</span>
-    <div class="mini partyHealth"><span style="width:${hpPercent}%"></span><div class="partyMeterLabel">HP ${Math.round(player.hp)}/${Math.round(player.maxHealth)}</div></div>
-    <div class="mini partyResource ${resourceClass}" data-testid="party-resource-bar"><span style="width:${resourcePercent}%"></span><div class="partyMeterLabel">${resourceLabel(player.resourceType)} ${Math.round(player.resource)}/${Math.round(player.maxResource)}</div></div>
-    <span class="partyState"${player.dead ? "" : " hidden"}>Down</span>
-    <div class="partyEffects">${renderEffectGroups(player.activeEffects || [], "party")}</div>
-  </div>`;
+  return renderSharedPartyFrame(player, selectedAllyId === player.id, renderEffectGroups(player.activeEffects || [], "party"));
 }
 
 function syncPartyFrames(players: PlayerState[], selectedAllyId: string | null) {
@@ -1815,21 +1826,9 @@ function updateCastBar() {
   const cast = document.querySelector<HTMLElement>("#cast")!;
   const fill = document.querySelector<HTMLElement>("#castFill")!;
   const me = state?.players[state.you];
-  if (!me?.casting || me.spectator) {
-    cast.style.display = "none";
-    castBarVisualProgress = 0;
-    fill.style.transform = "scaleX(0)";
-    return;
-  }
-  const ability = state?.abilities[me.casting.abilityId];
-  const elapsed = Math.max(0, (performance.now() - snapshotReceivedAt) / 1000);
-  const duration = Math.max(0.01, me.casting.duration);
-  const remaining = Math.max(0, me.casting.remaining - elapsed);
-  const progress = Math.max(0, Math.min(1, 1 - remaining / duration));
-  castBarVisualProgress = Math.max(castBarVisualProgress, progress);
-  cast.style.display = "block";
-  fill.style.transform = `scaleX(${castBarVisualProgress})`;
-  text("castName", ability?.name || "Casting");
+  const casting = me?.spectator ? null : me?.casting || null;
+  const visual = updateSmoothCastBar({ container: cast, fill, label: document.querySelector<HTMLElement>("#castName")!, casting, snapshotReceivedAt, previousProgress: castBarVisualProgress, previousAbilityId: visualCastAbilityId, abilityName: casting ? state?.abilities[casting.abilityId]?.name || "Casting" : "" });
+  castBarVisualProgress = visual.progress; visualCastAbilityId = visual.abilityId;
 }
 
 function updateAutoAttackBar() {
@@ -1877,7 +1876,8 @@ function renderWorld() {
     const jumpElapsed = Math.max(0, (performance.now() - snapshotReceivedAt) / 1000);
     const jumpProgress = p.jumping ? Math.min(1, Math.max(0, p.jumpProgress) + jumpElapsed / JUMP_DURATION_SECONDS) : 1;
     const jumpY = p.jumping ? 4 * jumpProgress * (1 - jumpProgress) * 0.9 : 0;
-    const targetY = p.dead ? 0.45 : jumpY;
+    const terrainY = Number((p.position as any).y || 0);
+    const targetY = p.dead ? terrainY + 0.45 : terrainY + jumpY;
     node.position.y = lerpValue(node.position.y, targetY, p.jumping ? 0.42 : 0.3);
     node.setEnabled(state.matchState !== "lobby");
     const previous = previousState?.players[p.id]?.position;
@@ -2127,6 +2127,7 @@ function renderGroundEffects() {
       groundEffectMeshes.set(effect.id, node);
     }
     node.position.x = effect.x;
+    node.position.y = Number((effect as any).y || 0);
     node.position.z = effect.z;
     node.metadata = { ...(node.metadata || {}), remaining: effect.remaining, effectType: effect.type, sourceId: effect.sourceId };
   }
@@ -5932,5 +5933,5 @@ function send(msg: unknown) {
   sendQueue.push(msg);
   flushSendQueue();
 }
-function text(id: string, value: string) { document.querySelector(`#${id}`)!.textContent = value; }
+function text(id: string, value: string) { const element=document.querySelector(`#${id}`); if(element) element.textContent = value; }
 function width(id: string, value: number) { (document.querySelector(`#${id}`) as HTMLElement).style.width = `${Math.max(0, Math.min(1, value)) * 100}%`; }
