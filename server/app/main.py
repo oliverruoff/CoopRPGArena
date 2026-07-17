@@ -7,9 +7,11 @@ from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
 from .game import game
+from .pvp_game import pvp_game
 
 
 clients: dict[str, WebSocket] = {}
+pvp_clients: dict[str, WebSocket] = {}
 client_versions: dict[str, int] = {}
 client_map_revisions: dict[str, int] = {}
 client_static_sent_at: dict[str, float] = {}
@@ -22,9 +24,11 @@ async def game_loop() -> None:
     last_broadcast = 0.0
     while True:
         await game.tick()
+        await pvp_game.tick()
         now = time.monotonic()
         if now - last_broadcast >= BROADCAST_INTERVAL:
             await broadcast(now)
+            await broadcast_pvp()
             last_broadcast = now
         await asyncio.sleep(SIMULATION_INTERVAL)
 
@@ -56,6 +60,18 @@ async def broadcast(now: float) -> None:
                 await game.remove_player(player_id)
 
     await asyncio.gather(*(send_snapshot(player_id, ws) for player_id, ws in list(clients.items())))
+
+
+async def broadcast_pvp() -> None:
+    async def send_snapshot(player_id: str, ws: WebSocket) -> None:
+        try:
+            await ws.send_json(await pvp_game.snapshot(player_id))
+        except Exception:
+            if pvp_clients.get(player_id) is ws:
+                pvp_clients.pop(player_id, None)
+                await pvp_game.remove_player(player_id)
+
+    await asyncio.gather(*(send_snapshot(player_id, ws) for player_id, ws in list(pvp_clients.items())))
 
 
 @asynccontextmanager
@@ -91,6 +107,20 @@ async def debug_action(body: dict):
     if not test_mode():
         raise HTTPException(status_code=404)
     return await game.debug_action(body.get("action", ""), body.get("payload", {}))
+
+
+@app.get("/debug/pvp/state")
+async def debug_pvp_state():
+    if not test_mode():
+        raise HTTPException(status_code=404)
+    return await pvp_game.snapshot()
+
+
+@app.post("/debug/pvp/action")
+async def debug_pvp_action(body: dict):
+    if not test_mode():
+        raise HTTPException(status_code=404)
+    return await pvp_game.debug_action(body.get("action", ""), body.get("payload", {}))
 
 
 @app.websocket("/ws")
@@ -130,3 +160,26 @@ async def websocket_endpoint(ws: WebSocket):
             client_static_sent_at.pop(player.id, None)
             if player is not None:
                 await game.remove_player(player.id)
+
+
+@app.websocket("/ws/pvp")
+async def pvp_websocket_endpoint(ws: WebSocket):
+    await ws.accept()
+    player = await pvp_game.add_player(ws.query_params.get("token"))
+    try:
+        old_ws = pvp_clients.get(player.id)
+        if old_ws is not None and old_ws != ws:
+            try:
+                await old_ws.close()
+            except Exception:
+                pass
+        pvp_clients[player.id] = ws
+        await ws.send_json(await pvp_game.snapshot(player.id))
+        while True:
+            await pvp_game.handle_message(player.id, await ws.receive_json())
+    except WebSocketDisconnect:
+        pass
+    finally:
+        if pvp_clients.get(player.id) is ws:
+            pvp_clients.pop(player.id, None)
+            await pvp_game.remove_player(player.id)

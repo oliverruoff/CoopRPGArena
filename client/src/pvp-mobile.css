@@ -1,0 +1,343 @@
+#mobileControls {
+  display: none;
+}
+
+@media (max-width: 900px) {
+  #pvpLobby {
+    height: 100dvh;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+
+  .pvpBrand {
+    position: sticky;
+    top: 0;
+    z-index: 20;
+  }
+
+  .pvpBrand .brandMark {
+    flex: 0 0 42px;
+    width: 42px;
+    height: 42px;
+  }
+
+  .pvpBrand > div:nth-child(2) {
+    min-width: 0;
+  }
+
+  .pvpBrand h1 {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .pvpBrand a {
+    flex: 0 0 auto;
+    margin-left: auto;
+    padding: 8px 10px;
+    font-size: 11px;
+  }
+
+  .lobbyGrid {
+    grid-template-areas:
+      "blue red"
+      "build build";
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-rows: auto auto;
+    align-content: start;
+    height: auto;
+    min-height: calc(100dvh - 74px);
+    padding: 8px 8px 24px;
+    overflow: visible;
+  }
+
+  .bluePanel {
+    grid-area: blue;
+  }
+
+  .redPanel {
+    grid-area: red;
+  }
+
+  .buildPanel {
+    grid-area: build;
+    width: 100%;
+    overflow: visible;
+  }
+
+  .teamPanel {
+    min-width: 0;
+    min-height: 230px;
+  }
+
+  .panelTitle {
+    align-items: flex-start;
+    gap: 6px;
+  }
+
+  .panelTitle h2 {
+    font-size: 13px;
+  }
+
+  .panelTitle b {
+    font-size: 11px;
+  }
+
+  .teamPlayers {
+    min-height: 80px;
+  }
+
+  .lobbyPlayer {
+    grid-template-columns: 16px 1fr;
+    padding: 7px;
+  }
+
+  .lobbyPlayer em {
+    grid-column: 2;
+  }
+
+  .joinTeam {
+    min-height: 48px;
+    padding: 8px;
+    font-size: 11px;
+  }
+
+  .identityRow {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+
+  .sectionHeading {
+    align-items: flex-start;
+  }
+
+  .sectionHeading p {
+    line-height: 1.35;
+  }
+
+  .classChoices button {
+    min-height: 58px;
+  }
+
+  .buildTabs {
+    position: sticky;
+    top: 74px;
+    z-index: 8;
+    background: #171114;
+  }
+
+  .buildChoices {
+    max-height: none;
+    overflow: visible;
+  }
+
+  .buildChoice {
+    min-height: 58px;
+  }
+
+  .buildChoice small {
+    max-width: 250px;
+  }
+
+  .readyRow {
+    position: sticky;
+    bottom: 0;
+    z-index: 9;
+    margin: 14px -10px -10px;
+    padding: 12px 10px calc(12px + env(safe-area-inset-bottom));
+    background: #171114f5;
+    box-shadow: 0 -10px 25px #0008;
+  }
+
+  .readyRow span {
+    max-width: 55%;
+    line-height: 1.35;
+  }
+
+  .readyRow button {
+    min-height: 48px;
+    padding: 10px 24px;
+  }
+
+  #lobbyCountdown {
+    top: 82px;
+    z-index: 30;
+    width: 100%;
+    text-align: center;
+    font-size: 18px;
+    pointer-events: none;
+  }
+
+  .combatTeam {
+    top: 6px;
+    width: calc(50vw - 9px);
+    gap: 3px;
+  }
+
+  .blueFrames {
+    left: 6px;
+  }
+
+  .redFrames {
+    right: 6px;
+  }
+
+  .combatFrame {
+    min-height: 43px;
+    padding: 6px 7px;
+  }
+
+  .combatFrame small,
+  .combatFrame > span {
+    font-size: 8px;
+  }
+
+  .targetFrame {
+    top: 145px;
+    min-width: 190px;
+    max-width: 70vw;
+    padding: 7px 12px;
+    font-size: 11px;
+  }
+
+  .prepBanner {
+    top: 38%;
+    width: 100%;
+    text-align: center;
+    font-size: 23px;
+  }
+
+  .selfHud {
+    bottom: calc(5px + env(safe-area-inset-bottom));
+    width: calc(100vw - 10px);
+    pointer-events: none;
+  }
+
+  .selfHud .bar,
+  .selfHud #selfName,
+  .castBar {
+    width: min(250px, 70vw);
+  }
+
+  .actionBar {
+    grid-template-columns: repeat(5, 1fr);
+    pointer-events: auto;
+  }
+
+  .actionBar button {
+    min-width: 0;
+    height: 42px;
+    touch-action: manipulation;
+  }
+
+  #mobileControls {
+    position: fixed;
+    right: 8px;
+    bottom: calc(148px + env(safe-area-inset-bottom));
+    left: 8px;
+    z-index: 40;
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    pointer-events: none;
+  }
+
+  .mobileMovePad {
+    display: grid;
+    grid-template-columns: repeat(3, 42px);
+    grid-template-rows: repeat(2, 42px);
+    gap: 3px;
+    pointer-events: auto;
+  }
+
+  .mobileMovePad button,
+  .mobileTargetButtons button {
+    border: 1px solid #d2a15c88;
+    background: #171116dc;
+    color: #f4d5a4;
+    box-shadow: 0 4px 12px #0008;
+    touch-action: none;
+    user-select: none;
+  }
+
+  .mobileMovePad button.pressed {
+    background: #9b5b27;
+    transform: scale(.96);
+  }
+
+  .mobileMovePad [data-move="up"] {
+    grid-column: 2;
+  }
+
+  .mobileMovePad [data-move="left"] {
+    grid-column: 1;
+    grid-row: 2;
+  }
+
+  .mobileMovePad [data-move="down"] {
+    grid-column: 2;
+    grid-row: 2;
+  }
+
+  .mobileMovePad [data-move="right"] {
+    grid-column: 3;
+    grid-row: 2;
+  }
+
+  .mobileTargetButtons {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    pointer-events: auto;
+  }
+
+  .mobileTargetButtons button {
+    min-width: 104px;
+    min-height: 40px;
+    padding: 5px 8px;
+    font-size: 10px;
+  }
+
+  .eventFeed {
+    bottom: 250px;
+    max-width: 55vw;
+  }
+
+  #victory {
+    overflow-y: auto;
+  }
+
+  #victory > div {
+    margin: 12px 0;
+    padding: 20px 12px;
+  }
+
+  .scoreRow {
+    grid-template-columns: 1fr 72px;
+  }
+
+  .scoreRow em,
+  .scoreRow small {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 430px) {
+  .pvpBrand span {
+    font-size: 8px;
+  }
+
+  .pvpBrand h1 {
+    font-size: 17px;
+  }
+
+  .pvpBrand a {
+    max-width: 82px;
+    white-space: normal;
+  }
+
+  .buildChoice small {
+    max-width: 220px;
+  }
+}

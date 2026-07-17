@@ -8,6 +8,9 @@
   </head>
   <body>
     <div id="app"></div>
-    <script type="module" src="/src/main.ts"></script>
+    <script type="module">
+      if (window.location.pathname.startsWith("/pvp")) import("/src/pvp.ts");
+      else import("/src/main.ts");
+    </script>
   </body>
 </html>

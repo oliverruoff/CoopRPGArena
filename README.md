@@ -6,6 +6,8 @@
 
 A browser-based cooperative RPG arena — up to 5 players fight waves of enemies together, choose class upgrades, and combine abilities in real-time.
 
+The game also includes an isolated PvP mode at [`/pvp`](http://localhost:5173/pvp): choose Team Blue or Team Red, spend ten freely mixable build points on spells and attributes, and fight 1v1 through 3v3 in the multi-level voxel arena Klingenklamm. Uneven teams are supported, friendly fire is blocked, and allied resurrection remains available.
+
 ## Gameplay
 
 - **Lobby** — Enter your name, pick a class, and mark ready. The match starts when all players are ready.
