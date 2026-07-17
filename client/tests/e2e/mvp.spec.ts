@@ -582,4 +582,24 @@ test("low quality mode renders map objects", async ({ page }) => {
     return scene ? scene.meshes.filter((m: any) => /tree|rock/.test(m.name?.toLowerCase())).length : 0;
   });
   expect(sceneryMeshes).toBeGreaterThan(0);
+  const arenaDressing = await page.evaluate(() => {
+    const scene = (document.querySelector("canvas") as any)?.scene;
+    const names = scene.meshes.map((mesh: any) => mesh.name);
+    const rock = scene.meshes.find((mesh: any) => mesh.name.endsWith("-rock-main"));
+    return {
+      grass: names.filter((name: string) => name.includes("grass")).length,
+      edgeStones: names.filter((name: string) => name.startsWith("arena-edge-stone-")).length,
+      torches: names.filter((name: string) => /^arena-torch-\d+-post$/.test(name)).length,
+      flames: names.filter((name: string) => /arena-torch-\d+-flame-\d+$/.test(name)).length,
+      smoke: names.filter((name: string) => /arena-torch-\d+-smoke-\d+$/.test(name)).length,
+      rockCenterY: rock?.position.y ?? null,
+    };
+  });
+  expect(arenaDressing.grass).toBe(0);
+  expect(arenaDressing.edgeStones).toBe(0);
+  expect(arenaDressing.torches).toBe(10);
+  expect(arenaDressing.flames).toBe(20);
+  expect(arenaDressing.smoke).toBe(10);
+  expect(arenaDressing.rockCenterY).not.toBeNull();
+  expect(arenaDressing.rockCenterY).toBeLessThan(0.4);
 });

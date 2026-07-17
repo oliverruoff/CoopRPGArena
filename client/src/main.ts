@@ -2558,19 +2558,56 @@ function createGroundDressing() {
     disc.isPickable = false;
   });
 
-  for (let i = 0; i < 28; i++) {
-    const angle = i * Math.PI * 2 / 28;
-    const dist = i % 2 === 0 ? 25.8 : 24.9;
-    const stone = MeshBuilder.CreateBox(`arena-edge-stone-${i}`, { width: 0.62 + (i % 3) * 0.12, height: 0.12, depth: 0.32 }, scene);
-    stone.position.set(Math.cos(angle) * dist, 0.05, Math.sin(angle) * dist);
-    stone.rotation.y = -angle + Math.PI / 2 + (i % 4 - 1.5) * 0.08;
-    stone.material = mat(`arena-edge-stone-${i}-mat`, i % 5 === 0 ? palette.stoneLight : palette.stone);
-    stone.isPickable = false;
-  }
+  createArenaTorches();
+}
 
-  // Both batches are single static meshes, so the extra dressing costs only two draw calls.
-  createGrassMesh("arena-field-grass", null, 48, lowSpecMode ? 36 : 78, palette.leafDark.scale(1.02), false);
-  createGrassMesh("arena-edge-grass", null, 25.6, lowSpecMode ? 24 : 52, palette.leafDark.scale(1.08), true);
+function createArenaTorches() {
+  const count = lowSpecMode ? 10 : 16;
+  const flames: Array<{ mesh: Mesh; phase: number }> = [];
+  const smoke: Array<{ mesh: Mesh; phase: number; baseY: number }> = [];
+  const fire = new Color3(1, 0.2, 0.015);
+  const hot = new Color3(1, 0.78, 0.08);
+  for (let i = 0; i < count; i++) {
+    const angle = i * Math.PI * 2 / count;
+    const root = new TransformNode(`arena-torch-${i}`, scene);
+    root.position.set(Math.cos(angle) * 25.2, 0, Math.sin(angle) * 25.2);
+    root.rotation.y = -angle;
+    const post = MeshBuilder.CreateCylinder(`arena-torch-${i}-post`, { diameterTop: 0.18, diameterBottom: 0.26, height: 2.35, tessellation: 7 }, scene);
+    post.parent = root; post.position.y = 1.12; post.material = mat(`arena-torch-${i}-post-mat`, palette.bark.scale(0.68)); post.isPickable = false;
+    const bowl = MeshBuilder.CreateCylinder(`arena-torch-${i}-bowl`, { diameterTop: 0.72, diameterBottom: 0.38, height: 0.28, tessellation: 8 }, scene);
+    bowl.parent = root; bowl.position.y = 2.3; bowl.material = mat(`arena-torch-${i}-bowl-mat`, palette.stone.scale(0.48)); bowl.isPickable = false;
+    const ember = MeshBuilder.CreateSphere(`arena-torch-${i}-ember`, { diameter: 0.48, segments: 6 }, scene);
+    ember.parent = root; ember.position.y = 2.5; const emberMat = mat(`arena-torch-${i}-ember-mat`, hot); emberMat.emissiveColor = fire; ember.material = emberMat; ember.isPickable = false;
+    for (let layer = 0; layer < 2; layer++) {
+      const flame = MeshBuilder.CreatePolyhedron(`arena-torch-${i}-flame-${layer}`, { type: layer ? 1 : 2, size: layer ? 0.3 : 0.42 }, scene);
+      flame.parent = root; flame.position.set(layer ? 0.08 : -0.05, 2.72 + layer * 0.16, layer ? -0.03 : 0.04);
+      const flameMat = transparentMat(`arena-torch-${i}-flame-${layer}-mat`, layer ? hot : fire, 0.94); flameMat.emissiveColor = layer ? hot : fire;
+      flame.material = flameMat; flame.isPickable = false;
+      flames.push({ mesh: flame, phase: i * 0.71 + layer * 1.9 });
+    }
+    const smokeCount = lowSpecMode ? 1 : 2;
+    for (let puff = 0; puff < smokeCount; puff++) {
+      const cloud = MeshBuilder.CreateSphere(`arena-torch-${i}-smoke-${puff}`, { diameter: 0.34 + puff * 0.12, segments: 6 }, scene);
+      cloud.parent = root; cloud.position.set((puff ? 1 : -1) * 0.08, 3.08 + puff * 0.45, 0);
+      cloud.material = transparentMat(`arena-torch-${i}-smoke-${puff}-mat`, new Color3(0.16, 0.14, 0.13), 0.2); cloud.isPickable = false;
+      smoke.push({ mesh: cloud, phase: i * 0.43 + puff * 2.4, baseY: cloud.position.y });
+    }
+  }
+  scene.onBeforeRenderObservable.add(() => {
+    const time = performance.now() / 1000;
+    for (const entry of flames) {
+      const flicker = 0.9 + Math.sin(time * 8.5 + entry.phase) * 0.12 + Math.sin(time * 13 + entry.phase * 1.7) * 0.06;
+      entry.mesh.scaling.set(0.88 + flicker * 0.08, flicker, 0.88 + flicker * 0.08);
+      entry.mesh.rotation.y += 0.025;
+    }
+    for (const entry of smoke) {
+      const cycle = (time * 0.24 + entry.phase) % 1;
+      entry.mesh.position.y = entry.baseY + cycle * 0.9;
+      entry.mesh.position.x = Math.sin(time * 0.9 + entry.phase) * 0.13;
+      entry.mesh.scaling.setAll(0.65 + cycle * 0.8);
+      (entry.mesh.material as StandardMaterial).alpha = 0.2 * (1 - cycle);
+    }
+  });
 }
 
 function createLobbyScenery() {
@@ -2609,49 +2646,6 @@ function addContactShadow(parent: TransformNode, name: string, diameter: number,
   shadow.material = transparentMat(`${name}-mat`, palette.shadow, alpha);
   shadow.isPickable = false;
   return shadow;
-}
-
-function addPropGrass(parent: TransformNode, object: MapObject, diameter: number, count: number) {
-  // grass disabled
-}
-
-function createGrassMesh(name: string, parent: TransformNode | null, spread: number, count: number, color: Color3, ringOnly: boolean) {
-  const positions: number[] = [];
-  const indices: number[] = [];
-  for (let i = 0; i < count; i++) {
-    const angle = (i / count) * Math.PI * 2 + Math.sin(i * 12.9898) * 0.22;
-    const radius = ringOnly ? spread + Math.sin(i * 78.233) * 1.35 : Math.sqrt((i * 37.719) % 1) * spread * 0.5;
-    const x = Math.cos(angle) * radius;
-    const z = Math.sin(angle) * radius;
-    const bladeAngle = angle + Math.PI / 2 + Math.sin(i * 4.17) * 0.8;
-    const width = 0.09 + ((i * 13) % 7) * 0.012;
-    const height = 0.34 + ((i * 17) % 9) * 0.045;
-    const lean = 0.08 + ((i * 19) % 5) * 0.018;
-    const dx = Math.cos(bladeAngle) * width;
-    const dz = Math.sin(bladeAngle) * width;
-    const lx = Math.cos(bladeAngle + Math.PI / 2) * lean;
-    const lz = Math.sin(bladeAngle + Math.PI / 2) * lean;
-    const base = positions.length / 3;
-    positions.push(
-      x - dx, 0.035, z - dz,
-      x + dx, 0.035, z + dz,
-      x + dx * 0.22 + lx, height, z + dz * 0.22 + lz,
-      x - dx * 0.22 + lx, height * 0.92, z - dz * 0.22 + lz
-    );
-    indices.push(base, base + 1, base + 2, base, base + 2, base + 3);
-  }
-  const mesh = new Mesh(name, scene);
-  const data = new VertexData();
-  data.positions = positions;
-  data.indices = indices;
-  data.applyToMesh(mesh, true);
-  mesh.parent = parent;
-  mesh.isPickable = false;
-  const material = mat(`${name}-mat`, color);
-  material.backFaceCulling = false;
-  material.specularColor = Color3.Black();
-  mesh.material = material;
-  return mesh;
 }
 
 function renderMapObjects() {
@@ -2775,7 +2769,6 @@ function createMapObject(object: MapObject) {
       layer.parent = root;
       layer.position.y = i * wallHeight / (layerCount + 1);
     }
-    addPropGrass(root, object, Math.max(width, depth) * 0.95, 14);
   } else if (object.type === "tree") {
     const variant = (object.variant || 0) % 8;
     const scale = (object.radius || 1.0) / 1.0;
@@ -2818,7 +2811,6 @@ function createMapObject(object: MapObject) {
       layer.material = mat(`${object.id}-crown-${i}-mat`, crownColor.scale(0.88 + i * 0.07));
     }
     root.scaling.setAll(scale);
-    addPropGrass(root, object, 2.2, 10);
   } else if (object.type === "bush") {
     const variant = object.variant || 0;
     const radius = object.radius || 0.7;
@@ -2837,7 +2829,6 @@ function createMapObject(object: MapObject) {
       berries.position.set(0.25, 0.7, 0.1);
       berries.material = mat(`${object.id}-berries-mat`, new Color3(0.85, 0.2, 0.25));
     }
-    addPropGrass(root, object, radius * 1.35, 5);
   } else if (object.type === "crystal") {
     addContactShadow(root, `${object.id}-shadow`, 1.8, 0.14);
     const crystal = MeshBuilder.CreateCylinder(`${object.id}-crystal`, { diameterTop: 0.18, diameterBottom: 1.15, height: 2.65, tessellation: 5 }, scene);
@@ -2872,20 +2863,18 @@ function createMapObject(object: MapObject) {
     water.parent = root;
     water.position.y = 1.03;
     water.material = transparentMat(`${object.id}-water-mat`, new Color3(0.22, 0.62, 1), 0.58);
-    addPropGrass(root, object, 2.5, 10);
   } else if (object.type === "rock") {
     const radius = object.radius || 0.8;
     const variant = (object.variant || 0) % 3;
     addContactShadow(root, `${object.id}-shadow`, radius * 1.85, 0.15);
     const main = MeshBuilder.CreateSphere(`${object.id}-rock-main`, { diameter: radius * 1.45, segments: 6 }, scene);
-    main.parent = root; main.position.y = radius * (variant === 1 ? 0.58 : 0.46);
+    main.parent = root; main.position.y = radius * (variant === 1 ? 0.3 : 0.23);
     main.scaling.set(variant === 2 ? 0.86 : 1.18, variant === 1 ? 0.9 : 0.62, variant === 2 ? 1.24 : 0.86);
     main.rotation.y = variant * 0.48;
     main.material = mat(`${object.id}-rock-main-mat`, palette.stone.scale(0.88 + variant * 0.08));
     const chip = MeshBuilder.CreateSphere(`${object.id}-rock-chip`, { diameter: radius * 0.8, segments: 5 }, scene);
-    chip.parent = root; chip.position.set(radius * (variant === 2 ? -0.42 : 0.42), radius * 0.36, -radius * 0.16);
+    chip.parent = root; chip.position.set(radius * (variant === 2 ? -0.42 : 0.42), radius * 0.18, -radius * 0.16);
     chip.scaling.set(0.82, variant === 1 ? 0.7 : 0.48, 0.7); chip.material = mat(`${object.id}-rock-chip-mat`, palette.stoneLight.scale(0.86 + variant * 0.06));
-    addPropGrass(root, object, radius * 1.5, 5);
   } else if (object.type === "ruin") {
     const radius = object.radius || 1.5;
     addContactShadow(root, `${object.id}-shadow`, radius * 2.25, 0.17, 0.8);
@@ -2897,14 +2886,12 @@ function createMapObject(object: MapObject) {
     broken.parent = root; broken.position.set(radius * 0.58, 0.5, radius * 0.16); broken.rotation.z = -0.22;
     const rune = MeshBuilder.CreateCylinder(`${object.id}-rune`, { diameter: radius * 0.55, height: 0.035, tessellation: 6 }, scene);
     rune.parent = root; rune.position.set(-radius * 0.22, 1.38, -0.18); rune.rotation.x = Math.PI / 2; rune.material = transparentMat(`${object.id}-rune-mat`, palette.magic, 0.46);
-    addPropGrass(root, object, radius * 1.8, 10);
   } else {
     addContactShadow(root, `${object.id}-shadow`, (object.radius || 1) * 1.8, 0.15);
     const pillar = MeshBuilder.CreateCylinder(`${object.id}-pillar`, { diameter: (object.radius || 1) * 1.35, height: 2.9, tessellation: 10 }, scene);
     pillar.parent = root;
     pillar.position.y = 1.45;
     pillar.material = mat(`${object.id}-pillar-mat`, new Color3(0.58, 0.57, 0.52));
-    addPropGrass(root, object, (object.radius || 1) * 1.5, 6);
   }
   return root;
 }
