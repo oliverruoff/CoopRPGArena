@@ -340,6 +340,7 @@ body[data-mode="lobby"]::after { content: ""; position: fixed; inset: 0; pointer
 .lobbyHeader { position: absolute; z-index: 3; top: 22px; left: 28px; right: 28px; display: flex; align-items: center; justify-content: space-between; }
 .lobbyBrand { display: flex; align-items: center; gap: 13px; }
 .brandRune { display: grid; place-items: center; width: 43px; height: 43px; border: 1px solid color-mix(in srgb, var(--selected-class-color) 55%, white); border-radius: 13px; background: color-mix(in srgb, var(--selected-class-color) 18%, rgba(9,14,24,.9)); color: var(--selected-class-color); box-shadow: 0 0 28px color-mix(in srgb, var(--selected-class-color) 24%, transparent); font-size: 22px; }
+.brandRune img { display: block; width: 35px; height: 35px; border-radius: 9px; object-fit: contain; }
 #lobby .lobbyBrand h1 { margin: 0; color: #fff; font-size: 19px; letter-spacing: .02em; }
 .lobbyBrand p { margin: 2px 0 0; color: rgba(255,255,255,.5); font-size: 11px; letter-spacing: .03em; }
 .connectionPill { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border: 1px solid rgba(255,255,255,.09); border-radius: 999px; background: rgba(9,14,23,.92); color: rgba(255,255,255,.68); font-size: 11px; backdrop-filter: none; -webkit-backdrop-filter: none; }
@@ -451,6 +452,7 @@ body.lobbyStatsOpen[data-mode="lobby"] #lobbyStatsDrawer { display: block; anima
   #lobby { inset: 0; width: 100%; max-height: none; padding: 0; border-radius: 0; overflow: hidden; }
   .lobbyHeader { top: max(10px, env(safe-area-inset-top)); right: 12px; left: 12px; }
   .brandRune { width: 34px; height: 34px; border-radius: 10px; font-size: 17px; }
+  .brandRune img { width: 28px; height: 28px; border-radius: 7px; }
   #lobby .lobbyBrand h1 { font-size: 15px; }.lobbyBrand p { display: none; }.connectionPill { padding: 6px 8px; font-size: 8px; }
   .lobbyIdentity { top: max(57px, calc(env(safe-area-inset-top) + 47px)); right: 12px; left: 12px; display: flex; align-items: flex-end; gap: 10px; width: auto; max-height: none; padding: 8px 10px; border-radius: 13px; }
   .lobbyIdentity > .panelEyebrow { display: none; }

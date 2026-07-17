@@ -45,7 +45,7 @@ root.innerHTML = `
   <canvas id="renderCanvas" data-testid="arena"></canvas>
   <section id="lobby" data-testid="lobby">
     <header class="lobbyHeader">
-      <div class="lobbyBrand"><span class="brandRune">✦</span><div><h1>Coop RPG Arena</h1><p>Assemble your party. Forge your legend.</p></div></div>
+      <div class="lobbyBrand"><span class="brandRune"><img src="/favicon.svg" alt="" /></span><div><h1>Coop RPG Arena</h1><p>Assemble your party. Forge your legend.</p></div></div>
       <div class="connectionPill"><i></i><span id="connection">Connecting...</span></div>
     </header>
     <aside class="lobbyIdentity glassPanel">
