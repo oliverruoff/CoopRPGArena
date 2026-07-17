@@ -191,7 +191,8 @@ class PvPGame:
                 self._update_countdown_locked()
             elif typ == "add_training_bot" and self.match_state == "lobby" and not player.spectator:
                 if player.team not in {"blue", "red"}:
-                    return
+                    player.team = "blue" if self._team_count_locked("blue") < MAX_TEAM_SIZE else "red"
+                    player.ready = False
                 team = "red" if player.team != "red" else "blue"
                 if not any(p.is_bot and p.team == team for p in self.players.values()):
                     self._add_bot_locked(team, str(msg.get("classId", "warrior")), "Training Bot", True)
@@ -260,7 +261,7 @@ class PvPGame:
         player.stats = stats
 
     def _all_ready_locked(self) -> bool:
-        active = [p for p in self.players.values() if not p.spectator and p.disconnected_at is None]
+        active = [p for p in self.players.values() if not p.spectator and p.disconnected_at is None and p.team in {"blue", "red"}]
         return bool(active) and any(p.team == "blue" for p in active) and any(p.team == "red" for p in active) and all(p.ready and self._valid_build_locked(p) for p in active)
 
     def _update_countdown_locked(self) -> None:

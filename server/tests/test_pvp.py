@@ -36,6 +36,15 @@ def test_pvp_requires_two_teams_and_exactly_ten_build_points():
     assert game._all_ready_locked()
 
 
+def test_unassigned_lobby_visitor_does_not_block_ready_teams():
+    game = PvPGame()
+    blue = configured_player(game, "blue")
+    red = configured_player(game, "red", "warrior")
+    game.add_player_locked()
+    blue.ready = red.ready = True
+    assert game._all_ready_locked()
+
+
 def test_uneven_one_versus_three_is_valid():
     game = PvPGame()
     players = [configured_player(game, "blue")]
@@ -148,6 +157,26 @@ def test_training_bot_completes_the_opposing_team_and_is_ready():
     assert len(bot.build) == BUILD_POINTS
     human.ready = True
     assert game._all_ready_locked()
+
+
+def test_adding_training_bot_without_team_assigns_sides_and_ready_starts_countdown():
+    game = PvPGame()
+    human = game.add_player_locked()
+    human.class_id = "mage"
+    human.build = ["stat:max_health"] * BUILD_POINTS
+    game._preview_stats_locked(human)
+
+    asyncio.run(game.handle_message(human.id, {"type": "add_training_bot", "classId": "warrior"}))
+    bots = [player for player in game.players.values() if player.is_bot]
+    assert human.team == "blue"
+    assert len(bots) == 1
+    assert bots[0].team == "red"
+    assert bots[0].ready
+
+    asyncio.run(game.handle_message(human.id, {"type": "ready", "ready": True}))
+    assert human.ready
+    assert game._all_ready_locked()
+    assert game.countdown_until is not None
 
 
 def test_training_bot_can_be_removed_from_lobby():
