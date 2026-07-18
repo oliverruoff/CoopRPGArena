@@ -3851,8 +3851,10 @@ function addEnemyDetails(root: TransformNode, e: EnemyState, size: number, color
 
 function updateOverheadUi() {
   if (!state) return;
+  const me = state.players[state.you];
+  const isPvpOpponent = (player: PlayerState | undefined) => Boolean(isPvpMode && player && me && (player as any).team && (player as any).team !== (me as any).team);
   for (const [id, element] of enemyBars) {
-    if (!state.enemies[id]) removeEnemyBar(id);
+    if (!state.enemies[id] && !isPvpOpponent(state.players[id])) removeEnemyBar(id);
     else element.dataset.live = "false";
   }
   for (const [id, element] of playerNameLabels) {
@@ -3869,6 +3871,14 @@ function updateOverheadUi() {
     }
     const node = meshes.get(player.id);
     if (!node) continue;
+    const opponent = isPvpOpponent(player);
+    const enemyTargeted = opponent && me?.targetId === player.id;
+    if (enemyTargeted) {
+      removePlayerNameLabel(player.id);
+      updateActorHealthBar(player, node, true, playerNameHeight(player));
+      continue;
+    }
+    if (opponent) removeEnemyBar(player.id);
     const element = playerNameLabels.get(player.id) || createPlayerNameLabel(player);
     const allyTargeted = state.players[state.you]?.allyTargetId === player.id;
     element.textContent = allyTargeted ? `◆ ALLY: ${player.name}` : player.name;
@@ -3886,11 +3896,16 @@ function updateOverheadUi() {
     }
     const node = meshes.get(enemy.id);
     if (!node) continue;
-    const element = enemyBars.get(enemy.id) || createEnemyBar(enemy);
-    const screen = projectToScreen(node.position.add(new Vector3(0, enemy.boss ? 2.7 : enemy.type === "brute" ? 2.0 : 1.45, 0)));
-    element.style.transform = `translate3d(${screen.x}px, ${screen.y}px, 0) translate(-50%, -100%)`;
+    updateActorHealthBar(enemy, node, targeted, enemy.boss ? 2.7 : enemy.type === "brute" ? 2.0 : 1.45);
+  }
+}
+
+function updateActorHealthBar(actor: EnemyState | PlayerState, node: TransformNode, targeted: boolean, height: number) {
+    const element = enemyBars.get(actor.id) || createEnemyBar(actor);
+    const screen = projectToScreen(node.position.add(new Vector3(0, height, 0)));
+    if (screen.visible) element.style.transform = `translate3d(${screen.x}px, ${screen.y}px, 0) translate(-50%, -100%)`;
     element.style.display = screen.visible ? "block" : "none";
-    const currentPercent = Math.max(0, enemy.hp / enemy.maxHealth) * 100;
+    const currentPercent = Math.max(0, actor.hp / actor.maxHealth) * 100;
     const fill = element.querySelector<HTMLElement>(".enemyHpFill")!;
     const loss = element.querySelector<HTMLElement>(".enemyHpLoss")!;
     const previousPercent = Number(element.dataset.hpPercent || "100");
@@ -3907,12 +3922,12 @@ function updateOverheadUi() {
     }
     element.dataset.hpPercent = `${currentPercent}`;
     element.classList.toggle("targetedEnemy", targeted);
-    element.querySelector<HTMLElement>(".enemyHpName")!.textContent = targeted ? `▼ TARGET: ${enemy.name}` : enemy.name;
+    element.classList.toggle("pvpEnemyPlayer", isPvpMode && Boolean(state?.players[actor.id]));
+    element.querySelector<HTMLElement>(".enemyHpName")!.textContent = targeted ? `▼ TARGET: ${actor.name}` : actor.name;
     element.dataset.live = "true";
-  }
 }
 
-function createEnemyBar(enemy: EnemyState) {
+function createEnemyBar(enemy: EnemyState | PlayerState) {
   const element = document.createElement("div");
   element.className = "enemyHpBar";
   element.dataset.testid = "enemy-hp-bar";
@@ -3958,10 +3973,11 @@ function projectToScreen(position: Vector3) {
   const projected = Vector3.Project(position, Matrix.Identity(), scene.getTransformMatrix(), camera.viewport.toGlobal(renderWidth, renderHeight));
   const x = projected.x * (canvas.clientWidth / renderWidth);
   const y = projected.y * (canvas.clientHeight / renderHeight);
+  const finite = Number.isFinite(projected.x) && Number.isFinite(projected.y) && Number.isFinite(projected.z) && Number.isFinite(x) && Number.isFinite(y);
   return {
     x,
     y,
-    visible: projected.z >= 0 && projected.z <= 1 && x >= 0 && x <= canvas.clientWidth && y >= 0 && y <= canvas.clientHeight
+    visible: finite && projected.z >= 0 && projected.z <= 1 && x >= 0 && x <= canvas.clientWidth && y >= 0 && y <= canvas.clientHeight
   };
 }
 
@@ -4196,12 +4212,14 @@ function spawnFloatingNumber(target: TransformNode, event: CombatEvent, healing:
   }
   document.querySelector("#overhead")!.appendChild(element);
   const started = performance.now();
+  const lastValidPosition = target.position.clone();
   const observer = scene.onBeforeRenderObservable.add(() => {
     const progress = (performance.now() - started) / (event.critical ? 1180 : 950);
     const punch = event.critical ? 1 + Math.sin(Math.min(1, progress) * Math.PI) * 0.42 : 1;
     const sway = event.critical ? Math.sin(progress * Math.PI * 2.2) * 10 : 0;
-    const screen = projectToScreen(target.position.add(new Vector3(0, (event.critical ? 1.95 : 1.65) + progress * (event.critical ? 1.35 : 1.15), 0)));
-    element.style.transform = `translate(${screen.x + sway}px, ${screen.y}px) translate(-50%, -50%) scale(${punch})`;
+    if (!target.isDisposed() && Number.isFinite(target.position.x) && Number.isFinite(target.position.y) && Number.isFinite(target.position.z)) lastValidPosition.copyFrom(target.position);
+    const screen = projectToScreen(lastValidPosition.add(new Vector3(0, (event.critical ? 1.95 : 1.65) + progress * (event.critical ? 1.35 : 1.15), 0)));
+    if (screen.visible) element.style.transform = `translate(${screen.x + sway}px, ${screen.y}px) translate(-50%, -50%) scale(${punch})`;
     element.style.opacity = `${Math.max(0, 1 - progress)}`;
     element.style.display = screen.visible ? "block" : "none";
     if (progress >= 1) {
