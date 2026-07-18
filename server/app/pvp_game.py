@@ -406,8 +406,8 @@ class PvPGame:
             for px in (-8.0, 8.0):
                 dx, dz = player.x - px, player.z
                 dist = math.hypot(dx, dz)
-                if dist < 2.15:
-                    scale = 2.15 / max(0.01, dist)
+                if dist < 1.5:
+                    scale = 1.5 / max(0.01, dist)
                     player.x = px + dx * scale
                     player.z = dz * scale
         target_y = self._surface_height_locked(player.x, player.z, player.y)
@@ -804,7 +804,7 @@ class PvPGame:
                 if length_sq <= 0:
                     continue
                 t = max(0, min(1, ((px - a.x) * dx + (0 - a.z) * dz) / length_sq))
-                if math.hypot(a.x + dx * t - px, a.z + dz * t) < 2.0:
+                if math.hypot(a.x + dx * t - px, a.z + dz * t) < 1.4:
                     return False
         return True
 
@@ -863,7 +863,7 @@ class PvPGame:
             "id": "blade_ridge", "name": "Blade Gorge",
             "bounds": {"minX": -29, "maxX": 29, "minZ": -17, "maxZ": 17},
             "bridge": {"x": 0, "z": 0, "width": 36, "depth": 8, "height": 5},
-            "pillars": [{"x": -8, "z": 0, "radius": 2}, {"x": 8, "z": 0, "radius": 2}],
+            "pillars": [{"x": -8, "z": 0, "radius": 1.4}, {"x": 8, "z": 0, "radius": 1.4}],
             "ramps": [
                 {"x": -7, "z": -7, "width": 4.6, "depth": RAMP_RUN, "rotation": 0}, {"x": -7, "z": 7, "width": 4.6, "depth": RAMP_RUN, "rotation": 0},
                 {"x": 7, "z": -7, "width": 4.6, "depth": RAMP_RUN, "rotation": 0}, {"x": 7, "z": 7, "width": 4.6, "depth": RAMP_RUN, "rotation": 0},

@@ -240,9 +240,9 @@ function buildUnifiedPvpArena() {
   const rampCenterZ=4+rampRun/2;
   for(const x of [-7,7])for(const z of [-rampCenterZ,rampCenterZ]){const ramp=MeshBuilder.CreateBox(`center-ramp-${x}-${z}`,{width:4.6,depth:Math.sqrt(rampRun*rampRun+25),height:.45},scene);ramp.position.set(x,2.35,z);ramp.rotation.x=z<0?-Math.atan2(5,rampRun):Math.atan2(5,rampRun);ramp.material=bridgeMat;}
   for(const x of [-8,8]){
-    const pillar=MeshBuilder.CreateCylinder(`pillar-${x}`,{diameter:4.1,height:5.2,tessellation:8},scene);pillar.position.set(x,2.55,0);pillar.material=rockHighlight;
-    const cap=MeshBuilder.CreateCylinder(`pillar-cap-${x}`,{diameter:5.1,height:.65,tessellation:8},scene);cap.position.set(x,5.15,0);cap.material=metalMat;
-    for(let i=0;i<4;i++){const angle=i*Math.PI/2;const tusk=MeshBuilder.CreateCylinder(`pillar-tusk-${x}-${i}`,{diameterTop:0,diameterBottom:.42,height:2,tessellation:6},scene);tusk.position.set(x+Math.cos(angle)*2.2,4.85,Math.sin(angle)*2.2);tusk.rotation.z=Math.PI/2.7;tusk.rotation.y=-angle;tusk.material=boneMat;}
+    const pillar=MeshBuilder.CreateCylinder(`pillar-${x}`,{diameter:2.8,height:5.2,tessellation:8},scene);pillar.position.set(x,2.55,0);pillar.material=rockHighlight;
+    const cap=MeshBuilder.CreateCylinder(`pillar-cap-${x}`,{diameter:3.5,height:.65,tessellation:8},scene);cap.position.set(x,5.15,0);cap.material=metalMat;
+    for(let i=0;i<4;i++){const angle=i*Math.PI/2;const tusk=MeshBuilder.CreateCylinder(`pillar-tusk-${x}-${i}`,{diameterTop:0,diameterBottom:.34,height:1.55,tessellation:6},scene);tusk.position.set(x+Math.cos(angle)*1.55,4.85,Math.sin(angle)*1.55);tusk.rotation.z=Math.PI/2.7;tusk.rotation.y=-angle;tusk.material=boneMat;}
   }
 
   // A broken, jagged silhouette outside the playable rectangle. These meshes
@@ -2000,7 +2000,7 @@ function renderWorld() {
     node.rotation.x = lerpValue(node.rotation.x, p.dead ? Math.PI / 2 : 0, 0.22);
     node.metadata = { ...(node.metadata || {}), x: position.x, z: position.z, moving, visualFacing, entityId: p.id, classId: p.classId, form: p.form || null };
     const targetKind = meTargetKind(p.id);
-    updateSelectionRing(node, targetKind === "ally" ? "ally" : p.id === state.you ? "self" : "none");
+    updateSelectionRing(node, targetKind === "enemy" ? "enemy" : targetKind === "ally" ? "ally" : p.id === state.you ? "self" : "none");
     updateActiveShield(node, p);
     updateIceBlockVisual(node, p);
     updateSprintTrail(node, p, moving);
