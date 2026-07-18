@@ -177,7 +177,8 @@ if (lobbyPipeline) {
   lobbyPipeline.depthOfFieldEnabled = true;
 }
 (canvas as any).lobbyPipeline = lobbyPipeline;
-new HemisphericLight("light", new Vector3(0.3, 1, 0.2), scene).intensity = 0.5;
+const hemiLight = new HemisphericLight("light", new Vector3(0.3, 1, 0.2), scene);
+hemiLight.intensity = 0.5;
 const dirLight = new DirectionalLight("dirLight", new Vector3(-0.45, -1, -0.35), scene);
 dirLight.position = new Vector3(18, 32, 18);
 dirLight.intensity = 0.72;
@@ -221,14 +222,18 @@ if (isPvpMode) {
 }
 
 function buildUnifiedPvpArena() {
-  scene.clearColor=new Color4(.045,.025,.055,1);
-  const dirt=mat("pvp-dirt",new Color3(.31,.135,.075));
-  const darkDirt=mat("pvp-dark-dirt",new Color3(.19,.075,.045));
-  const bridgeMat=mat("pvp-bridge",new Color3(.29,.215,.16));
-  const rockMat=mat("pvp-rim-rock",new Color3(.16,.105,.13));
-  const rockHighlight=mat("pvp-rim-rock-highlight",new Color3(.27,.17,.18));
-  const metalMat=mat("pvp-dark-metal",new Color3(.085,.095,.115));
-  const boneMat=mat("pvp-bone",new Color3(.58,.48,.33));
+  scene.clearColor=new Color4(.11,.065,.12,1);
+  scene.ambientColor=new Color3(.18,.13,.16);
+  hemiLight.intensity=.92;
+  hemiLight.groundColor=new Color3(.22,.12,.1);
+  dirLight.intensity=1.05;
+  const dirt=mat("pvp-dirt",new Color3(.47,.23,.13));
+  const darkDirt=mat("pvp-dark-dirt",new Color3(.31,.13,.075));
+  const bridgeMat=mat("pvp-bridge",new Color3(.43,.33,.24));
+  const rockMat=mat("pvp-rim-rock",new Color3(.27,.19,.22));
+  const rockHighlight=mat("pvp-rim-rock-highlight",new Color3(.4,.27,.28));
+  const metalMat=mat("pvp-dark-metal",new Color3(.16,.17,.2));
+  const boneMat=mat("pvp-bone",new Color3(.72,.61,.43));
 
   const canyonFloor=MeshBuilder.CreateGround("pvp-canyon-floor",{width:88,height:58,subdivisions:2},scene);canyonFloor.position.y=-.3;canyonFloor.material=rockMat;
   const floor=MeshBuilder.CreateGround("lower-arena",{width:60,height:36,subdivisions:2},scene);floor.material=dirt;floor.receiveShadows=true;
