@@ -2,6 +2,9 @@ import { defineConfig } from "@playwright/test";
 
 export default defineConfig({
   testDir: "./tests/e2e",
+  // Babylon/WebGL scenes are GPU-heavy. Running independent specs in parallel can
+  // starve Chromium's renderer and leave an otherwise healthy page unpainted.
+  workers: 1,
   timeout: 45_000,
   use: {
     baseURL: "http://localhost:5173",
