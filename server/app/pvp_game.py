@@ -218,6 +218,8 @@ class PvPGame:
             elif typ == "cast_ability" and self.match_state == "running":
                 ground = msg.get("groundPosition")
                 self._cast_locked(player, int(msg.get("abilitySlot", 1)), ground if isinstance(ground, dict) else None)
+            elif typ == "set_ability_slot" and self.match_state == "running" and not player.spectator:
+                self._set_ability_slot_locked(player, msg.get("abilityId"), int(msg.get("slot", 1)))
             elif typ == "restart_match" and self.match_state == "victory":
                 self._restart_lobby_locked()
 
@@ -226,6 +228,17 @@ class PvPGame:
 
     def _valid_build_locked(self, player: PvPPlayer) -> bool:
         return bool(player.class_id in self.classes and player.team in {"blue", "red"} and len(player.build) == BUILD_POINTS)
+
+    def _set_ability_slot_locked(self, player: PvPPlayer, ability_id: str | None, slot: int) -> None:
+        if not ability_id or ability_id not in player.abilities or slot < 1 or slot > 11:
+            return
+        current_slot = player.ability_slots.get(ability_id)
+        if current_slot is None or current_slot == slot:
+            return
+        other_ability_id = next((known_id for known_id, assigned_slot in player.ability_slots.items() if known_id != ability_id and assigned_slot == slot), None)
+        player.ability_slots[ability_id] = slot
+        if other_ability_id:
+            player.ability_slots[other_ability_id] = current_slot
 
     def _toggle_build_locked(self, player: PvPPlayer, choice: str) -> None:
         if not player.class_id:

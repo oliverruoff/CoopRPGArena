@@ -47,11 +47,11 @@ test("adding a bot before choosing a team still starts a desktop match", async (
     return {
       leftEndRamp: Boolean(scene.getMeshByName("end-ramp--22")),
       rightEndRamp: Boolean(scene.getMeshByName("end-ramp-22")),
-      centerRamp: Boolean(scene.getMeshByName("center-ramp--7--8.5")),
+      centerRamps: scene.meshes.filter((mesh: any) => mesh.name.startsWith("center-ramp-")).length,
       rimSpikes: scene.meshes.filter((mesh: any) => mesh.name.startsWith("rim-spike-")).length,
       braziers: scene.meshes.filter((mesh: any) => mesh.name.startsWith("brazier-bowl-")).length,
     };
-  })).toEqual({ leftEndRamp: false, rightEndRamp: false, centerRamp: true, rimSpikes: 40, braziers: 8 });
+  })).toEqual({ leftEndRamp: false, rightEndRamp: false, centerRamps: 4, rimSpikes: 40, braziers: 8 });
   await expect.poll(() => page.evaluate(() => (document.querySelector("#renderCanvas") as any).scene.activeCamera.radius)).toBe(60);
   await page.waitForTimeout(5200);
   const match = await (await request.get("http://127.0.0.1:8000/debug/pvp/state")).json();
@@ -128,5 +128,12 @@ test("mobile lobby and match fit without swiping and remain fully playable", asy
   const human = Object.values<any>(pvpState.players).find((player) => !player.isBot && player.classId === "mage");
   expect({ abilities: human?.abilities, abilitySlots: human?.abilitySlots, build: human?.build }).toMatchObject({ abilities: expect.any(Array), abilitySlots: expect.any(Object) });
   expect(human.abilities.length).toBeGreaterThan(0);
-  await expect(page.getByTestId("ability-slot-1")).not.toContainText("Empty");
+  const slotOne = page.getByTestId("ability-slot-1");
+  const slotThree = page.getByTestId("ability-slot-3");
+  await expect(slotOne).not.toContainText("Empty");
+  const firstSpell = await slotOne.locator(".abilityName").textContent();
+  const thirdSpell = await slotThree.locator(".abilityName").textContent();
+  await slotOne.dragTo(slotThree);
+  await expect(slotOne.locator(".abilityName")).toHaveText(thirdSpell!);
+  await expect(slotThree.locator(".abilityName")).toHaveText(firstSpell!);
 });

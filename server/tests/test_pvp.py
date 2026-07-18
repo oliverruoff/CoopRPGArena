@@ -236,3 +236,17 @@ def test_pvp_jump_uses_the_coop_duration_and_snapshot_progress():
     snapshot = asyncio.run(game.snapshot(human.id))
     assert snapshot["players"][human.id]["jumping"]
     assert 0 <= snapshot["players"][human.id]["jumpProgress"] <= 1
+
+
+def test_pvp_ability_slots_can_be_swapped_like_coop():
+    game = PvPGame()
+    mage, _ = start_duel(game, "mage", "warrior")
+    mage.abilities = ["mage_fireball", "mage_frostbolt", "mage_frost_nova"]
+    mage.ability_slots = {ability_id: index for index, ability_id in enumerate(mage.abilities, start=1)}
+
+    asyncio.run(game.handle_message(mage.id, {"type": "set_ability_slot", "abilityId": "mage_fireball", "slot": 3}))
+    assert mage.ability_slots["mage_fireball"] == 3
+    assert mage.ability_slots["mage_frost_nova"] == 1
+
+    asyncio.run(game.handle_message(mage.id, {"type": "set_ability_slot", "abilityId": "mage_frostbolt", "slot": 6}))
+    assert mage.ability_slots["mage_frostbolt"] == 6
