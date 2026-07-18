@@ -262,15 +262,19 @@ function buildUnifiedPvpArena() {
     spike.rotation.z=-Math.cos(angle)*.3;spike.rotation.x=Math.sin(angle)*.3;spike.material=i%5===0?boneMat:rockHighlight;
   }
 
-  const flames:Mesh[]=[];
+  const flames:Array<{mesh:Mesh;phase:number}>=[];
+  const smoke:Array<{mesh:Mesh;phase:number;baseX:number;baseZ:number;size:number;drift:number}>=[];
   const brazierPositions:Array<[number,number,number]>=[[-27,0,-11],[-27,0,11],[27,0,-11],[27,0,11],[-15,5.35,-4.8],[-15,5.35,4.8],[15,5.35,-4.8],[15,5.35,4.8]];
-  for(const [x,y,z] of brazierPositions){
-    const post=MeshBuilder.CreateCylinder(`brazier-post-${x}-${z}`,{diameter:.55,height:1.9,tessellation:6},scene);post.position.set(x,y+.95,z);post.material=metalMat;
-    const bowl=MeshBuilder.CreateCylinder(`brazier-bowl-${x}-${z}`,{diameterTop:1.45,diameterBottom:.72,height:.48,tessellation:8},scene);bowl.position.set(x,y+1.95,z);bowl.material=metalMat;
-    const flameMat=new StandardMaterial(`brazier-flame-${x}-${z}-mat`,scene);flameMat.diffuseColor=new Color3(1,.2,.015);flameMat.emissiveColor=new Color3(1,.3,.025);flameMat.disableLighting=true;
-    const flame=MeshBuilder.CreateSphere(`brazier-flame-${x}-${z}`,{diameter:.92,segments:6},scene);flame.position.set(x,y+2.55,z);flame.scaling.set(.72,1.45,.72);flame.material=flameMat;flame.metadata={baseY:flame.position.y,phase:flames.length*.83};flames.push(flame);
+  for(const [index,[x,y,z]] of brazierPositions.entries()){
+    const root=new TransformNode(`brazier-${index}`,scene);root.position.set(x,y,z);
+    const post=MeshBuilder.CreateCylinder(`brazier-post-${x}-${z}`,{diameterTop:.18,diameterBottom:.26,height:2.35,tessellation:7},scene);post.parent=root;post.position.y=1.12;post.material=mat(`brazier-post-${x}-${z}-mat`,new Color3(.21,.12,.06));post.isPickable=false;
+    const bowl=MeshBuilder.CreateCylinder(`brazier-bowl-${x}-${z}`,{diameterTop:.72,diameterBottom:.38,height:.28,tessellation:8},scene);bowl.parent=root;bowl.position.y=2.3;bowl.material=mat(`brazier-bowl-${x}-${z}-mat`,new Color3(.22,.23,.23));bowl.isPickable=false;
+    const ember=MeshBuilder.CreateSphere(`brazier-ember-${x}-${z}`,{diameter:.48,segments:6},scene);ember.parent=root;ember.position.y=2.5;const emberMat=mat(`brazier-ember-${x}-${z}-mat`,new Color3(1,.78,.08));emberMat.emissiveColor=new Color3(1,.2,.015);ember.material=emberMat;ember.isPickable=false;
+    for(let layer=0;layer<2;layer++){const flame=MeshBuilder.CreatePolyhedron(`brazier-flame-${x}-${z}-${layer}`,{type:layer?1:2,size:layer?.3:.42},scene);flame.parent=root;flame.position.set(layer?.08:-.05,2.72+layer*.16,layer?-.03:.04);const flameMat=transparentMat(`brazier-flame-${x}-${z}-${layer}-mat`,layer?new Color3(1,.78,.08):new Color3(1,.2,.015),.94);flameMat.emissiveColor=layer?new Color3(1,.78,.08):new Color3(1,.2,.015);flame.material=flameMat;flame.isPickable=false;flames.push({mesh:flame,phase:index*.71+layer*1.9});}
+    const smokeCount=lowSpecMode?2:4;
+    for(let puff=0;puff<smokeCount;puff++){const size=.26+(puff%3)*.07;const cloud=MeshBuilder.CreateBox(`brazier-smoke-${x}-${z}-${puff}`,{size:1},scene);const baseX=(puff%2?1:-1)*(.035+(puff%3)*.025);const baseZ=((puff+1)%3-1)*.055;cloud.parent=root;cloud.position.set(baseX,3.02,baseZ);cloud.scaling.set(size,size*.78,size);const shade=.13+(puff%3)*.025;cloud.material=transparentMat(`brazier-smoke-${x}-${z}-${puff}-mat`,new Color3(shade,shade*.94,shade*.88),0);cloud.isPickable=false;smoke.push({mesh:cloud,phase:(index*.137+puff/smokeCount)%1,baseX,baseZ,size,drift:(puff%2?1:-1)*(.22+(puff%3)*.07)});}
   }
-  scene.onBeforeRenderObservable.add(()=>{const time=performance.now()/260;for(const flame of flames){const phase=flame.metadata.phase;flame.scaling.y=1.35+Math.sin(time+phase)*.16;flame.position.y=flame.metadata.baseY+Math.sin(time*1.3+phase)*.07;}});
+  scene.onBeforeRenderObservable.add(()=>{const time=performance.now()/1000;for(const entry of flames){const flicker=.9+Math.sin(time*8.5+entry.phase)*.12+Math.sin(time*13+entry.phase*1.7)*.06;entry.mesh.scaling.set(.88+flicker*.08,flicker,.88+flicker*.08);entry.mesh.rotation.y+=.025;}for(const entry of smoke){const cycle=(time*.19+entry.phase)%1;const billow=Math.sin(cycle*Math.PI);entry.mesh.position.y=3.02+cycle*2.65;entry.mesh.position.x=entry.baseX+entry.drift*cycle+Math.sin(time*1.15+entry.phase*17)*(.035+cycle*.11);entry.mesh.position.z=entry.baseZ+Math.cos(time*.82+entry.phase*13)*(.025+cycle*.08);const spread=entry.size*(.82+cycle*1.85);entry.mesh.scaling.set(spread*(1+Math.sin(entry.phase*31)*.12),spread*(.72+cycle*.38),spread);entry.mesh.rotation.x=cycle*.7+entry.phase;(entry.mesh.material as StandardMaterial).alpha=billow*(1-cycle)*.22;}});
 
   for(const side of [-1,1]){
     const gate=MeshBuilder.CreateBox(`gate-${side}`,{width:.8,height:6.5,depth:10},scene);
@@ -3020,13 +3024,13 @@ function updateSelectionRing(node: TransformNode, kind: "self" | "enemy" | "ally
   const material = ring.material as StandardMaterial;
   const colors = {
     self: playerColor3(node.name),
-    enemy: new Color3(1, 0.05, 0.03),
+    enemy: new Color3(1, 0, 0),
     ally: new Color3(1, 0.78, 0.18),
     none: new Color3(0.35, 0.38, 0.45)
   };
   material.diffuseColor = colors[kind];
-  material.emissiveColor = kind === "none" ? Color3.Black() : colors[kind].scale(0.72);
-  material.alpha = kind === "none" ? 0.12 : kind === "enemy" ? 0.82 : 0.72;
+  material.emissiveColor = kind === "none" ? Color3.Black() : colors[kind].scale(kind === "enemy" ? 1 : 0.72);
+  material.alpha = kind === "none" ? 0.12 : kind === "enemy" ? 1 : 0.72;
   const scale = kind === "enemy" || kind === "ally" ? 1.62 + Math.sin(performance.now() / 110) * 0.12 : kind === "self" ? 1.12 : 1;
   ring.scaling.set(scale, 1, scale);
   ring.isVisible = kind !== "none" || node.name.startsWith(state?.you || "---");
