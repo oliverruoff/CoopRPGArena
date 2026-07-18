@@ -48,8 +48,10 @@ test("adding a bot before choosing a team still starts a desktop match", async (
       leftEndRamp: Boolean(scene.getMeshByName("end-ramp--22")),
       rightEndRamp: Boolean(scene.getMeshByName("end-ramp-22")),
       centerRamp: Boolean(scene.getMeshByName("center-ramp--7--8.5")),
+      rimSpikes: scene.meshes.filter((mesh: any) => mesh.name.startsWith("rim-spike-")).length,
+      braziers: scene.meshes.filter((mesh: any) => mesh.name.startsWith("brazier-bowl-")).length,
     };
-  })).toEqual({ leftEndRamp: false, rightEndRamp: false, centerRamp: true });
+  })).toEqual({ leftEndRamp: false, rightEndRamp: false, centerRamp: true, rimSpikes: 40, braziers: 8 });
   await expect.poll(() => page.evaluate(() => (document.querySelector("#renderCanvas") as any).scene.activeCamera.radius)).toBe(60);
   await page.waitForTimeout(5200);
   const before = await page.evaluate(() => {

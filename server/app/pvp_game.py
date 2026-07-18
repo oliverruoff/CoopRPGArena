@@ -354,6 +354,7 @@ class PvPGame:
         player.resource = min(player.stats.get("maxResource", 100), player.resource + player.stats.get("resourceRegen", 0) * dt)
         gates_open = self.gates_open_at is None or now >= self.gates_open_at
         if gates_open and now >= player.stun_until:
+            previous_x, previous_z = player.x, player.z
             dx = (1 if player.input.get("right") else 0) - (1 if player.input.get("left") else 0)
             dz = (1 if player.input.get("up") else 0) - (1 if player.input.get("down") else 0)
             length = math.hypot(dx, dz) or 1
@@ -363,7 +364,7 @@ class PvPGame:
             speed = player.stats.get("moveSpeed", 5) * slow
             player.x += dx / length * speed * dt
             player.z += dz / length * speed * dt
-            self._resolve_arena_position_locked(player, dt)
+            self._resolve_arena_position_locked(player, dt, previous_x, previous_z)
         if now >= player.auto_attack_at and player.target_id in self.players:
             target = self.players[player.target_id]
             if self._is_enemy_locked(player, target) and not target.dead and now >= target.stealth_until:
@@ -395,7 +396,7 @@ class PvPGame:
             "down": target.z < player.z - 0.25 and distance > desired_range,
         }
 
-    def _resolve_arena_position_locked(self, player: PvPPlayer, dt: float) -> None:
+    def _resolve_arena_position_locked(self, player: PvPPlayer, dt: float, previous_x: float | None = None, previous_z: float | None = None) -> None:
         player.x = max(-29, min(29, player.x))
         player.z = max(-17, min(17, player.z))
         # Two lower-level pillars. They do not collide with actors already on the bridge.
@@ -408,6 +409,14 @@ class PvPGame:
                     player.x = px + dx * scale
                     player.z = dz * scale
         target_y = self._surface_height_locked(player.x, player.z, player.y)
+        if previous_x is not None and previous_z is not None and target_y > player.y:
+            horizontal_step = math.hypot(player.x - previous_x, player.z - previous_z)
+            max_climb = max(0.25, horizontal_step * 5 / 9 + 0.08)
+            if target_y - player.y > max_climb:
+                # The ramp may only be entered along its shallow incline. Crossing
+                # its long side must behave like a wall instead of snapping upward.
+                player.x, player.z = previous_x, previous_z
+                target_y = self._surface_height_locked(player.x, player.z, player.y)
         if target_y < player.y - 0.2:
             player.y = max(target_y, player.y - 14 * dt)
         else:
@@ -643,17 +652,19 @@ class PvPGame:
             self.ground_effects.append({"id": f"pvp_effect_{self._effect_seq}", "type": effect.get("groundEffectType", typ), "sourceId": source.id, "abilityId": ability["id"], "x": x, "y": self._surface_height_locked(x, z, source.y), "z": z, "radius": effect.get("radius", 3), "amount": amount, "school": effect.get("school", "physical"), "friendly": typ == "totem" and effect.get("totemType") == "healing", "oneShot": typ in {"trap", "ground_impact"}, "totem": typ == "totem", "slowPercent": effect.get("slowPercent", 0), "slowDuration": effect.get("slowDuration", 1.5), "stunDuration": effect.get("stunDuration", 0), "nextTick": time.monotonic(), "tickInterval": effect.get("tickInterval", 0.75), "expiresAt": time.monotonic() + duration})
         elif typ == "knockback":
             for victim in enemies:
+                previous_x, previous_z = victim.x, victim.z
                 dx, dz = victim.x - source.x, victim.z - source.z
                 length = math.hypot(dx, dz) or 1
                 victim.x += dx / length * effect.get("distance", 4)
                 victim.z += dz / length * effect.get("distance", 4)
-                self._resolve_arena_position_locked(victim, 0.1)
+                self._resolve_arena_position_locked(victim, 0.1, previous_x, previous_z)
         elif typ == "pull_ally" and target and target.team == source.team:
             target.x, target.z, target.y = source.x, source.z, source.y
         elif typ == "disengage":
+            previous_x, previous_z = source.x, source.z
             source.x -= math.sin(source.facing) * effect.get("distance", 6)
             source.z -= math.cos(source.facing) * effect.get("distance", 6)
-            self._resolve_arena_position_locked(source, 0.1)
+            self._resolve_arena_position_locked(source, 0.1, previous_x, previous_z)
 
     def _enemy_effect_targets_locked(self, source: PvPPlayer, target: PvPPlayer | None, radius: float) -> list[PvPPlayer]:
         if radius:

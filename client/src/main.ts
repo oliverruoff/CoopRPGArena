@@ -221,10 +221,55 @@ if (isPvpMode) {
 }
 
 function buildUnifiedPvpArena() {
-  const floor=MeshBuilder.CreateGround("lower-arena",{width:60,height:36,subdivisions:2},scene);floor.material=mat("pvp-dirt",new Color3(.35,.18,.11));floor.receiveShadows=true;
-  const bridge=MeshBuilder.CreateBox("high-bridge",{width:36,depth:8,height:.75},scene);bridge.position.y=4.65;bridge.material=mat("pvp-bridge",new Color3(.28,.22,.19));
-  for(const x of [-7,7])for(const z of [-8.5,8.5]){const ramp=MeshBuilder.CreateBox(`center-ramp-${x}-${z}`,{width:4.6,depth:Math.sqrt(106),height:.45},scene);ramp.position.set(x,2.35,z);ramp.rotation.x=z<0?-Math.atan2(5,9):Math.atan2(5,9);ramp.material=bridge.material;}
-  for(const x of [-8,8]){const pillar=MeshBuilder.CreateCylinder(`pillar-${x}`,{diameter:4.1,height:5.2,tessellation:8},scene);pillar.position.set(x,2.55,0);pillar.material=mat(`pillar-${x}-mat`,new Color3(.34,.28,.25));}
+  scene.clearColor=new Color4(.045,.025,.055,1);
+  const dirt=mat("pvp-dirt",new Color3(.31,.135,.075));
+  const darkDirt=mat("pvp-dark-dirt",new Color3(.19,.075,.045));
+  const bridgeMat=mat("pvp-bridge",new Color3(.29,.215,.16));
+  const rockMat=mat("pvp-rim-rock",new Color3(.16,.105,.13));
+  const rockHighlight=mat("pvp-rim-rock-highlight",new Color3(.27,.17,.18));
+  const metalMat=mat("pvp-dark-metal",new Color3(.085,.095,.115));
+  const boneMat=mat("pvp-bone",new Color3(.58,.48,.33));
+
+  const canyonFloor=MeshBuilder.CreateGround("pvp-canyon-floor",{width:88,height:58,subdivisions:2},scene);canyonFloor.position.y=-.3;canyonFloor.material=rockMat;
+  const floor=MeshBuilder.CreateGround("lower-arena",{width:60,height:36,subdivisions:2},scene);floor.material=dirt;floor.receiveShadows=true;
+  const floorInset=MeshBuilder.CreateGround("lower-arena-inset",{width:55,height:31,subdivisions:2},scene);floorInset.position.y=.012;floorInset.material=darkDirt;
+  const bridge=MeshBuilder.CreateBox("high-bridge",{width:36,depth:8,height:.75},scene);bridge.position.y=4.65;bridge.material=bridgeMat;
+  for(let x=-16;x<=16;x+=4){const band=MeshBuilder.CreateBox(`bridge-band-${x}`,{width:.24,depth:8.3,height:.82},scene);band.position.set(x,4.66,0);band.material=metalMat;}
+  for(const z of [-4.15,4.15]){const rim=MeshBuilder.CreateBox(`bridge-rim-${z}`,{width:36.5,depth:.22,height:.55},scene);rim.position.set(0,5.05,z);rim.material=metalMat;}
+  for(const x of [-7,7])for(const z of [-8.5,8.5]){const ramp=MeshBuilder.CreateBox(`center-ramp-${x}-${z}`,{width:4.6,depth:Math.sqrt(106),height:.45},scene);ramp.position.set(x,2.35,z);ramp.rotation.x=z<0?-Math.atan2(5,9):Math.atan2(5,9);ramp.material=bridgeMat;}
+  for(const x of [-8,8]){
+    const pillar=MeshBuilder.CreateCylinder(`pillar-${x}`,{diameter:4.1,height:5.2,tessellation:8},scene);pillar.position.set(x,2.55,0);pillar.material=rockHighlight;
+    const cap=MeshBuilder.CreateCylinder(`pillar-cap-${x}`,{diameter:5.1,height:.65,tessellation:8},scene);cap.position.set(x,5.15,0);cap.material=metalMat;
+    for(let i=0;i<4;i++){const angle=i*Math.PI/2;const tusk=MeshBuilder.CreateCylinder(`pillar-tusk-${x}-${i}`,{diameterTop:0,diameterBottom:.42,height:2,tessellation:6},scene);tusk.position.set(x+Math.cos(angle)*2.2,4.85,Math.sin(angle)*2.2);tusk.rotation.z=Math.PI/2.7;tusk.rotation.y=-angle;tusk.material=boneMat;}
+  }
+
+  // A broken, jagged silhouette outside the playable rectangle. These meshes
+  // are scenery only, so the arena edge stays readable without collision traps.
+  const spikeCount=40;
+  for(let i=0;i<spikeCount;i++){
+    const angle=i/spikeCount*Math.PI*2;
+    const radiusX=31.5+(i%4)*.65;
+    const radiusZ=19.1+(i%3)*.45;
+    const x=Math.cos(angle)*radiusX;
+    const z=Math.sin(angle)*radiusZ;
+    const rock=MeshBuilder.CreatePolyhedron(`rim-rock-${i}`,{type:i%2,size:1.25+(i%5)*.22},scene);
+    rock.position.set(x,.35,z);rock.scaling.y=1.2+(i%3)*.22;rock.rotation.y=angle;rock.material=i%4===0?rockHighlight:rockMat;
+    const height=3.2+(i%6)*.62;
+    const spike=MeshBuilder.CreateCylinder(`rim-spike-${i}`,{diameterTop:0,diameterBottom:.62+(i%3)*.13,height,tessellation:5},scene);
+    spike.position.set(x-Math.cos(angle)*.35,height/2-.1,z-Math.sin(angle)*.35);
+    spike.rotation.z=-Math.cos(angle)*.3;spike.rotation.x=Math.sin(angle)*.3;spike.material=i%5===0?boneMat:rockHighlight;
+  }
+
+  const flames:Mesh[]=[];
+  const brazierPositions:Array<[number,number,number]>=[[-27,0,-11],[-27,0,11],[27,0,-11],[27,0,11],[-15,5.35,-4.8],[-15,5.35,4.8],[15,5.35,-4.8],[15,5.35,4.8]];
+  for(const [x,y,z] of brazierPositions){
+    const post=MeshBuilder.CreateCylinder(`brazier-post-${x}-${z}`,{diameter:.55,height:1.9,tessellation:6},scene);post.position.set(x,y+.95,z);post.material=metalMat;
+    const bowl=MeshBuilder.CreateCylinder(`brazier-bowl-${x}-${z}`,{diameterTop:1.45,diameterBottom:.72,height:.48,tessellation:8},scene);bowl.position.set(x,y+1.95,z);bowl.material=metalMat;
+    const flameMat=new StandardMaterial(`brazier-flame-${x}-${z}-mat`,scene);flameMat.diffuseColor=new Color3(1,.2,.015);flameMat.emissiveColor=new Color3(1,.3,.025);flameMat.disableLighting=true;
+    const flame=MeshBuilder.CreateSphere(`brazier-flame-${x}-${z}`,{diameter:.92,segments:6},scene);flame.position.set(x,y+2.55,z);flame.scaling.set(.72,1.45,.72);flame.material=flameMat;flame.metadata={baseY:flame.position.y,phase:flames.length*.83};flames.push(flame);
+  }
+  scene.onBeforeRenderObservable.add(()=>{const time=performance.now()/260;for(const flame of flames){const phase=flame.metadata.phase;flame.scaling.y=1.35+Math.sin(time+phase)*.16;flame.position.y=flame.metadata.baseY+Math.sin(time*1.3+phase)*.07;}});
+
   for(const side of [-1,1]){
     const gate=MeshBuilder.CreateBox(`gate-${side}`,{width:.8,height:6.5,depth:10},scene);
     gate.position.set(side*24.7,3.25,0);
