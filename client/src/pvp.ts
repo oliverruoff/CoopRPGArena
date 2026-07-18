@@ -118,11 +118,6 @@ function buildArena() {
   for (let x = -16; x <= 16; x += 4) {
     const band = MeshBuilder.CreateBox(`bridge-band-${x}`, { width: 0.22, depth: 8.2, height: 0.82 }, scene); band.position.set(x, 4.66, 0); band.material = metalMat;
   }
-  const slope = Math.atan2(5, 8);
-  const endRamps: Array<[number, number]> = [[-22, -slope], [22, slope]];
-  for (const [x, rotation] of endRamps) {
-    const ramp = MeshBuilder.CreateBox(`end-ramp-${x}`, { width: Math.sqrt(89), depth: 8, height: 0.5 }, scene); ramp.position.set(x, 2.35, 0); ramp.rotation.z = rotation; ramp.material = bridgeMat; ramp.receiveShadows = true;
-  }
   for (const x of [-7, 7]) for (const z of [-8.5, 8.5]) {
     const ramp = MeshBuilder.CreateBox(`center-ramp-${x}-${z}`, { width: 4.6, depth: Math.sqrt(106), height: 0.45 }, scene);
     ramp.position.set(x, 2.35, z); ramp.rotation.x = z < 0 ? -Math.atan2(5, 9) : Math.atan2(5, 9); ramp.material = bridgeMat; ramp.receiveShadows = true;

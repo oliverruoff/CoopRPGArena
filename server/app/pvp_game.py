@@ -415,11 +415,6 @@ class PvPGame:
 
     @staticmethod
     def _surface_height_locked(x: float, z: float, current_y: float) -> float:
-        # End ramps.
-        if -26 <= x <= -18 and abs(z) <= 4:
-            return (x + 26) / 8 * 5
-        if 18 <= x <= 26 and abs(z) <= 4:
-            return (26 - x) / 8 * 5
         # Four central ramps.
         if any(abs(x - center) <= 2.3 for center in (-7.0, 7.0)) and 4 <= abs(z) <= 13:
             return max(0, (13 - abs(z)) / 9 * 5)
@@ -857,7 +852,6 @@ class PvPGame:
             "bridge": {"x": 0, "z": 0, "width": 36, "depth": 8, "height": 5},
             "pillars": [{"x": -8, "z": 0, "radius": 2}, {"x": 8, "z": 0, "radius": 2}],
             "ramps": [
-                {"x": -22, "z": 0, "width": 8, "depth": 8, "rotation": 0}, {"x": 22, "z": 0, "width": 8, "depth": 8, "rotation": 0},
                 {"x": -7, "z": -8.5, "width": 4.6, "depth": 9, "rotation": 0}, {"x": -7, "z": 8.5, "width": 4.6, "depth": 9, "rotation": 0},
                 {"x": 7, "z": -8.5, "width": 4.6, "depth": 9, "rotation": 0}, {"x": 7, "z": 8.5, "width": 4.6, "depth": 9, "rotation": 0},
             ],

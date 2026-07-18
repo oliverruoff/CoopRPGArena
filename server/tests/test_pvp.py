@@ -101,6 +101,13 @@ def test_bridge_deck_blocks_spells_between_levels_but_not_on_same_level():
     assert game._has_los_locked(upper, lower)
 
 
+def test_outer_spawn_areas_are_flat_without_end_ramps():
+    game = PvPGame()
+    for x in (-26, -22, -18, 18, 22, 26):
+        assert game._surface_height_locked(x, 0, 0) == 0
+    assert len(game._arena_dict()["ramps"]) == 4
+
+
 def test_all_dead_ends_round_but_a_living_priest_can_still_revive():
     game = PvPGame()
     priest, red = start_duel(game, "priest", "warrior")

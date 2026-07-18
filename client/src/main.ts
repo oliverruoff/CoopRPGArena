@@ -223,7 +223,6 @@ if (isPvpMode) {
 function buildUnifiedPvpArena() {
   const floor=MeshBuilder.CreateGround("lower-arena",{width:60,height:36,subdivisions:2},scene);floor.material=mat("pvp-dirt",new Color3(.35,.18,.11));floor.receiveShadows=true;
   const bridge=MeshBuilder.CreateBox("high-bridge",{width:36,depth:8,height:.75},scene);bridge.position.y=4.65;bridge.material=mat("pvp-bridge",new Color3(.28,.22,.19));
-  const slope=Math.atan2(5,8);for(const [x,rotation] of [[-22,-slope],[22,slope]] as Array<[number,number]>){const ramp=MeshBuilder.CreateBox(`end-ramp-${x}`,{width:Math.sqrt(89),depth:8,height:.5},scene);ramp.position.set(x,2.35,0);ramp.rotation.z=rotation;ramp.material=bridge.material;}
   for(const x of [-7,7])for(const z of [-8.5,8.5]){const ramp=MeshBuilder.CreateBox(`center-ramp-${x}-${z}`,{width:4.6,depth:Math.sqrt(106),height:.45},scene);ramp.position.set(x,2.35,z);ramp.rotation.x=z<0?-Math.atan2(5,9):Math.atan2(5,9);ramp.material=bridge.material;}
   for(const x of [-8,8]){const pillar=MeshBuilder.CreateCylinder(`pillar-${x}`,{diameter:4.1,height:5.2,tessellation:8},scene);pillar.position.set(x,2.55,0);pillar.material=mat(`pillar-${x}-mat`,new Color3(.34,.28,.25));}
   for(const side of [-1,1]){

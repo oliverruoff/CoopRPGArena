@@ -42,6 +42,14 @@ test("adding a bot before choosing a team still starts a desktop match", async (
   await expect(page.locator("#hud")).toBeVisible({ timeout: 7000 });
   await expect(page.getByTestId("action-bar")).toBeVisible();
   await expect(page.getByTestId("target-frame")).toBeVisible();
+  await expect.poll(() => page.evaluate(() => {
+    const scene = (document.querySelector("#renderCanvas") as any).scene;
+    return {
+      leftEndRamp: Boolean(scene.getMeshByName("end-ramp--22")),
+      rightEndRamp: Boolean(scene.getMeshByName("end-ramp-22")),
+      centerRamp: Boolean(scene.getMeshByName("center-ramp--7--8.5")),
+    };
+  })).toEqual({ leftEndRamp: false, rightEndRamp: false, centerRamp: true });
   await expect.poll(() => page.evaluate(() => (document.querySelector("#renderCanvas") as any).scene.activeCamera.radius)).toBe(60);
   await page.waitForTimeout(5200);
   const before = await page.evaluate(() => {
