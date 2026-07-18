@@ -236,7 +236,9 @@ function buildUnifiedPvpArena() {
   const bridge=MeshBuilder.CreateBox("high-bridge",{width:36,depth:8,height:.75},scene);bridge.position.y=4.65;bridge.material=bridgeMat;
   for(let x=-16;x<=16;x+=4){const band=MeshBuilder.CreateBox(`bridge-band-${x}`,{width:.24,depth:8.3,height:.82},scene);band.position.set(x,4.66,0);band.material=metalMat;}
   for(const z of [-4.15,4.15]){const rim=MeshBuilder.CreateBox(`bridge-rim-${z}`,{width:36.5,depth:.22,height:.55},scene);rim.position.set(0,5.05,z);rim.material=metalMat;}
-  for(const x of [-7,7])for(const z of [-8.5,8.5]){const ramp=MeshBuilder.CreateBox(`center-ramp-${x}-${z}`,{width:4.6,depth:Math.sqrt(106),height:.45},scene);ramp.position.set(x,2.35,z);ramp.rotation.x=z<0?-Math.atan2(5,9):Math.atan2(5,9);ramp.material=bridgeMat;}
+  const rampRun=6;
+  const rampCenterZ=4+rampRun/2;
+  for(const x of [-7,7])for(const z of [-rampCenterZ,rampCenterZ]){const ramp=MeshBuilder.CreateBox(`center-ramp-${x}-${z}`,{width:4.6,depth:Math.sqrt(rampRun*rampRun+25),height:.45},scene);ramp.position.set(x,2.35,z);ramp.rotation.x=z<0?-Math.atan2(5,rampRun):Math.atan2(5,rampRun);ramp.material=bridgeMat;}
   for(const x of [-8,8]){
     const pillar=MeshBuilder.CreateCylinder(`pillar-${x}`,{diameter:4.1,height:5.2,tessellation:8},scene);pillar.position.set(x,2.55,0);pillar.material=rockHighlight;
     const cap=MeshBuilder.CreateCylinder(`pillar-cap-${x}`,{diameter:5.1,height:.65,tessellation:8},scene);cap.position.set(x,5.15,0);cap.material=metalMat;
@@ -439,8 +441,9 @@ function connect() {
     snapshotReceivedAt = performance.now();
     uiDirty = true;
     const matchStarted = previousState?.matchState === "lobby" && state.matchState === "running";
+    const preparationEnded = isPvpMode && (previousState?.wave.nextWaveIn || 0) > 0 && (state.wave.nextWaveIn || 0) <= 0;
     if (isPvpMode && state.matchState === "lobby") pvpGateAnimationStartedAt=null;
-    if (isPvpMode && matchStarted) pvpGateAnimationStartedAt=performance.now();
+    if (preparationEnded) pvpGateAnimationStartedAt=performance.now();
     staticWorldDirty = matchStarted || incomingHasStatic || staticWorldSignature !== lastStaticWorldSignature;
     if (matchStarted) lastStaticWorldSignature = "";
     else lastStaticWorldSignature = staticWorldSignature;
@@ -1101,7 +1104,9 @@ function renderUi() {
   const endTitle = document.querySelector<HTMLElement>("#endTitle")!;
   const restartButton = document.querySelector<HTMLButtonElement>("#restart")!;
   const endMatchButton = document.querySelector<HTMLButtonElement>("#endMatch")!;
-  endTitle.textContent = state.matchState === "victory" ? "Victory" : state.matchState === "defeat" ? "Wipe" : "";
+  const pvpWinner = isPvpMode ? (state as Snapshot & { winner?: "blue" | "red" | null }).winner : null;
+  const localTeam = (me as PlayerState & { team?: "blue" | "red" | null }).team;
+  endTitle.textContent = state.matchState === "victory" ? (!isPvpMode || pvpWinner === localTeam ? "Victory" : "Defeat") : state.matchState === "defeat" ? "Wipe" : "";
   restartButton.style.display = "inline-block";
   endMatchButton.style.display = state.matchState === "running" && !isSpectator ? "inline-block" : "none";
   end.style.display = endTitle.textContent ? "grid" : "none";
@@ -3984,8 +3989,15 @@ function projectToScreen(position: Vector3) {
 function playCastEffect(event: CombatEvent) {
   const source = event.sourceId ? meshes.get(event.sourceId) : null;
   const target = event.targetId ? meshes.get(event.targetId) : null;
-  if (!source || !target) return;
+  if (!source || source.isDisposed()) return;
   const ability = event.abilityId ? state?.abilities[event.abilityId] : null;
+  if (!target || target.isDisposed()) {
+    if (ability?.targetType === "self") {
+      if (event.abilityId?.includes("frost_nova")) frostRing(source.position.clone(), 4.2, 900);
+      else if (event.abilityId?.includes("arcane_blast")) expandingDisc("arcane-blast", source.position.clone(), 4, new Color3(.78,.22,1), 900, .34);
+    }
+    return;
+  }
   const color = effectColor(event.abilityId || "", event.school || "");
   if (event.abilityId?.includes("mage_cone_of_cold")) {
     coneOfColdVisual(source.position, state?.players[event.sourceId || ""]?.facing || 0);

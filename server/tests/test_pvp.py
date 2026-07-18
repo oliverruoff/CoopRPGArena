@@ -112,17 +112,24 @@ def test_central_ramps_block_side_entry_but_allow_climbing_from_bottom():
     game = PvPGame()
     player = configured_player(game, "blue", "warrior")
 
-    player.x, player.z, player.y = -9.5, 8.5, 0
+    player.x, player.z, player.y = -9.5, 7, 0
     player.x = -9.0
-    game._resolve_arena_position_locked(player, 0.1, -9.5, 8.5)
+    game._resolve_arena_position_locked(player, 0.1, -9.5, 7)
     assert player.x == -9.5
     assert player.y == 0
 
-    player.x, player.z, player.y = -7, 13.2, 0
-    player.z = 12.7
-    game._resolve_arena_position_locked(player, 0.1, -7, 13.2)
-    assert player.z == 12.7
+    player.x, player.z, player.y = -7, 10.2, 0
+    player.z = 9.8
+    game._resolve_arena_position_locked(player, 0.1, -7, 10.2)
+    assert player.z == 9.8
     assert 0 < player.y < 0.25
+
+
+def test_central_ramps_are_shorter_and_steeper_than_before():
+    game = PvPGame()
+    assert game._surface_height_locked(-7, 10.1, 0) == 0
+    assert game._surface_height_locked(-7, 7, 0) == 2.5
+    assert all(ramp["depth"] == 6 for ramp in game._arena_dict()["ramps"])
 
 
 def test_all_dead_ends_round_but_a_living_priest_can_still_revive():

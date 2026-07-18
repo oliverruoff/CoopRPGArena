@@ -16,6 +16,8 @@ MAX_TEAM_SIZE = 3
 BUILD_POINTS = 10
 PVP_DAMAGE_MULTIPLIER = 0.8
 PREPARATION_SECONDS = 5.0
+RAMP_RUN = 6.0
+RAMP_OUTER_Z = 4.0 + RAMP_RUN
 
 
 def load_json(name: str) -> Any:
@@ -425,8 +427,8 @@ class PvPGame:
     @staticmethod
     def _surface_height_locked(x: float, z: float, current_y: float) -> float:
         # Four central ramps.
-        if any(abs(x - center) <= 2.3 for center in (-7.0, 7.0)) and 4 <= abs(z) <= 13:
-            return max(0, (13 - abs(z)) / 9 * 5)
+        if any(abs(x - center) <= 2.3 for center in (-7.0, 7.0)) and 4 <= abs(z) <= RAMP_OUTER_Z:
+            return max(0, (RAMP_OUTER_Z - abs(z)) / RAMP_RUN * 5)
         if abs(x) <= 18 and abs(z) <= 4 and current_y > 2.2:
             return 5
         return 0
@@ -863,8 +865,8 @@ class PvPGame:
             "bridge": {"x": 0, "z": 0, "width": 36, "depth": 8, "height": 5},
             "pillars": [{"x": -8, "z": 0, "radius": 2}, {"x": 8, "z": 0, "radius": 2}],
             "ramps": [
-                {"x": -7, "z": -8.5, "width": 4.6, "depth": 9, "rotation": 0}, {"x": -7, "z": 8.5, "width": 4.6, "depth": 9, "rotation": 0},
-                {"x": 7, "z": -8.5, "width": 4.6, "depth": 9, "rotation": 0}, {"x": 7, "z": 8.5, "width": 4.6, "depth": 9, "rotation": 0},
+                {"x": -7, "z": -7, "width": 4.6, "depth": RAMP_RUN, "rotation": 0}, {"x": -7, "z": 7, "width": 4.6, "depth": RAMP_RUN, "rotation": 0},
+                {"x": 7, "z": -7, "width": 4.6, "depth": RAMP_RUN, "rotation": 0}, {"x": 7, "z": 7, "width": 4.6, "depth": RAMP_RUN, "rotation": 0},
             ],
         }
 
