@@ -33,6 +33,15 @@ test("lobby live stats update when blessings are chosen", async ({ page }) => {
   await expect(drawer).toContainText("Max Health +12%");
 });
 
+test("lobby ability cooldown follows live cooldown reduction", async ({ page }) => {
+  await page.goto("/");
+  await page.getByTestId("class-mage").click();
+  const preview = page.getByTestId("class-preview-info");
+  await expect(preview).toContainText("3.0s CD");
+  await page.getByTestId("lobby-upgrade-cooldown_reduction").click();
+  await expect(preview).toContainText("2.9s CD");
+});
+
 test("lobby canvas renders sharply at device pixel resolution", async ({ browser }) => {
   const context = await browser.newContext({ viewport: { width: 640, height: 480 }, deviceScaleFactor: 2 });
   const page = await context.newPage();
@@ -178,6 +187,7 @@ test("single player can start, move, target, level, and reach the boss wave", as
   await expect(page.getByTestId("target-frame")).toContainText("Brute");
   await page.getByTestId("ability-slot-1").hover();
   await expect(page.getByTestId("ability-tooltip")).toContainText("Cost:");
+  await expect(page.getByTestId("ability-tooltip")).toContainText("Cooldown: 3.0s");
   await expect(page.getByTestId("ability-tooltip")).toContainText("burns");
   await page.getByTestId("ability-slot-1").click();
   await expect(page.getByTestId("cast-bar")).toBeVisible();

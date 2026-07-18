@@ -1032,6 +1032,11 @@ function renderUi() {
     btn.querySelector<HTMLElement>(".cooldownText")!.textContent = shownCooldown > 0 ? formatCooldown(shownCooldown, globalCooldown > 0 && cooldown <= globalCooldown) : "";
     btn.querySelector<HTMLElement>(".cooldownOverlay")!.style.display = shownCooldown > 0 ? "block" : "none";
   }
+  // Keep an open tooltip in sync when an upgrade changes the player's CDR.
+  if (hoveredAbilityId) {
+    const hoveredButton = document.querySelector<HTMLButtonElement>(`#action [data-ability-id="${CSS.escape(hoveredAbilityId)}"]`);
+    if (hoveredButton) showAbilityTooltip(hoveredButton);
+  }
   const panel = document.querySelector<HTMLElement>("#levelPanel")!;
   const upgradeSignature = me.pendingUpgrades.map((u) => u.id).join(",");
   if (upgradeSignature !== lastUpgradeSignature) {
@@ -1529,6 +1534,7 @@ function showAbilityTooltip(button: HTMLButtonElement) {
   const ability = state.abilities[abilityId];
   const tooltip = document.querySelector<HTMLElement>("#abilityTooltip")!;
   const cost = currentAbilityCost(me, ability);
+  const cooldown = effectiveAbilityCooldown(ability, me.stats);
   const effectText = (ability.effects || []).map((effect) => {
     const amount = effect.amount || 0;
     const scaling = effect.scaling;
@@ -1557,7 +1563,7 @@ function showAbilityTooltip(button: HTMLButtonElement) {
     if (effect.type === "slow") return `Slow: ${Math.round((effect.slowPercent || 0) * 100)}% for ${effect.duration || 0}s`;
     return effect.type;
   }).join(" • ");
-  tooltip.innerHTML = `<h3>${ability.name}</h3><p>${abilityDescription(abilityId)}</p><div>Cost: <b>${cost} ${resourceLabel(ability.resourceCost?.type || "resource")}</b></div><div>Cast: <b>${ability.castTime || 0}s</b> • Range: <b>${ability.range || "-"}</b></div>${effectText ? `<div>${effectText}</div>` : ""}`;
+  tooltip.innerHTML = `<h3>${ability.name}</h3><p>${abilityDescription(abilityId)}</p><div>Cost: <b>${cost} ${resourceLabel(ability.resourceCost?.type || "resource")}</b></div><div>Cooldown: <b>${formatAbilityCooldown(cooldown)}</b> • Cast: <b>${ability.castTime || 0}s</b> • Range: <b>${ability.range || "-"}</b></div>${effectText ? `<div>${effectText}</div>` : ""}`;
   const rect = button.getBoundingClientRect();
   tooltip.style.left = `${rect.left + rect.width / 2}px`;
   tooltip.style.top = `${rect.top - 12}px`;
@@ -1628,6 +1634,15 @@ function currentAbilityCost(player: PlayerState, ability: Ability) {
   if (!cost) return 0;
   const multiplier = player.stats.resourceCostMultiplier || 1;
   return Math.round(cost.amount * multiplier * 10) / 10;
+}
+
+function effectiveAbilityCooldown(ability: Ability, stats?: Record<string, number>) {
+  return Math.max(0, (ability.cooldown || 0) * (1 - (stats?.cooldownReduction || 0)));
+}
+
+function formatAbilityCooldown(seconds: number) {
+  const rounded = Math.round((seconds + 1e-9) * 10) / 10;
+  return `${rounded.toFixed(1)}s`;
 }
 
 function abilityDescription(abilityId: string) {
@@ -1776,13 +1791,14 @@ function renderClassStatRows(classId: string) {
 }
 
 function renderClassAbility(ability: Ability) {
+  const me = state?.players[state.you];
   const key = slotKeys[ability.slot] || String(ability.slot);
   const cost = ability.resourceCost ? `${ability.resourceCost.amount} ${resourceLabel(ability.resourceCost.type)}` : "None";
   const effects = (ability.effects || []).map((effect) => formatAbilityEffectSummary(effect)).filter(Boolean).join(" • ");
   const school = ability.effects?.find((effect) => effect.school)?.school || ability.targetType;
   return `<div class="classAbility"><span class="abilitySigil">${ability.name.slice(0, 1)}</span><div class="abilityCopy">
     <div class="classAbilityHeader"><b>${ability.name}</b><span class="classAbilityKey">${key.toUpperCase()}</span></div>
-    <div class="classAbilityTags"><span>${ability.targetType}</span><span>${ability.range || "-"}m</span><span>${ability.cooldown || 0}s CD</span><span>${ability.castTime || 0}s cast</span><span>${cost}</span></div>
+    <div class="classAbilityTags"><span>${ability.targetType}</span><span>${ability.range || "-"}m</span><span>${formatAbilityCooldown(effectiveAbilityCooldown(ability, me?.stats))} CD</span><span>${ability.castTime || 0}s cast</span><span>${cost}</span></div>
     <p>${ability.description || abilityDescription(ability.id)}</p>
     ${effects ? `<div class="classAbilityEffects"><b>${school}</b> · ${effects}</div>` : ""}</div>
   </div>`;
