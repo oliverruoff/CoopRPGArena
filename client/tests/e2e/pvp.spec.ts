@@ -17,6 +17,11 @@ test("desktop lobby uses explicit team controls and the shared arena", async ({ 
   await expect(page.getByRole("heading", { name: "Blade Gorge" })).toBeVisible();
   await page.getByTestId("team-blue").click();
   await selectMageBuild(page);
+  await expect(page.locator("#pvpPointsUsed")).toHaveText("10");
+  await expect(page.getByTestId("pvp-stat-max_health")).toContainText("+8% Health per point");
+  await page.getByTestId("pvp-live-stats").click();
+  await expect(page.locator("#pvpStatsContent")).toContainText("10/10");
+  await expect(page.locator("#pvpStatsContent")).toContainText("Health");
   await expect(page.getByTestId("team-blue")).toHaveAttribute("aria-pressed", "true");
   await expect(page.getByText("Ready to fight")).toBeVisible();
   await expect(page.getByTestId("pvp-ready")).toBeEnabled();
@@ -25,6 +30,8 @@ test("desktop lobby uses explicit team controls and the shared arena", async ({ 
 });
 
 test("adding a bot before choosing a team still starts a desktop match", async ({ page }) => {
+  const pageErrors: string[] = [];
+  page.on("pageerror", (error) => pageErrors.push(error.message));
   await page.goto("/pvp");
   await page.getByTestId("pvp-add-bot").click();
   await selectMageBuild(page);
@@ -35,6 +42,20 @@ test("adding a bot before choosing a team still starts a desktop match", async (
   await expect(page.locator("#hud")).toBeVisible({ timeout: 7000 });
   await expect(page.getByTestId("action-bar")).toBeVisible();
   await expect(page.getByTestId("target-frame")).toBeVisible();
+  await expect.poll(() => page.evaluate(() => (document.querySelector("#renderCanvas") as any).scene.activeCamera.radius)).toBe(60);
+  await page.waitForTimeout(5200);
+  const before = await page.evaluate(() => {
+    const scene = (document.querySelector("#renderCanvas") as any).scene;
+    return scene.transformNodes.filter((node: any) => node.metadata?.entityId).sort((a: any, b: any) => a.position.x - b.position.x)[0]?.position.x;
+  });
+  await page.keyboard.down("KeyD");
+  await page.waitForTimeout(700);
+  await page.keyboard.up("KeyD");
+  await expect.poll(() => page.evaluate(() => {
+    const scene = (document.querySelector("#renderCanvas") as any).scene;
+    return scene.transformNodes.filter((node: any) => node.metadata?.entityId).sort((a: any, b: any) => a.position.x - b.position.x)[0]?.position.x;
+  })).toBeGreaterThan(before + 1);
+  expect(pageErrors).toEqual([]);
 });
 
 test("mobile lobby and match fit without swiping and remain fully playable", async ({ page, request }) => {

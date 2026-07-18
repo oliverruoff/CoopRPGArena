@@ -157,8 +157,10 @@ const scene = new Scene(engine);
 scene.clearColor = new Color4(0.13, 0.16, 0.17, 1);
 const CAMERA_ALPHA = -Math.PI / 2;
 const CAMERA_BETA = 0.9;
-const DESKTOP_CAMERA_RADIUS = 42;
-const PORTRAIT_CAMERA_RADIUS = 48;
+// PvP's rectangular Blade Gorge is substantially wider than the co-op arena.
+// Keep its full playable bounds visible instead of inheriting the closer hero camera.
+const DESKTOP_CAMERA_RADIUS = isPvpMode ? 60 : 42;
+const PORTRAIT_CAMERA_RADIUS = isPvpMode ? 68 : 48;
 const camera = new ArcRotateCamera("camera", CAMERA_ALPHA, CAMERA_BETA, DESKTOP_CAMERA_RADIUS, Vector3.Zero(), scene);
 camera.inputs.clear();
 camera.lowerAlphaLimit = CAMERA_ALPHA;
@@ -586,7 +588,7 @@ document.querySelector<HTMLButtonElement>("#resetLobbyUpgrades")!.addEventListen
 function setLobbyStatsOpen(open: boolean) {
   lobbyStatsOpen = open && Boolean(selectedClassId || (state && state.players[state.you]?.classId));
   document.body.classList.toggle("lobbyStatsOpen", lobbyStatsOpen);
-  document.querySelector<HTMLButtonElement>("#lobbyStatsToggle")!.setAttribute("aria-expanded", lobbyStatsOpen ? "true" : "false");
+  document.querySelector<HTMLButtonElement>("#lobbyStatsToggle")?.setAttribute("aria-expanded", lobbyStatsOpen ? "true" : "false");
 }
 document.querySelector<HTMLButtonElement>("#lobbyStatsToggle")!.addEventListener("click", () => {
   unlockAudio();
