@@ -80,6 +80,16 @@ test("adding a bot before choosing a team still starts a desktop match", async (
   await expect(page.getByTestId("target-frame")).toBeVisible();
   await expect.poll(() => page.evaluate(() => {
     const scene = (document.querySelector("#renderCanvas") as any).scene;
+    const mage = scene.transformNodes.find((node: any) => node.metadata?.classId === "mage" && node.metadata?.entityId);
+    const names = mage?.getChildMeshes().map((mesh: any) => mesh.name) || [];
+    return {
+      source: mage?.metadata?.modelSource,
+      hasHatBrim: names.some((name: string) => name.endsWith("-hat-brim")),
+      hasSpellbook: names.some((name: string) => name.endsWith("-spellbook")),
+    };
+  })).toEqual({ source: "shared-class-model", hasHatBrim: true, hasSpellbook: true });
+  await expect.poll(() => page.evaluate(() => {
+    const scene = (document.querySelector("#renderCanvas") as any).scene;
     return {
       leftEndRamp: Boolean(scene.getMeshByName("end-ramp--22")),
       rightEndRamp: Boolean(scene.getMeshByName("end-ramp-22")),

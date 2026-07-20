@@ -3476,7 +3476,7 @@ function animateWorld() {
 
 function createPlayer(p: PlayerState) {
   const root = new TransformNode(p.id, scene);
-  root.metadata = { entityId: p.id, classId: p.classId, form: p.form || null };
+  root.metadata = { entityId: p.id, classId: p.classId, form: p.form || null, modelSource: "shared-class-model" };
   if (p.classId === "druid" && p.form) {
     createDruidFormModel(root, p.id, p.form);
     const ring = MeshBuilder.CreateCylinder(`${p.id}-ring`, { diameter: p.form === "bear" ? 1.9 : 1.45, height: 0.025, tessellation: 48 }, scene); ring.parent = root; ring.material = transparentMat(`${p.id}-ringmat`, new Color3(0.1, 0.55, 1), 0.22); ring.metadata = { entityId: p.id };
@@ -3493,6 +3493,14 @@ function createPlayer(p: PlayerState) {
   const head = box(`${p.id}-head`, { width: build.headWidth, height: 0.45, depth: build.headDepth }, build.skin); head.parent = root; head.position.y = 1.45;
   const leftArm = box(`${p.id}-left-arm`, { width: build.armWidth, height: build.armHeight, depth: build.armDepth }, color.scale(0.85)); leftArm.parent = root; leftArm.position.set(-build.armX, 0.92, 0); leftArm.rotation.z = -0.16; leftArm.metadata = { restX: -build.armX };
   const rightArm = box(`${p.id}-right-arm`, { width: build.armWidth, height: build.armHeight, depth: build.armDepth }, color.scale(0.85)); rightArm.parent = root; rightArm.position.set(build.armX, 0.92, 0); rightArm.rotation.z = 0.16; rightArm.metadata = { restX: build.armX };
+  const legColor = color.scale(0.58);
+  for (const side of [-1, 1]) {
+    const leg = box(`${p.id}-leg-${side}`, { width: 0.25, height: 0.5, depth: 0.3 }, legColor); leg.parent = root; leg.position.set(side * 0.22, 0.27, 0.02);
+    const boot = box(`${p.id}-boot-${side}`, { width: 0.29, height: 0.16, depth: 0.4 }, legColor.scale(0.58)); boot.parent = root; boot.position.set(side * 0.22, 0.08, -0.05);
+  }
+  for (const side of [-1, 1]) {
+    const eye = box(`${p.id}-eye-${side}`, { width: 0.075, height: 0.055, depth: 0.025 }, new Color3(0.055, 0.045, 0.04)); eye.parent = root; eye.position.set(side * build.headWidth * 0.22, 1.49, -build.headDepth * 0.51);
+  }
   addClassDetails(root, p.id, p.classId, color);
   const ring = MeshBuilder.CreateCylinder(`${p.id}-ring`, { diameter: 1.45, height: 0.025, tessellation: 48 }, scene); ring.parent = root; ring.material = transparentMat(`${p.id}-ringmat`, new Color3(0.1, 0.55, 1), 0.22); ring.metadata = { entityId: p.id };
   ring.position.y = 0.015;
@@ -3618,6 +3626,9 @@ function addClassDetails(root: TransformNode, id: string, classId: string | null
     const shield = box(`${id}-shield`, { width: 0.5, height: 0.64, depth: 0.12 }, new Color3(0.24, 0.26, 0.32)); shield.parent = leftArm || root; shield.position.set(-0.12, -0.12, -0.16); shield.rotation.z = 0.18;
     const crest = box(`${id}-shield-crest`, { width: 0.18, height: 0.42, depth: 0.13 }, new Color3(0.95, 0.78, 0.16)); crest.parent = shield; crest.position.set(0, 0, -0.08);
     const boots = box(`${id}-heavy-boots`, { width: 0.9, height: 0.18, depth: 0.52 }, new Color3(0.12, 0.08, 0.05)); boots.parent = root; boots.position.y = 0.1;
+    const helmet = MeshBuilder.CreateCylinder(`${id}-helmet`, { diameterTop: 0.48, diameterBottom: 0.62, height: 0.28, tessellation: 6 }, scene); helmet.parent = root; helmet.position.y = 1.7; helmet.material = mat(`${id}-helmet-mat`, new Color3(0.3, 0.31, 0.34));
+    const helmetCrest = box(`${id}-helmet-crest`, { width: 0.12, height: 0.44, depth: 0.5 }, new Color3(0.72, 0.12, 0.07)); helmetCrest.parent = root; helmetCrest.position.set(0, 1.9, 0.04);
+    const shoulderFur = box(`${id}-shoulder-fur`, { width: 1.08, height: 0.12, depth: 0.58 }, new Color3(0.24, 0.15, 0.09)); shoulderFur.parent = root; shoulderFur.position.y = 1.29; shoulderFur.rotation.z = -0.04;
   } else if (classId === "hunter") {
     const cloak = box(`${id}-cloak`, { width: 0.66, height: 0.9, depth: 0.08 }, new Color3(0.04, 0.18, 0.08)); cloak.parent = root; cloak.position.set(0, 0.76, 0.31); cloak.rotation.x = -0.14;
     const quiver = box(`${id}-quiver`, { width: 0.28, height: 0.86, depth: 0.24 }, new Color3(0.32, 0.18, 0.08)); quiver.parent = root; quiver.position.set(-0.28, 0.95, -0.34); quiver.rotation.z = 0.25;
@@ -3630,6 +3641,8 @@ function addClassDetails(root: TransformNode, id: string, classId: string | null
     const hood = MeshBuilder.CreateCylinder(`${id}-hood`, { diameterTop: 0.34, diameterBottom: 0.62, height: 0.32, tessellation: 6 }, scene); hood.parent = root; hood.position.y = 1.65; hood.material = mat(`${id}-hood-mat`, baseColor.scale(0.75));
     const chestBand = box(`${id}-chest-band`, { width: 0.12, height: 0.92, depth: 0.46 }, new Color3(0.45, 0.29, 0.08)); chestBand.parent = root; chestBand.position.set(0.05, 0.78, -0.04); chestBand.rotation.z = 0.42;
     const knife = box(`${id}-knife`, { width: 0.07, height: 0.48, depth: 0.06 }, new Color3(0.78, 0.82, 0.76)); knife.parent = leftArm || root; knife.position.set(-0.04, -0.52, -0.16); knife.rotation.z = 0.28;
+    const bowString = MeshBuilder.CreateTube(`${id}-bow-string`, { path: [new Vector3(0.24, 0.7, 0), new Vector3(-0.1, 0, 0), new Vector3(0.24, -0.7, 0)], radius: 0.009, tessellation: 4 }, scene); bowString.parent = bow; bowString.material = mat(`${id}-bow-string-mat`, new Color3(0.82, 0.78, 0.63));
+    const cloakPin = MeshBuilder.CreateSphere(`${id}-cloak-pin`, { diameter: 0.16, segments: 6 }, scene); cloakPin.parent = root; cloakPin.position.set(-0.25, 1.18, -0.24); cloakPin.material = mat(`${id}-cloak-pin-mat`, new Color3(0.72, 0.58, 0.16));
   } else if (classId === "priest") {
     const robeSkirt = MeshBuilder.CreateCylinder(`${id}-robe-skirt`, { diameterTop: 0.76, diameterBottom: 0.98, height: 0.62, tessellation: 6 }, scene); robeSkirt.parent = root; robeSkirt.position.y = 0.34; robeSkirt.material = mat(`${id}-robe-skirt-mat`, new Color3(0.93, 0.9, 0.78));
     const halo = MeshBuilder.CreateTorus(`${id}-halo`, { diameter: 0.68, thickness: 0.035, tessellation: 36 }, scene); halo.parent = root; halo.position.y = 1.85; halo.rotation.x = Math.PI / 2; halo.material = mat(`${id}-halo-mat`, new Color3(1, 0.86, 0.28));
@@ -3640,6 +3653,8 @@ function addClassDetails(root: TransformNode, id: string, classId: string | null
     const stole = box(`${id}-stole`, { width: 0.46, height: 0.08, depth: 0.5 }, new Color3(1, 0.95, 0.72)); stole.parent = root; stole.position.y = 1.18;
     const prayerBeads = MeshBuilder.CreateTorus(`${id}-prayer-beads`, { diameter: 0.46, thickness: 0.025, tessellation: 18 }, scene); prayerBeads.parent = root; prayerBeads.position.set(0, 1.03, -0.25); prayerBeads.scaling.y = 0.65; prayerBeads.material = mat(`${id}-prayer-beads-mat`, new Color3(0.88, 0.72, 0.24));
     const glow = MeshBuilder.CreateCylinder(`${id}-holy-glow`, { diameter: 1.18, height: 0.02, tessellation: 48 }, scene); glow.parent = root; glow.position.y = 0.04; glow.material = transparentMat(`${id}-holy-glow-mat`, new Color3(1, 0.88, 0.38), 0.16);
+    const sunEmblem = MeshBuilder.CreateCylinder(`${id}-sun-emblem`, { diameter: 0.26, height: 0.045, tessellation: 8 }, scene); sunEmblem.parent = root; sunEmblem.position.set(0, 0.9, -0.27); sunEmblem.rotation.x = Math.PI / 2; sunEmblem.material = mat(`${id}-sun-emblem-mat`, new Color3(1, 0.76, 0.18));
+    const censer = MeshBuilder.CreateSphere(`${id}-censer`, { diameter: 0.24, segments: 6 }, scene); censer.parent = rightArm || root; censer.position.set(0.08, -0.52, -0.12); censer.scaling.y = 0.72; const censerMat = mat(`${id}-censer-mat`, new Color3(0.78, 0.62, 0.2)); censerMat.emissiveColor = new Color3(0.22, 0.12, 0.02); censer.material = censerMat;
   } else if (classId === "mage") {
     const collar = MeshBuilder.CreateCylinder(`${id}-collar`, { diameterTop: 0.92, diameterBottom: 0.6, height: 0.28, tessellation: 5 }, scene); collar.parent = root; collar.position.y = 1.22; collar.rotation.y = Math.PI / 5; collar.material = mat(`${id}-collar-mat`, new Color3(0.1, 0.07, 0.28));
     const hat = MeshBuilder.CreateCylinder(`${id}-hat`, { diameterTop: 0.08, diameterBottom: 0.72, height: 0.72, tessellation: 4 }, scene); hat.parent = root; hat.position.y = 1.95; hat.rotation.y = Math.PI / 4; hat.material = mat(`${id}-hat-mat`, baseColor.scale(0.7));
@@ -3653,6 +3668,8 @@ function addClassDetails(root: TransformNode, id: string, classId: string | null
       const orb = MeshBuilder.CreateSphere(`${id}-arcane-orb-${side}`, { diameter: 0.12, segments: 8 }, scene);
       orb.parent = root; orb.position.set(side * 0.46, 1.18, -0.28); const orbMat = mat(`${id}-arcane-orb-${side}-mat`, new Color3(0.6, 0.3, 1)); orbMat.emissiveColor = new Color3(0.28, 0.12, 0.62); orb.material = orbMat;
     }
+    const hatBrim = MeshBuilder.CreateCylinder(`${id}-hat-brim`, { diameter: 0.9, height: 0.07, tessellation: 8 }, scene); hatBrim.parent = root; hatBrim.position.y = 1.66; hatBrim.rotation.y = Math.PI / 8; hatBrim.material = mat(`${id}-hat-brim-mat`, baseColor.scale(0.58));
+    const spellbook = box(`${id}-spellbook`, { width: 0.38, height: 0.5, depth: 0.12 }, new Color3(0.24, 0.08, 0.34)); spellbook.parent = root; spellbook.position.set(-0.42, 0.72, 0.24); spellbook.rotation.z = -0.18;
   } else if (classId === "rogue") {
     const hood = MeshBuilder.CreateCylinder(`${id}-shadow-hood`, { diameterTop: 0.32, diameterBottom: 0.58, height: 0.34, tessellation: 6 }, scene); hood.parent = root; hood.position.y = 1.62; hood.material = mat(`${id}-shadow-hood-mat`, baseColor.scale(0.62));
     const mask = box(`${id}-mask`, { width: 0.42, height: 0.12, depth: 0.05 }, new Color3(0.04, 0.035, 0.055)); mask.parent = root; mask.position.set(0, 1.43, -0.24);
@@ -3664,6 +3681,8 @@ function addClassDetails(root: TransformNode, id: string, classId: string | null
       const grip = box(`${id}-dagger-grip-${side}`, { width: 0.16, height: 0.055, depth: 0.06 }, new Color3(0.12, 0.07, 0.04)); grip.parent = dagger; grip.position.set(0, -0.3, 0); grip.rotation.z = Math.PI / 2;
     }
     const shadow = MeshBuilder.CreateCylinder(`${id}-rogue-shadow`, { diameter: 1.0, height: 0.018, tessellation: 40 }, scene); shadow.parent = root; shadow.position.y = 0.035; shadow.material = transparentMat(`${id}-rogue-shadow-mat`, new Color3(0.38, 0.12, 0.6), 0.14);
+    const poisonVial = MeshBuilder.CreateCylinder(`${id}-poison-vial`, { diameter: 0.13, height: 0.28, tessellation: 6 }, scene); poisonVial.parent = root; poisonVial.position.set(0.34, 0.58, -0.18); poisonVial.rotation.z = -0.18; const poisonMat = mat(`${id}-poison-vial-mat`, new Color3(0.42, 0.92, 0.14)); poisonMat.emissiveColor = new Color3(0.12, 0.34, 0.03); poisonVial.material = poisonMat;
+    const hoodTail = box(`${id}-hood-tail`, { width: 0.16, height: 0.52, depth: 0.1 }, baseColor.scale(0.48)); hoodTail.parent = root; hoodTail.position.set(0.12, 1.32, 0.27); hoodTail.rotation.z = -0.22;
   } else if (classId === "druid") {
     const leafMantle = box(`${id}-leaf-mantle`, { width: 0.84, height: 0.16, depth: 0.52 }, new Color3(0.1, 0.31, 0.09)); leafMantle.parent = root; leafMantle.position.y = 1.18;
     const vine = box(`${id}-vine-sash`, { width: 0.1, height: 0.98, depth: 0.48 }, new Color3(0.18, 0.42, 0.13)); vine.parent = root; vine.position.set(0.08, 0.76, -0.02); vine.rotation.z = -0.38;
@@ -3683,6 +3702,9 @@ function addClassDetails(root: TransformNode, id: string, classId: string | null
     createAntler(-1);
     createAntler(1);
     const charm = MeshBuilder.CreateSphere(`${id}-nature-charm`, { diameter: 0.16, segments: 8 }, scene); charm.parent = root; charm.position.set(0, 1.04, -0.28); const charmMat = mat(`${id}-nature-charm-mat`, new Color3(0.45, 0.95, 0.28)); charmMat.emissiveColor = new Color3(0.12, 0.42, 0.08); charm.material = charmMat;
+    const leafCrown = box(`${id}-leaf-crown`, { width: 0.52, height: 0.1, depth: 0.56 }, new Color3(0.18, 0.5, 0.12)); leafCrown.parent = root; leafCrown.position.y = 1.72; leafCrown.rotation.y = Math.PI / 4;
+    const sicklePath = Array.from({ length: 11 }, (_, index) => { const angle = -Math.PI * 0.65 + index * Math.PI * 1.3 / 10; return new Vector3(Math.cos(angle) * 0.27, Math.sin(angle) * 0.27, 0); });
+    const moonSickle = MeshBuilder.CreateTube(`${id}-moon-sickle`, { path: sicklePath, radius: 0.035, tessellation: 6 }, scene); moonSickle.parent = rightArm || root; moonSickle.position.set(0.05, -0.48, -0.16); moonSickle.material = mat(`${id}-moon-sickle-mat`, new Color3(0.68, 0.84, 0.74));
   } else if (classId === "shaman") {
     const featherColor = new Color3(0.92, 0.62, 0.18);
     const furColor = new Color3(0.32, 0.22, 0.16);
@@ -3729,6 +3751,7 @@ function addClassDetails(root: TransformNode, id: string, classId: string | null
     aura.parent = root; aura.position.y = 0.025;
     const auraMat = transparentMat(`${id}-shaman-aura-mat`, new Color3(0.32, 0.78, 0.88), 0.18);
     aura.material = auraMat;
+    const lightningRune = box(`${id}-lightning-rune`, { width: 0.13, height: 0.48, depth: 0.035 }, new Color3(0.38, 0.9, 1)); lightningRune.parent = root; lightningRune.position.set(0, 0.92, -0.27); lightningRune.rotation.z = 0.38; const runeMat = lightningRune.material as StandardMaterial; runeMat.emissiveColor = new Color3(0.12, 0.46, 0.62);
   } else if (classId === "paladin") {
     const gold = new Color3(0.95, 0.72, 0.18);
     const steel = new Color3(0.58, 0.58, 0.56);
@@ -3748,6 +3771,9 @@ function addClassDetails(root: TransformNode, id: string, classId: string | null
     const head = MeshBuilder.CreateCylinder(`${id}-mace-head`, { diameterTop: 0.48, diameterBottom: 0.38, height: 0.42, tessellation: 6 }, scene); head.parent = mace; head.position.y = 0.78; head.rotation.y = Math.PI / 6; head.material = mat(`${id}-mace-head-mat`, steel);
     const headBand = box(`${id}-mace-gold-band`, { width: 0.58, height: 0.1, depth: 0.58 }, gold); headBand.parent = head; headBand.position.y = 0;
     const glow = MeshBuilder.CreateCylinder(`${id}-paladin-ground-glow`, { diameter: 1.25, height: 0.02, tessellation: 48 }, scene); glow.parent = root; glow.position.y = 0.04; glow.material = transparentMat(`${id}-paladin-ground-glow-mat`, gold, 0.16);
+    for (const side of [-1, 1]) {
+      const wingGuard = box(`${id}-wing-guard-${side}`, { width: 0.16, height: 0.52, depth: 0.16 }, gold); wingGuard.parent = root; wingGuard.position.set(side * 0.77, 1.39, 0.04); wingGuard.rotation.z = side * -0.55;
+    }
   }
 }
 
