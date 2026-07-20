@@ -132,6 +132,53 @@ def test_central_ramps_are_shorter_and_steeper_than_before():
     assert all(ramp["depth"] == 6 for ramp in game._arena_dict()["ramps"])
 
 
+def test_arena_exposes_the_jagged_playable_boundary():
+    game = PvPGame()
+    boundary = game._arena_dict()["boundary"]
+
+    assert len(boundary) == 40
+    assert max(point["x"] for point in boundary) == 29
+    assert max(point["z"] for point in boundary) == 17
+    assert len({round(point["x"], 1) for point in boundary if 3 < point["z"] < 6}) > 1
+
+
+def test_jagged_arena_boundary_blocks_straight_and_notched_edges():
+    game = PvPGame()
+    player = configured_player(game, "blue", "warrior")
+
+    player.x, player.z = 35, 0
+    game._resolve_arena_position_locked(player, 0.1, 28, 0)
+    assert game._is_inside_arena_boundary_locked(player.x, player.z)
+    assert 28.8 < player.x < 29
+
+    player.x, player.z = 29, 4.6
+    game._resolve_arena_position_locked(player, 0.1, 28, 4.6)
+    assert game._is_inside_arena_boundary_locked(player.x, player.z)
+    assert player.x < 28.9
+
+
+def test_arena_boundary_leaves_the_regular_interior_untouched():
+    game = PvPGame()
+    player = configured_player(game, "blue", "warrior")
+    player.x, player.z = 24, 12
+
+    game._resolve_arena_position_locked(player, 0.1, 23.5, 12)
+
+    assert (player.x, player.z) == (24, 12)
+
+
+def test_all_team_spawns_have_clearance_from_the_jagged_boundary():
+    game = PvPGame()
+    players = [configured_player(game, team, "warrior") for team in ("blue", "red") for _ in range(3)]
+    for player in players:
+        player.ready = True
+
+    game._start_match_locked()
+
+    assert game.match_state == "running"
+    assert all(game._is_inside_arena_boundary_locked(player.x, player.z, clearance=1.5) for player in players)
+
+
 def test_all_dead_ends_round_but_a_living_priest_can_still_revive():
     game = PvPGame()
     priest, red = start_duel(game, "priest", "warrior")

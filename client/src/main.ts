@@ -221,6 +221,28 @@ if (isPvpMode) {
   buildUnifiedPvpArena();
 }
 
+function createPvpArenaBoundary(halfWidth=29,halfDepth=17):Vector3[]{
+  const points:Vector3[]=[];
+  for(let index=0;index<40;index++){
+    const angle=index/40*Math.PI*2;
+    const cosine=Math.cos(angle);const sine=Math.sin(angle);
+    const xScale=Math.abs(cosine)>1e-9?halfWidth/Math.abs(cosine):Number.POSITIVE_INFINITY;
+    const zScale=Math.abs(sine)>1e-9?halfDepth/Math.abs(sine):Number.POSITIVE_INFINITY;
+    const rimScale=Math.min(xScale,zScale)*(index%2?.98:1);
+    points.push(new Vector3(cosine*rimScale,0,sine*rimScale));
+  }
+  return points;
+}
+
+function createPvpArenaGround(name:string,boundary:Vector3[],height:number,groundMaterial:StandardMaterial):Mesh{
+  const positions:number[]=[0,height,0];const indices:number[]=[];const uvs:number[]=[.5,.5];
+  for(const point of boundary){positions.push(point.x,height,point.z);uvs.push(point.x/58+.5,point.z/34+.5);}
+  for(let index=0;index<boundary.length;index++)indices.push(0,(index+1)%boundary.length+1,index+1);
+  const normals:number[]=[];VertexData.ComputeNormals(positions,indices,normals);
+  const data=new VertexData();data.positions=positions;data.indices=indices;data.normals=normals;data.uvs=uvs;
+  const mesh=new Mesh(name,scene);data.applyToMesh(mesh);mesh.material=groundMaterial;return mesh;
+}
+
 function buildUnifiedPvpArena() {
   scene.clearColor=new Color4(.11,.065,.12,1);
   scene.ambientColor=new Color3(.18,.13,.16);
@@ -235,9 +257,15 @@ function buildUnifiedPvpArena() {
   const metalMat=mat("pvp-dark-metal",new Color3(.16,.17,.2));
   const boneMat=mat("pvp-bone",new Color3(.72,.61,.43));
 
-  const canyonFloor=MeshBuilder.CreateGround("pvp-canyon-floor",{width:88,height:58,subdivisions:2},scene);canyonFloor.position.y=-.3;canyonFloor.material=rockMat;
-  const floor=MeshBuilder.CreateGround("lower-arena",{width:60,height:36,subdivisions:2},scene);floor.material=dirt;floor.receiveShadows=true;
-  const floorInset=MeshBuilder.CreateGround("lower-arena-inset",{width:55,height:31,subdivisions:2},scene);floorInset.position.y=.012;floorInset.material=darkDirt;
+  const canyonFloor=MeshBuilder.CreateGround("pvp-canyon-floor",{width:88,height:58,subdivisions:2},scene);canyonFloor.position.y=-.42;canyonFloor.material=rockMat;
+  const boundary=createPvpArenaBoundary();
+  const floor=createPvpArenaGround("lower-arena",boundary,0,dirt);floor.receiveShadows=true;
+  const floorInset=createPvpArenaGround("lower-arena-inset",createPvpArenaBoundary(27.8,15.8),.012,darkDirt);floorInset.receiveShadows=true;
+  for(let index=0;index<14;index++){
+    const side=index%2?-1:1;const lane=Math.floor(index/2);
+    const scar=MeshBuilder.CreateBox(`ground-scar-${index}`,{width:2.3+(index%3)*.7,depth:.09,height:.025},scene);
+    scar.position.set(side*(4.5+lane*2.7),.035,(index%4-1.5)*5.1);scar.rotation.y=(index%5-.8)*.31;scar.material=rockMat;scar.isPickable=false;
+  }
   const bridge=MeshBuilder.CreateBox("high-bridge",{width:36,depth:8,height:.75},scene);bridge.position.y=4.65;bridge.material=bridgeMat;
   for(let x=-16;x<=16;x+=4){const band=MeshBuilder.CreateBox(`bridge-band-${x}`,{width:.24,depth:8.3,height:.82},scene);band.position.set(x,4.66,0);band.material=metalMat;}
   for(const z of [-4.15,4.15]){const rim=MeshBuilder.CreateBox(`bridge-rim-${z}`,{width:36.5,depth:.22,height:.55},scene);rim.position.set(0,5.05,z);rim.material=metalMat;}
@@ -250,21 +278,27 @@ function buildUnifiedPvpArena() {
     for(let i=0;i<4;i++){const angle=i*Math.PI/2;const tusk=MeshBuilder.CreateCylinder(`pillar-tusk-${x}-${i}`,{diameterTop:0,diameterBottom:.34,height:1.55,tessellation:6},scene);tusk.position.set(x+Math.cos(angle)*1.55,4.85,Math.sin(angle)*1.55);tusk.rotation.z=Math.PI/2.7;tusk.rotation.y=-angle;tusk.material=boneMat;}
   }
 
-  // A broken, jagged silhouette outside the playable rectangle. These meshes
-  // are scenery only, so the arena edge stays readable without collision traps.
-  const spikeCount=40;
-  for(let i=0;i<spikeCount;i++){
-    const angle=i/spikeCount*Math.PI*2;
-    const radiusX=31.5+(i%4)*.65;
-    const radiusZ=19.1+(i%3)*.45;
-    const x=Math.cos(angle)*radiusX;
-    const z=Math.sin(angle)*radiusZ;
-    const rock=MeshBuilder.CreatePolyhedron(`rim-rock-${i}`,{type:i%2,size:1.25+(i%5)*.22},scene);
-    rock.position.set(x,.35,z);rock.scaling.y=1.2+(i%3)*.22;rock.rotation.y=angle;rock.material=i%4===0?rockHighlight:rockMat;
-    const height=3.2+(i%6)*.62;
-    const spike=MeshBuilder.CreateCylinder(`rim-spike-${i}`,{diameterTop:0,diameterBottom:.62+(i%3)*.13,height,tessellation:5},scene);
-    spike.position.set(x-Math.cos(angle)*.35,height/2-.1,z-Math.sin(angle)*.35);
-    spike.rotation.z=-Math.cos(angle)*.3;spike.rotation.x=Math.sin(angle)*.3;spike.material=i%5===0?boneMat:rockHighlight;
+  // The visible inner ledge uses the exact same forty-point contour as the
+  // authoritative server collision. Rocks and teeth sit beyond that line, so
+  // actors meet the visible rim instead of an invisible rectangle.
+  for(let i=0;i<boundary.length;i++){
+    const point=boundary[i];const next=boundary[(i+1)%boundary.length];
+    const dx=next.x-point.x;const dz=next.z-point.z;
+    const midpoint=new Vector3((point.x+next.x)/2,0,(point.z+next.z)/2);
+    const outward=midpoint.normalizeToNew();
+    const ledge=MeshBuilder.CreateBox(`rim-ledge-${i}`,{width:Math.hypot(dx,dz)+.28,depth:1.15,height:.58},scene);
+    ledge.position.set(midpoint.x+outward.x*.5,.05,midpoint.z+outward.z*.5);ledge.rotation.y=-Math.atan2(dz,dx);ledge.material=i%2?rockMat:rockHighlight;ledge.receiveShadows=true;
+    const rock=MeshBuilder.CreatePolyhedron(`rim-rock-${i}`,{type:i%2,size:1.15+(i%5)*.19},scene);
+    rock.position.set(point.x+outward.x*.62,.38,point.z+outward.z*.62);rock.scaling.y=1.15+(i%3)*.2;rock.rotation.y=Math.atan2(outward.x,outward.z);rock.material=i%4===0?rockHighlight:rockMat;
+    const height=3.1+(i%6)*.58;
+    const spike=MeshBuilder.CreateCylinder(`rim-spike-${i}`,{diameterTop:0,diameterBottom:.58+(i%3)*.12,height,tessellation:5},scene);
+    spike.position.set(point.x+outward.x*1.05,height/2-.05,point.z+outward.z*1.05);
+    spike.rotation.z=-outward.x*.34;spike.rotation.x=outward.z*.34;spike.rotation.y=Math.atan2(outward.x,outward.z);spike.material=i%5===0?boneMat:rockHighlight;
+    if(i%4===0){const ridge=MeshBuilder.CreatePolyhedron(`outer-ridge-${i}`,{type:(i/4)%2,size:1.65+(i%3)*.18},scene);ridge.position.set(point.x+outward.x*3.4,-.2,point.z+outward.z*3.4);ridge.scaling.set(1.2,1.35+(i%3)*.16,1.05);ridge.rotation.y=i*.73;ridge.material=rockMat;}
+  }
+
+  for(const [side,color] of [[-1,new Color3(.12,.38,.85)],[1,new Color3(.8,.12,.08)]] as const){
+    const spawnMark=MeshBuilder.CreateTorus(`spawn-mark-${side}`,{diameter:5.3,thickness:.14,tessellation:32},scene);spawnMark.position.set(side*25,.08,0);const spawnMat=mat(`spawn-mark-${side}-mat`,color);spawnMat.emissiveColor=color.scale(.45);spawnMark.material=spawnMat;
   }
 
   const flames:Array<{mesh:Mesh;phase:number}>=[];
