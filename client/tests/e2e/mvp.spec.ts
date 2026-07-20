@@ -83,6 +83,41 @@ test("lobby canvas renders sharply at device pixel resolution", async ({ browser
   }
 });
 
+test("every class preview has a detailed, recognisable shared model", async ({ page }) => {
+  test.setTimeout(90_000);
+  await page.goto("/");
+  await expect(page.getByTestId("lobby")).toBeVisible({ timeout: 15_000 });
+
+  const signatures: Record<string, string[]> = {
+    warrior: ["helmet-crest", "shoulder-fur", "shield", "sword"],
+    hunter: ["bow", "bow-string", "quiver", "cloak-pin"],
+    priest: ["halo", "sun-emblem", "book", "censer"],
+    mage: ["hat", "hat-brim", "staff-gem", "spellbook"],
+    rogue: ["shadow-hood", "mask", "poison-vial", "dagger--1", "dagger-1"],
+    druid: ["antler-tip--1", "antler-tip-1", "leaf-crown", "moon-sickle"],
+    shaman: ["shaman-skull", "shaman-focus", "lightning-rune", "shaman-feather-0"],
+    paladin: ["paladin-halo", "mace-head", "wing-guard--1", "wing-guard-1"],
+  };
+
+  for (const [classId, expectedParts] of Object.entries(signatures)) {
+    await page.getByTestId(`class-${classId}`).evaluate((button: HTMLButtonElement) => button.click());
+    await expect.poll(() => page.evaluate((classId) => {
+      const scene = (document.querySelector("#renderCanvas") as any).scene;
+      return scene.getTransformNodeByName(`preview-${classId}`)?.metadata?.classId;
+    }, classId)).toBe(classId);
+    const model = await page.evaluate(({ classId, expectedParts }) => {
+      const scene = (document.querySelector("#renderCanvas") as any).scene;
+      const root = scene.getTransformNodeByName(`preview-${classId}`);
+      const names = root.getChildMeshes().map((mesh: { name: string }) => mesh.name);
+      return {
+        source: root.metadata?.modelSource,
+        missing: expectedParts.filter((part) => !names.some((name: string) => name.endsWith(`-${part}`))),
+      };
+    }, { classId, expectedParts });
+    expect(model, `${classId} model signature`).toEqual({ source: "shared-class-model", missing: [] });
+  }
+});
+
 test("mobile lobby keeps class description, blessings, and actions separate", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/");
