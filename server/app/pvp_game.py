@@ -18,6 +18,10 @@ PVP_DAMAGE_MULTIPLIER = 0.8
 PREPARATION_SECONDS = 5.0
 RAMP_RUN = 6.0
 RAMP_OUTER_Z = 4.0 + RAMP_RUN
+PVP_ARENA_HALF_WIDTH = 29.0
+PVP_ARENA_HALF_DEPTH = 17.0
+PVP_ARENA_BOUNDARY_SEGMENTS = 40
+PVP_ARENA_NOTCH_SCALE = 0.98
 
 
 def load_json(name: str) -> Any:
@@ -412,8 +416,13 @@ class PvPGame:
         }
 
     def _resolve_arena_position_locked(self, player: PvPPlayer, dt: float, previous_x: float | None = None, previous_z: float | None = None) -> None:
-        player.x = max(-29, min(29, player.x))
-        player.z = max(-17, min(17, player.z))
+        if not self._is_inside_arena_boundary_locked(player.x, player.z):
+            player.x, player.z = self._closest_arena_boundary_point_locked(player.x, player.z)
+            # Keep the authoritative position just inside the visible rim. This
+            # avoids numerical edge cases without creating a meaningful
+            # invisible wall inside the playable arena.
+            player.x *= 0.998
+            player.z *= 0.998
         # Two lower-level pillars. They do not collide with actors already on the bridge.
         if player.y < 3.8:
             for px in (-8.0, 8.0):
@@ -436,6 +445,53 @@ class PvPGame:
             player.y = max(target_y, player.y - 14 * dt)
         else:
             player.y = target_y
+
+    @staticmethod
+    def _arena_boundary_points_locked(clearance: float = 0) -> list[tuple[float, float]]:
+        """Return the shared 40-point, notched Blade Gorge inner rim."""
+        half_width = max(0.1, PVP_ARENA_HALF_WIDTH - clearance)
+        half_depth = max(0.1, PVP_ARENA_HALF_DEPTH - clearance)
+        points: list[tuple[float, float]] = []
+        for index in range(PVP_ARENA_BOUNDARY_SEGMENTS):
+            angle = index / PVP_ARENA_BOUNDARY_SEGMENTS * math.tau
+            cos_angle, sin_angle = math.cos(angle), math.sin(angle)
+            x_scale = half_width / abs(cos_angle) if abs(cos_angle) > 1e-9 else math.inf
+            z_scale = half_depth / abs(sin_angle) if abs(sin_angle) > 1e-9 else math.inf
+            rim_scale = min(x_scale, z_scale)
+            notch_scale = PVP_ARENA_NOTCH_SCALE if index % 2 else 1.0
+            points.append((cos_angle * rim_scale * notch_scale, sin_angle * rim_scale * notch_scale))
+        return points
+
+    @classmethod
+    def _is_inside_arena_boundary_locked(cls, x: float, z: float, clearance: float = 0) -> bool:
+        points = cls._arena_boundary_points_locked(clearance)
+        inside = False
+        previous_x, previous_z = points[-1]
+        for current_x, current_z in points:
+            crosses_scanline = (current_z > z) != (previous_z > z)
+            if crosses_scanline:
+                intersection_x = (previous_x - current_x) * (z - current_z) / (previous_z - current_z) + current_x
+                if x < intersection_x:
+                    inside = not inside
+            previous_x, previous_z = current_x, current_z
+        return inside
+
+    @classmethod
+    def _closest_arena_boundary_point_locked(cls, x: float, z: float) -> tuple[float, float]:
+        points = cls._arena_boundary_points_locked()
+        closest = points[0]
+        closest_distance = math.inf
+        for start, end in zip(points, points[1:] + points[:1]):
+            start_x, start_z = start
+            segment_x, segment_z = end[0] - start_x, end[1] - start_z
+            segment_length_squared = segment_x * segment_x + segment_z * segment_z
+            projection = ((x - start_x) * segment_x + (z - start_z) * segment_z) / segment_length_squared
+            projection = max(0.0, min(1.0, projection))
+            candidate = (start_x + segment_x * projection, start_z + segment_z * projection)
+            distance = (x - candidate[0]) ** 2 + (z - candidate[1]) ** 2
+            if distance < closest_distance:
+                closest, closest_distance = candidate, distance
+        return closest
 
     @staticmethod
     def _surface_height_locked(x: float, z: float, current_y: float) -> float:
@@ -875,6 +931,10 @@ class PvPGame:
         return {
             "id": "blade_ridge", "name": "Blade Gorge",
             "bounds": {"minX": -29, "maxX": 29, "minZ": -17, "maxZ": 17},
+            "boundary": [
+                {"x": round(x, 3), "z": round(z, 3)}
+                for x, z in PvPGame._arena_boundary_points_locked()
+            ],
             "bridge": {"x": 0, "z": 0, "width": 36, "depth": 8, "height": 5},
             "pillars": [{"x": -8, "z": 0, "radius": 1.4}, {"x": 8, "z": 0, "radius": 1.4}],
             "ramps": [

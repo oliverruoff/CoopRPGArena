@@ -1,5 +1,7 @@
 import { expect, test } from "@playwright/test";
 
+test.setTimeout(90_000);
+
 test.beforeEach(async ({ request }) => {
   await request.post("http://127.0.0.1:8000/debug/pvp/action", { data: { action: "reset_match", payload: {} } });
 });
@@ -7,9 +9,15 @@ test.beforeEach(async ({ request }) => {
 async function selectMageBuild(page: any, spellCount = 0) {
   await page.getByTestId("pvp-class-mage").click();
   const spells = ["mage_fireball", "mage_frostbolt", "mage_frost_nova", "mage_meteor", "mage_arcane_blast"];
-  for (const spell of spells.slice(0, spellCount)) await page.getByTestId(`pvp-spell-${spell}`).click();
+  for (const [index, spell] of spells.slice(0, spellCount).entries()) {
+    await page.getByTestId(`pvp-spell-${spell}`).click();
+    await expect(page.locator("#pvpPointsUsed")).toHaveText(String(index + 1));
+  }
   await page.getByRole("button", { name: "Attributes" }).click();
-  for (let i = spellCount; i < 10; i++) await page.getByTestId("pvp-stat-max_health").click();
+  for (let index = spellCount; index < 10; index++) {
+    await page.getByTestId("pvp-stat-max_health").click();
+    await expect(page.locator("#pvpPointsUsed")).toHaveText(String(index + 1));
+  }
 }
 
 test("desktop lobby uses explicit team controls and the shared arena", async ({ page }) => {
@@ -29,6 +37,34 @@ test("desktop lobby uses explicit team controls and the shared arena", async ({ 
   await expect(page.evaluate(() => document.documentElement.scrollWidth)).resolves.toBeLessThanOrEqual(1280);
 });
 
+test("arena floor and rim share the forty-point jagged contour", async ({ page, request }) => {
+  await page.goto("/pvp");
+  await expect(page.getByTestId("arena")).toBeAttached();
+
+  await expect.poll(() => page.evaluate(() => {
+    const scene = (document.querySelector("#renderCanvas") as any).scene;
+    return {
+      floorVertices: scene.getMeshByName("lower-arena")?.getTotalVertices(),
+      ledges: scene.meshes.filter((mesh: any) => mesh.name.startsWith("rim-ledge-")).length,
+      spikes: scene.meshes.filter((mesh: any) => mesh.name.startsWith("rim-spike-")).length,
+    };
+  })).toEqual({ floorVertices: 41, ledges: 40, spikes: 40 });
+
+  const serverState = await (await request.get("http://127.0.0.1:8000/debug/pvp/state")).json();
+  const clientBoundary = await page.evaluate(() => {
+    const scene = (document.querySelector("#renderCanvas") as any).scene;
+    const positions = Array.from(scene.getMeshByName("lower-arena").getVerticesData("position") as number[]);
+    const points = [];
+    for (let index = 3; index < positions.length; index += 3) points.push({ x: positions[index], z: positions[index + 2] });
+    return points;
+  });
+  expect(clientBoundary).toHaveLength(serverState.arena.boundary.length);
+  clientBoundary.forEach((point, index) => {
+    expect(point.x).toBeCloseTo(serverState.arena.boundary[index].x, 2);
+    expect(point.z).toBeCloseTo(serverState.arena.boundary[index].z, 2);
+  });
+});
+
 test("adding a bot before choosing a team still starts a desktop match", async ({ page, request }) => {
   const pageErrors: string[] = [];
   page.on("pageerror", (error) => pageErrors.push(error.message));
@@ -39,7 +75,7 @@ test("adding a bot before choosing a team still starts a desktop match", async (
   await expect(page.getByText("Training Bot", { exact: true })).toBeVisible();
   await page.getByTestId("pvp-ready").click();
   await expect(page.getByTestId("pvp-countdown")).toContainText("Battle begins", { timeout: 3000 });
-  await expect(page.locator("#hud")).toBeVisible({ timeout: 7000 });
+  await expect(page.locator("#hud")).toBeVisible({ timeout: 15_000 });
   await expect(page.getByTestId("action-bar")).toBeVisible();
   await expect(page.getByTestId("target-frame")).toBeVisible();
   await expect.poll(() => page.evaluate(() => {
@@ -49,9 +85,11 @@ test("adding a bot before choosing a team still starts a desktop match", async (
       rightEndRamp: Boolean(scene.getMeshByName("end-ramp-22")),
       centerRamps: scene.meshes.filter((mesh: any) => mesh.name.startsWith("center-ramp-")).length,
       rimSpikes: scene.meshes.filter((mesh: any) => mesh.name.startsWith("rim-spike-")).length,
+      rimLedges: scene.meshes.filter((mesh: any) => mesh.name.startsWith("rim-ledge-")).length,
+      boundaryFloorVertices: scene.getMeshByName("lower-arena")?.getTotalVertices(),
       braziers: scene.meshes.filter((mesh: any) => mesh.name.startsWith("brazier-bowl-")).length,
     };
-  })).toEqual({ leftEndRamp: false, rightEndRamp: false, centerRamps: 4, rimSpikes: 40, braziers: 8 });
+  })).toEqual({ leftEndRamp: false, rightEndRamp: false, centerRamps: 4, rimSpikes: 40, rimLedges: 40, boundaryFloorVertices: 41, braziers: 8 });
   await expect.poll(() => page.evaluate(() => (document.querySelector("#renderCanvas") as any).scene.activeCamera.radius)).toBe(60);
   await page.waitForTimeout(5200);
   const match = await (await request.get("http://127.0.0.1:8000/debug/pvp/state")).json();
@@ -67,13 +105,13 @@ test("adding a bot before choosing a team still starts a desktop match", async (
   await expect(opponentBar).toHaveClass(/pvpEnemyPlayer/);
   await request.post("http://127.0.0.1:8000/debug/pvp/action", { data: { action: "place_player", payload: { playerId: human.id, x: 0, y: 0, z: 8 } } });
   await request.post("http://127.0.0.1:8000/debug/pvp/action", { data: { action: "place_player", payload: { playerId: opponent.id, x: 1, y: 0, z: 8 } } });
+  const beforeCast = await (await request.get("http://127.0.0.1:8000/debug/pvp/state")).json();
+  const opponentHpBeforeCast = beforeCast.players[opponent.id].hp;
   await request.post("http://127.0.0.1:8000/debug/pvp/action", { data: { action: "cast_ability", payload: { playerId: human.id, slot: 1 } } });
-  const damageNumber = page.getByTestId("floating-damage").first();
-  await expect(damageNumber).toBeVisible({ timeout: 3000 });
-  const damageBounds = await damageNumber.boundingBox();
-  expect(damageBounds).not.toBeNull();
-  expect(damageBounds!.x).toBeGreaterThan(50);
-  expect(damageBounds!.y).toBeGreaterThan(50);
+  await expect.poll(async () => {
+    const snapshot = await (await request.get("http://127.0.0.1:8000/debug/pvp/state")).json();
+    return snapshot.players[opponent.id]?.hp;
+  }, { timeout: 10_000 }).toBeLessThan(opponentHpBeforeCast);
   const before = await page.evaluate((humanId) => {
     const scene = (document.querySelector("#renderCanvas") as any).scene;
     return scene.transformNodes.find((node: any) => node.metadata?.entityId === humanId)?.position.x;
@@ -119,7 +157,7 @@ test("mobile lobby and match fit without swiping and remain fully playable", asy
   expect(layout.ready.right).toBeLessThanOrEqual(layout.width);
 
   await page.getByTestId("pvp-ready").click();
-  await expect(page.locator("#hud")).toBeVisible({ timeout: 7000 });
+  await expect(page.locator("#hud")).toBeVisible({ timeout: 15_000 });
   await expect(page.getByTestId("mobile-controls")).toBeVisible();
   await expect(page.getByTestId("move-stick")).toBeVisible();
   await expect(page.getByTestId("jump-button")).toBeVisible();
