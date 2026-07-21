@@ -80,6 +80,147 @@ def test_every_class_has_a_resource_cost_baseline():
     assert all(class_data["baseStats"]["resourceCostMultiplier"] == 1 for class_data in game.classes.values())
 
 
+def test_later_waves_introduce_distinct_enemy_specialists():
+    game = Game()
+    enemy_types = set(game.enemies_data)
+    wave_types = {
+        enemy_type
+        for wave in game.waves_data
+        for enemy_type in wave["composition"]
+        if enemy_type != "boss"
+    }
+
+    assert {"sorcerer", "cultist", "pyromancer"} <= enemy_types
+    assert enemy_types <= wave_types
+    assert len({enemy["role"] for enemy in game.enemies_data.values()}) == len(enemy_types)
+
+
+def test_sorcerer_special_is_a_visible_cast_in_enemy_snapshot():
+    game = Game()
+    player = Player(id="target", name="Target", hp=100, stats={"armor": 0, "resistance": 0, "maxHealth": 100})
+    game.players[player.id] = player
+    game.wave["number"] = 5
+    enemy = game.spawn_enemy_locked("sorcerer", {"x": 2, "z": 0})
+    enemy.special_attack_at = 1
+
+    game._tick_enemy_special_locked(enemy, 2)
+
+    assert enemy.casting is not None
+    assert enemy.casting["abilityId"] == "enemy_small_meteor"
+    snapshot = game._enemy_dict(enemy)
+    assert snapshot["casting"]["abilityId"] == "enemy_small_meteor"
+    assert snapshot["casting"]["duration"] > 0
+
+
+def test_cultist_cast_applies_a_ticking_dot_to_its_target():
+    game = Game()
+    player = Player(id="target", name="Target", hp=100, stats={"armor": 0, "resistance": 0, "maxHealth": 100})
+    game.players[player.id] = player
+    game.wave["number"] = 7
+    enemy = game.spawn_enemy_locked("cultist", {"x": 2, "z": 0})
+    enemy.special_attack_at = 1
+
+    game._tick_enemy_special_locked(enemy, 2)
+    assert enemy.casting is not None
+    casting = enemy.casting
+    enemy.casting = None
+    game._finish_enemy_cast_locked(enemy, casting, casting["endAt"])
+
+    assert player.dots
+    assert player.dots[0]["abilityId"] == "enemy_withering_curse"
+    hp_before_tick = player.hp
+    game._tick_player_dots_locked(player, player.dots[0]["nextTick"])
+    assert player.hp < hp_before_tick
+
+
+def test_enemy_cast_prevents_same_tick_auto_attack_and_is_cancelled_by_stun():
+    game = Game()
+    player = Player(id="target", name="Target", hp=100, stats={"armor": 0, "resistance": 0, "maxHealth": 100})
+    game.players[player.id] = player
+    game.wave["number"] = 6
+    enemy = game.spawn_enemy_locked("cultist", {"x": 1, "z": 0})
+    enemy.special_attack_at = 1
+    enemy.attack_at = 0
+
+    game._tick_enemies_locked(2, 0.1)
+
+    assert enemy.casting is not None
+    assert player.hp == 100
+    enemy.stun_until = 4
+    game._tick_enemies_locked(3, 0.1)
+    assert enemy.casting is None
+    assert not player.dots
+
+
+def test_enemy_killed_by_dot_cannot_finish_a_pending_cast():
+    game = Game()
+    player = Player(id="target", name="Target", hp=100, stats={"armor": 0, "resistance": 0, "maxHealth": 100})
+    source = Player(id="source", name="Source", hp=100, stats={"critChance": 0, "critMultiplier": 1, "maxResource": 100})
+    game.players = {player.id: player, source.id: source}
+    game.wave["number"] = 6
+    enemy = game.spawn_enemy_locked("cultist", {"x": 1, "z": 0})
+    enemy.hp = 1
+    enemy.dots.append({"sourceId": source.id, "abilityId": "test_dot", "amount": 10, "school": "fire", "nextTick": 1, "endAt": 10, "tickInterval": 1, "threatMultiplier": 1})
+    enemy.casting = {"abilityId": "enemy_withering_curse", "targetId": player.id, "startAt": 0, "endAt": 1, "duration": 1}
+
+    game._tick_enemies_locked(2, 0.1)
+
+    assert enemy.id not in game.enemies
+    assert not player.dots
+
+
+def test_enemy_dot_death_counts_once_and_does_not_survive_wave_revival():
+    game = Game()
+    player = Player(id="target", name="Target", hp=3, stats={"resistance": 0, "maxHealth": 100})
+    game.players[player.id] = player
+    player.dots.append({"sourceId": "enemy", "abilityId": "enemy_withering_curse", "amount": 5, "school": "shadow", "nextTick": 1, "endAt": 10, "tickInterval": 1})
+    player.active_effects.append({"id": "curse", "sourceId": "enemy", "abilityId": "enemy_withering_curse", "kind": "debuff", "startAt": 0, "endAt": 10, "duration": 10, "permanent": False, "stacks": 1})
+
+    game._tick_player_dots_locked(player, 2)
+
+    assert player.dead
+    assert player.deaths == 1
+    assert not player.dots
+    assert not player.active_effects
+    game._start_wave_locked(2)
+    assert not player.dead
+    assert not player.dots
+
+
+def test_lethal_enemy_dot_stops_remaining_player_actions_in_same_tick():
+    game = Game()
+    player = Player(
+        id="target",
+        name="Target",
+        hp=3,
+        stats={
+            "resistance": 0,
+            "maxHealth": 100,
+            "maxResource": 100,
+            "resourceRegen": 0,
+            "moveSpeed": 5,
+            "autoAttackRange": 2,
+            "autoAttackDamage": 10,
+            "autoAttackInterval": 1,
+            "attackPower": 0,
+            "spellPower": 0,
+            "critChance": 0,
+            "critMultiplier": 1,
+        },
+    )
+    game.players[player.id] = player
+    enemy = game.spawn_enemy_locked("goblin", {"x": 1, "z": 0})
+    player.target_id = enemy.id
+    player.auto_attack_at = 0
+    player.dots.append({"sourceId": enemy.id, "abilityId": "enemy_withering_curse", "amount": 5, "school": "shadow", "nextTick": 1, "endAt": 10, "tickInterval": 1})
+    enemy_hp = enemy.hp
+
+    game._tick_players_locked(2, 0.1)
+
+    assert player.dead
+    assert enemy.hp == enemy_hp
+
+
 def test_druid_forms_toggle_back_to_humanoid_and_can_switch_directly():
     game = Game()
     player = Player(id="druid", name="Druid", class_id="druid")
@@ -1345,6 +1486,10 @@ async def _sorcerer_unlocks_telegraphed_meteor_from_wave_five():
         enemy = game.spawn_enemy_locked("sorcerer", {"x": 5, "z": 0})
         enemy.special_attack_at = 0.5
         game._tick_enemy_special_locked(enemy, 1)
+        assert enemy.casting is not None
+        casting = enemy.casting
+        enemy.casting = None
+        game._finish_enemy_cast_locked(enemy, casting, casting["endAt"])
         meteor = next(effect for effect in game.ground_effects if effect["type"] == "enemy_meteor")
         target = game.players[player.id]
         target.x, target.z = meteor["x"], meteor["z"]

@@ -2,20 +2,61 @@ import { expect, test } from "@playwright/test";
 
 async function startMage(page: import("@playwright/test").Page) {
   await page.goto("/");
-  await expect(page.getByTestId("lobby")).toBeVisible();
-  await page.getByTestId("class-mage").click();
-  await expect(page.getByTestId("class-preview-info")).toContainText("Mage");
-  await expect(page.getByTestId("class-preview-info")).toContainText("burns enemies over time");
+  await expect(page.locator("#lobby")).toBeVisible();
+  await page.locator('[data-class="mage"]').evaluate((button: HTMLButtonElement) => button.click());
+  await expect(page.locator("#classPreviewInfo")).toContainText("Mage");
+  await expect(page.locator("#classPreviewInfo")).toContainText("burns enemies over time");
   for (let i = 0; i < 3; i++) {
-    await page.getByTestId("lobby-upgrade-max_health").click();
+    await page.locator('[data-lobby-upgrade="max_health"]').evaluate((button: HTMLButtonElement) => button.click());
+    await expect.poll(() => page.locator("#lobbyUpgradePoints").textContent()).toBe(String(2 - i));
   }
-  await expect(page.getByTestId("lobby-upgrade-points")).toContainText("0");
-  await page.getByTestId("ready-button").click();
-  await expect(page.getByTestId("wave-counter")).toContainText("Wave 1", { timeout: 14000 });
+  await page.evaluate(() => document.querySelector("#ready")!.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+  await expect(page.locator("#wave")).toContainText("Wave 1", { timeout: 14000 });
 }
 
 test.beforeEach(async ({ request }) => {
   await request.post("http://127.0.0.1:8000/debug/action", { data: { action: "reset_match", payload: {} } });
+});
+
+test("enemy spells show a purple overhead cast bar without requiring a target", async ({ page, request }) => {
+  test.setTimeout(90_000);
+  await startMage(page);
+  const before = await (await request.get("http://127.0.0.1:8000/debug/state")).json();
+  const playerId = Object.keys(before.players)[0];
+  await request.post("http://127.0.0.1:8000/debug/action", {
+    data: { action: "set_player_hp", payload: { playerId, hp: 10_000 } },
+  });
+  const forceWave = await request.post("http://127.0.0.1:8000/debug/action", {
+    data: { action: "force_wave_start", payload: { waveNumber: 5 } },
+  });
+  expect(forceWave.ok()).toBe(true);
+  await expect.poll(async () => {
+    const response = await request.get("http://127.0.0.1:8000/debug/state");
+    return (await response.json()).wave.number;
+  }).toBe(5);
+  await expect.poll(async () => {
+    const response = await request.get("http://127.0.0.1:8000/debug/state");
+    const current = await response.json();
+    return Object.values<any>(current.enemies).some((enemy) => enemy.casting);
+  }, { timeout: 10_000 }).toBe(true);
+
+  const castBar = page.locator('[data-testid="enemy-cast-bar"]:visible').first();
+  await expect(castBar).toBeVisible({ timeout: 10_000 });
+  const castText = await castBar.textContent();
+  expect(castText).toMatch(/Meteor|Withering Curse|Flame Burst/);
+  const castFillRule = await page.evaluate(() => {
+    for (const sheet of Array.from(document.styleSheets)) {
+      try {
+        for (const rule of Array.from(sheet.cssRules)) {
+          if (rule instanceof CSSStyleRule && rule.selectorText === ".enemyCastFill") return rule.cssText;
+        }
+      } catch {
+        // Ignore cross-origin stylesheets; the game stylesheet is same-origin.
+      }
+    }
+    return "";
+  });
+  expect(castFillRule).toMatch(/#a855f7|rgb\(168, 85, 247\)/i);
 });
 
 test("lobby live stats update when blessings are chosen", async ({ page }) => {
