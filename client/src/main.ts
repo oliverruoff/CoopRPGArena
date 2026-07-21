@@ -9,7 +9,7 @@ type CastState = { abilityId: string; targetId: string | null; duration: number;
 type AutoAttackState = { remaining: number; interval: number; progress: number };
 type ActiveEffect = { id: string; abilityId: string; sourceId: string; kind: "buff" | "debuff"; duration: number | null; remaining: number | null; permanent: boolean; stacks: number };
 type PlayerState = { id: string; name: string; classId: string | null; ready: boolean; spectator?: boolean; hp: number; maxHealth: number; resource: number; maxResource: number; resourceType: string | null; level: number; xp: number; dead: boolean; targetId: string | null; allyTargetId: string | null; position: Vec; facing: number; jumping: boolean; jumpProgress: number; abilities: string[]; abilitySlots?: Record<string, number>; cooldowns: Record<string, number>; globalCooldown: number; autoAttack: AutoAttackState; pendingUpgrades: Upgrade[]; stats: Record<string, number>; baseStats?: Record<string, number>; shield?: number; shieldRemaining?: number; casting: CastState | null; stealthed?: boolean; stealthRemaining?: number; iceBlocked?: boolean; sprinting?: boolean; activeBuffs?: Array<{ abilityId: string; remaining: number }>; activeEffects?: ActiveEffect[]; form?: string | null; lobbyUpgradePoints?: number; lobbyUpgrades?: Upgrade[] };
-type EnemyState = { id: string; type: string; name: string; hp: number; maxHealth: number; position: Vec; boss: boolean; alerted?: boolean; facing?: number; activeEffects?: ActiveEffect[] };
+type EnemyState = { id: string; type: string; name: string; hp: number; maxHealth: number; position: Vec; boss: boolean; alerted?: boolean; facing?: number; activeEffects?: ActiveEffect[]; casting?: CastState | null };
 type MapObject = { id: string; type: string; x: number; z: number; radius?: number; width?: number; depth?: number; blocksSight?: boolean; variant?: number; rotation?: number };
 type GroundEffect = { id: string; type: string; sourceId?: string; abilityId?: string; x: number; z: number; radius: number; remaining?: number; totemType?: string };
 type Upgrade = { id: string; name: string; choiceType?: string; abilityId?: string; description?: string; stat?: string; mode?: string; value?: number };
@@ -39,6 +39,11 @@ const classPresentation: Record<string, { role: string; fantasy: string; glyph: 
   druid: { role: "Shapeshifter", fantasy: "Adapt and overcome", glyph: "D", color: "#f28a31", profile: [78, 64, 72, 72] },
   shaman: { role: "Elemental Support", fantasy: "Call the storm", glyph: "S", color: "#438cef", profile: [58, 76, 78, 54] },
   paladin: { role: "Holy Bruiser", fantasy: "Stand in the light", glyph: "P", color: "#ee80b5", profile: [88, 68, 74, 36] }
+};
+const enemyAbilityNames: Record<string, string> = {
+  enemy_small_meteor: "Meteor",
+  enemy_withering_curse: "Withering Curse",
+  enemy_flame_burst: "Flame Burst",
 };
 const SNAPSHOT_INTERVAL_MS = 1000 / 15;
 const JUMP_DURATION_SECONDS = 0.36;
@@ -3781,7 +3786,7 @@ function createEnemy(e: EnemyState) {
   const root = new TransformNode(e.id, scene);
   root.metadata = { entityId: e.id };
   const color = enemyColor(e.type, e.boss);
-  const size = e.boss ? 2.2 : e.type === "brute" ? 1.4 : e.type === "archer" ? 1.08 : 0.9;
+  const size = e.boss ? 2.2 : e.type === "brute" ? 1.4 : e.type === "pyromancer" ? 1.12 : e.type === "archer" ? 1.08 : 0.9;
   addContactShadow(root, `${e.id}-contact-shadow`, size * 1.7, e.boss ? 0.24 : 0.2, 0.82);
   const body = box(`${e.id}-body`, { width: size, height: size, depth: size }, color); body.parent = root; body.position.y = size / 2; body.metadata = { entityId: e.id, baseY: body.position.y };
   const head = box(`${e.id}-head`, { width: size * 0.72, height: size * 0.46, depth: size * 0.62 }, color.scale(1.12)); head.parent = root; head.position.y = size * 1.12; head.metadata = { entityId: e.id, baseY: head.position.y };
@@ -3915,6 +3920,15 @@ function addEnemyDetails(root: TransformNode, e: EnemyState, size: number, color
     const staff = box(`${e.id}-sorcerer-staff`, { width: size * 0.08, height: size * 1.45, depth: size * 0.08 }, new Color3(0.24, 0.12, 0.05)); staff.parent = root; staff.position.set(size * 0.62, size * 0.72, 0); staff.rotation.z = -0.2;
     const orb = MeshBuilder.CreateSphere(`${e.id}-orb`, { diameter: size * 0.24, segments: 8 }, scene); orb.parent = root; orb.position.set(size * 0.48, size * 1.45, 0); const orbMat = mat(`${e.id}-orb-mat`, new Color3(0.72, 0.2, 1)); orbMat.emissiveColor = new Color3(0.42, 0.05, 0.72); orb.material = orbMat;
     const charms = box(`${e.id}-charms`, { width: size * 0.52, height: size * 0.08, depth: size * 0.1 }, new Color3(0.94, 0.72, 0.24)); charms.parent = root; charms.position.set(0, size * 0.88, -size * 0.52);
+  } else if (e.type === "cultist") {
+    const hood = MeshBuilder.CreateCylinder(`${e.id}-plague-hood`, { diameterTop: size * 0.18, diameterBottom: size * 0.88, height: size * 0.72, tessellation: 7 }, scene); hood.parent = root; hood.position.y = size * 1.35; hood.material = mat(`${e.id}-plague-hood-mat`, new Color3(0.05, 0.18, 0.08));
+    const censer = MeshBuilder.CreateSphere(`${e.id}-plague-censer`, { diameter: size * 0.32, segments: 7 }, scene); censer.parent = root; censer.position.set(size * 0.62, size * 0.46, -size * 0.18); const censerMat = mat(`${e.id}-plague-censer-mat`, new Color3(0.22, 0.8, 0.28)); censerMat.emissiveColor = new Color3(0.08, 0.48, 0.1); censer.material = censerMat;
+    const chain = box(`${e.id}-plague-chain`, { width: size * 0.045, height: size * 0.72, depth: size * 0.045 }, new Color3(0.48, 0.5, 0.4)); chain.parent = root; chain.position.set(size * 0.62, size * 0.84, -size * 0.18);
+  } else if (e.type === "pyromancer") {
+    const crown = MeshBuilder.CreateCylinder(`${e.id}-flame-crown`, { diameterTop: 0, diameterBottom: size * 0.72, height: size * 0.82, tessellation: 6 }, scene); crown.parent = root; crown.position.y = size * 1.64; crown.material = mat(`${e.id}-flame-crown-mat`, new Color3(1, 0.25, 0.03)); (crown.material as StandardMaterial).emissiveColor = new Color3(0.7, 0.08, 0.01);
+    for (const side of [-1, 1]) {
+      const flame = MeshBuilder.CreateSphere(`${e.id}-hand-flame-${side}`, { diameter: size * 0.28, segments: 8 }, scene); flame.parent = root; flame.position.set(side * size * 0.72, size * 0.82, -size * 0.18); const flameMat = mat(`${e.id}-hand-flame-${side}-mat`, new Color3(1, 0.42, 0.04)); flameMat.emissiveColor = new Color3(0.9, 0.15, 0.01); flame.material = flameMat;
+    }
   } else if (e.type === "brute") {
     const leftFist = box(`${e.id}-left-fist`, { width: size * 0.32, height: size * 0.32, depth: size * 0.36 }, color.scale(0.82)); leftFist.parent = root; leftFist.position.set(-size * 0.72, size * 0.42, 0);
     const rightFist = box(`${e.id}-right-fist`, { width: size * 0.32, height: size * 0.32, depth: size * 0.36 }, color.scale(0.82)); rightFist.parent = root; rightFist.position.set(size * 0.72, size * 0.42, 0);
@@ -3964,7 +3978,7 @@ function updateOverheadUi() {
   for (const enemy of Object.values(state.enemies)) {
     const targeted = state.players[state.you]?.targetId === enemy.id;
     const damaged = enemy.hp < enemy.maxHealth;
-    if (!damaged && !targeted) {
+    if (!damaged && !targeted && !enemy.casting) {
       removeEnemyBar(enemy.id);
       continue;
     }
@@ -3998,6 +4012,22 @@ function updateActorHealthBar(actor: EnemyState | PlayerState, node: TransformNo
     element.classList.toggle("targetedEnemy", targeted);
     element.classList.toggle("pvpEnemyPlayer", isPvpMode && Boolean(state?.players[actor.id]));
     element.querySelector<HTMLElement>(".enemyHpName")!.textContent = targeted ? `▼ TARGET: ${actor.name}` : actor.name;
+    const casting = "casting" in actor ? actor.casting || null : null;
+    element.classList.toggle("castingOnly", Boolean(casting && !targeted && currentPercent >= 100));
+    const cast = element.querySelector<HTMLElement>(".enemyCastBar")!;
+    const visual = updateSmoothCastBar({
+      container: cast,
+      fill: element.querySelector<HTMLElement>(".enemyCastFill")!,
+      label: element.querySelector<HTMLElement>(".enemyCastName")!,
+      casting,
+      snapshotReceivedAt,
+      previousProgress: Number(cast.dataset.progress || 0),
+      previousAbilityId: cast.dataset.abilityId || "",
+      abilityName: casting ? enemyAbilityNames[casting.abilityId] || "Casting" : "",
+      visibleDisplay: "block",
+    });
+    cast.dataset.progress = String(visual.progress);
+    cast.dataset.abilityId = visual.abilityId;
     element.dataset.live = "true";
 }
 
@@ -4006,7 +4036,7 @@ function createEnemyBar(enemy: EnemyState | PlayerState) {
   element.className = "enemyHpBar";
   element.dataset.testid = "enemy-hp-bar";
   element.dataset.enemyId = enemy.id;
-  element.innerHTML = `<div class="enemyHpName"></div><div class="enemyHpTrack"><span class="enemyHpLoss"></span><span class="enemyHpFill"></span></div>`;
+  element.innerHTML = `<div class="enemyHpName"></div><div class="enemyCastBar" data-testid="enemy-cast-bar"><span class="enemyCastFill"></span><b class="enemyCastName"></b></div><div class="enemyHpTrack"><span class="enemyHpLoss"></span><span class="enemyHpFill"></span></div>`;
   element.dataset.hpPercent = `${Math.max(0, enemy.hp / enemy.maxHealth) * 100}`;
   document.querySelector("#overhead")!.appendChild(element);
   enemyBars.set(enemy.id, element);
@@ -5864,6 +5894,8 @@ function enemyColor(type: string, boss: boolean) {
   if (type === "archer") return new Color3(0.12, 0.28, 0.14);
   if (type === "sorcerer") return new Color3(0.42, 0.12, 0.62);
   if (type === "brute") return new Color3(0.43, 0.25, 0.16);
+  if (type === "cultist") return new Color3(0.16, 0.42, 0.22);
+  if (type === "pyromancer") return new Color3(0.72, 0.16, 0.05);
   return new Color3(0.25, 0.25, 0.25);
 }
 

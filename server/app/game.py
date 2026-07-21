@@ -65,6 +65,7 @@ class Player:
     shield: float = 0
     shield_until: float = 0
     hots: list[dict[str, Any]] = field(default_factory=list)
+    dots: list[dict[str, Any]] = field(default_factory=list)
     auras: list[dict[str, Any]] = field(default_factory=list)
     auto_attack_haste_until: float = 0
     auto_attack_haste_multiplier: float = 1
@@ -113,6 +114,7 @@ class Enemy:
     wander_x: float = 0
     wander_z: float = 0
     special_attack_at: float = 0
+    casting: dict[str, Any] | None = None
 
 
 class Game:
@@ -339,6 +341,7 @@ class Game:
             player.shield = 0
             player.shield_until = 0
             player.hots = []
+            player.dots = []
             player.auras = []
             player.auto_attack_haste_until = 0
             player.auto_attack_haste_multiplier = 1
@@ -468,6 +471,7 @@ class Game:
             player.shield = 0
             player.shield_until = 0
             player.hots = []
+            player.dots = []
             player.auras = []
             player.auto_attack_haste_until = 0
             player.auto_attack_haste_multiplier = 1
@@ -495,6 +499,7 @@ class Game:
             if player.dead:
                 player.dead = False
                 player.hp = player.stats.get("maxHealth", 100) * 0.6
+                self._clear_player_dots_locked(player)
         if boss_wave:
             self.spawn_enemy_locked("arena_overlord")
         else:
@@ -583,6 +588,9 @@ class Game:
                 continue
             self._tick_stat_buffs_locked(player, now)
             self._tick_hots_locked(player, now)
+            self._tick_player_dots_locked(player, now)
+            if player.dead:
+                continue
             self._tick_player_auras_locked(player, now)
             if player.shield_until and now >= player.shield_until:
                 player.shield = 0
@@ -634,19 +642,32 @@ class Game:
     def _tick_enemies_locked(self, now: float, dt: float) -> None:
         for enemy in list(self.enemies.values()):
             self._tick_dots_locked(enemy, now)
+            if enemy.id not in self.enemies:
+                continue
             if now < enemy.stun_until:
+                if enemy.casting:
+                    self._emit_locked({"type": "cast_cancelled", "sourceId": enemy.id, "abilityId": enemy.casting.get("abilityId")})
+                    enemy.casting = None
+                continue
+            if enemy.casting:
+                if now >= enemy.casting["endAt"]:
+                    casting = enemy.casting
+                    enemy.casting = None
+                    self._finish_enemy_cast_locked(enemy, casting, now)
                 continue
             if enemy.boss:
                 self._tick_boss_special_locked(enemy, now)
             else:
                 self._tick_enemy_special_locked(enemy, now)
+            if enemy.casting:
+                continue
             target = self._enemy_target_locked(enemy, now)
             if not target:
                 self._wander_enemy_locked(enemy, now, dt)
                 continue
             enemy.target_id = target.id
             dist = self._distance(enemy, target)
-            is_ranged = enemy.type in ("archer", "sorcerer")
+            is_ranged = enemy.type in ("archer", "sorcerer", "cultist", "pyromancer")
             sight_blocked = is_ranged and self._line_of_sight_blocked_locked(enemy.x, enemy.z, target.x, target.z)
             if dist > enemy.attack_range or sight_blocked:
                 speed = enemy.move_speed * (1 - enemy.slow_percent if now < enemy.slow_until else 1)
@@ -658,7 +679,7 @@ class Game:
                 enemy.z += dz * speed * dt
                 self._push_out_of_map_objects_locked(enemy)
             elif now >= enemy.attack_at:
-                mitigation_stat = "resistance" if enemy.type == "sorcerer" else "armor"
+                mitigation_stat = "resistance" if enemy.type in ("sorcerer", "cultist", "pyromancer") else "armor"
                 damage = self._mitigate(enemy.damage, target.stats.get(mitigation_stat, 0))
                 damage = self._damage_player_locked(target, damage)
                 if target.target_id is None and target.ally_target_id is None:
@@ -675,9 +696,9 @@ class Game:
                 elif target.casting:
                     target.casting["endAt"] += 0.18
                 enemy.attack_at = now + enemy.attack_interval
-                if enemy.type in ("archer", "sorcerer"):
+                if enemy.type in ("archer", "sorcerer", "cultist", "pyromancer"):
                     self._emit_locked({"type": "auto_attack", "sourceId": enemy.id, "targetId": target.id})
-                school = "arcane" if enemy.type == "sorcerer" else "physical"
+                school = {"sorcerer": "arcane", "cultist": "shadow", "pyromancer": "fire"}.get(enemy.type, "physical")
                 self._emit_locked({"type": "damage", "sourceId": enemy.id, "targetId": target.id, "amount": round(damage, 1), "school": school})
 
     def _tick_boss_special_locked(self, enemy: Enemy, now: float) -> None:
@@ -715,7 +736,7 @@ class Game:
         self._emit_locked({"type": "status", "sourceId": enemy.id, "targetId": enemy.id, "abilityId": "boss_triple_meteor", "status": "meteor_warning", "duration": BOSS_METEOR_WARNING_SECONDS})
 
     def _tick_enemy_special_locked(self, enemy: Enemy, now: float) -> None:
-        if not enemy.special_attack_at or now < enemy.special_attack_at:
+        if enemy.casting or not enemy.special_attack_at or now < enemy.special_attack_at:
             return
         living = [p for p in self.players.values() if self._is_present_locked(p) and not p.dead]
         if not living:
@@ -723,8 +744,14 @@ class Game:
         wave_number = self.wave["number"]
         target = min(living, key=lambda p: self._distance(enemy, p))
         if enemy.type == "sorcerer" and wave_number >= 5:
-            self._add_enemy_warning_locked(enemy, target.x, target.z, "enemy_meteor", "enemy_small_meteor", 2.35, enemy.damage * 1.45, "fire", now + ENEMY_METEOR_WARNING_SECONDS)
+            self._start_enemy_cast_locked(enemy, target, "enemy_small_meteor", 3.0, now)
             cooldown = 8.5
+        elif enemy.type == "cultist" and wave_number >= 6:
+            self._start_enemy_cast_locked(enemy, target, "enemy_withering_curse", 1.8, now)
+            cooldown = 9.0
+        elif enemy.type == "pyromancer" and wave_number >= 8:
+            self._start_enemy_cast_locked(enemy, target, "enemy_flame_burst", 2.1, now)
+            cooldown = 10.0
         elif enemy.type in ("runner", "brute") and wave_number >= 7 and self._distance(enemy, target) >= 3:
             self._add_enemy_warning_locked(enemy, target.x, target.z, "enemy_charge", "enemy_charge", 2.15, enemy.damage * 1.3, "physical", now + ENEMY_CHARGE_WARNING_SECONDS)
             cooldown = 7.0 if enemy.type == "runner" else 9.0
@@ -732,6 +759,70 @@ class Game:
             enemy.special_attack_at = now + 2.0
             return
         enemy.special_attack_at = now + cooldown * max(0.62, 1 - max(0, wave_number - 10) * 0.018)
+
+    def _start_enemy_cast_locked(self, enemy: Enemy, target: Player, ability_id: str, duration: float, now: float) -> None:
+        enemy.target_id = target.id
+        enemy.facing = math.atan2(target.x - enemy.x, target.z - enemy.z)
+        enemy.casting = {
+            "abilityId": ability_id,
+            "targetId": target.id,
+            "startAt": now,
+            "endAt": now + duration,
+            "duration": duration,
+        }
+        self._emit_locked({"type": "cast", "sourceId": enemy.id, "targetId": target.id, "abilityId": ability_id, "castTime": duration})
+
+    def _finish_enemy_cast_locked(self, enemy: Enemy, casting: dict[str, Any], now: float) -> None:
+        target = self.players.get(casting.get("targetId") or "")
+        if not target or target.dead or not self._is_present_locked(target):
+            return
+        ability_id = casting["abilityId"]
+        if ability_id == "enemy_small_meteor":
+            self._add_enemy_warning_locked(enemy, target.x, target.z, "enemy_meteor", ability_id, 2.35, enemy.damage * 1.45, "fire", now + ENEMY_METEOR_WARNING_SECONDS)
+        elif ability_id == "enemy_withering_curse":
+            duration = 6.0
+            tick_interval = 1.5
+            target.dots = [dot for dot in target.dots if dot.get("abilityId") != ability_id]
+            target.dots.append({
+                "sourceId": enemy.id,
+                "abilityId": ability_id,
+                "amount": enemy.damage * 0.7,
+                "school": "shadow",
+                "nextTick": now + tick_interval,
+                "endAt": now + duration,
+                "tickInterval": tick_interval,
+            })
+            self._upsert_active_effect_locked(target, enemy.id, ability_id, "debuff", duration, now)
+            self._emit_locked({"type": "status", "sourceId": enemy.id, "targetId": target.id, "abilityId": ability_id, "status": "cursed", "duration": duration})
+        elif ability_id == "enemy_flame_burst":
+            self._add_enemy_warning_locked(enemy, target.x, target.z, "enemy_meteor", ability_id, 2.8, enemy.damage * 1.7, "fire", now + 0.45)
+
+    def _tick_player_dots_locked(self, player: Player, now: float) -> None:
+        for dot in list(player.dots):
+            if now >= dot["endAt"]:
+                player.dots.remove(dot)
+                continue
+            if now < dot["nextTick"]:
+                continue
+            damage = self._mitigate(dot["amount"], player.stats.get("resistance", 0))
+            damage = self._damage_player_locked(player, damage)
+            player.damage_taken += damage
+            self._emit_locked({"type": "damage", "sourceId": dot["sourceId"], "targetId": player.id, "abilityId": dot["abilityId"], "amount": round(damage, 1), "school": dot["school"]})
+            dot["nextTick"] = now + dot["tickInterval"]
+            if player.hp <= 0:
+                if not player.dead:
+                    player.deaths += 1
+                player.dead = True
+                player.input = {}
+                player.casting = None
+                self._clear_player_dots_locked(player)
+                return
+
+    @staticmethod
+    def _clear_player_dots_locked(player: Player) -> None:
+        ability_ids = {dot.get("abilityId") for dot in player.dots}
+        player.dots = []
+        player.active_effects = [effect for effect in player.active_effects if effect.get("abilityId") not in ability_ids]
 
     def _add_enemy_warning_locked(self, enemy: Enemy, x: float, z: float, effect_type: str, ability_id: str, radius: float, damage: float, school: str, impact_at: float) -> None:
         self._ground_effect_seq += 1
@@ -1997,6 +2088,7 @@ class Game:
             "slowed": time.monotonic() < e.slow_until,
             "burning": bool(e.dots),
             "activeEffects": self._active_effects_dict(e, now),
+            "casting": self._casting_dict(e.casting, now),
         }
 
     async def debug_action(self, action: str, payload: dict[str, Any]) -> dict[str, Any]:
