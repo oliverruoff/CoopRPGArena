@@ -124,6 +124,7 @@ root.innerHTML = `
       <button data-testid="ability-slot-g" data-slot="g"><span class="abilityKey">G</span><span class="abilityName"></span><span class="cooldownOverlay"></span><span class="cooldownText"></span></button>
       <button data-testid="ability-slot-c" data-slot="c"><span class="abilityKey">C</span><span class="abilityName"></span><span class="cooldownOverlay"></span><span class="cooldownText"></span></button>
       <button data-testid="ability-slot-v" data-slot="v"><span class="abilityKey">V</span><span class="abilityName"></span><span class="cooldownOverlay"></span><span class="cooldownText"></span></button>
+      <button data-testid="ability-slot-b" data-slot="b"><span class="abilityKey">B</span><span class="abilityName"></span><span class="cooldownOverlay"></span><span class="cooldownText"></span></button>
     </div>
     <div id="mobileControls" data-testid="mobile-controls" aria-label="Touch controls">
       <div id="moveStick" data-testid="move-stick" aria-label="Move character">
@@ -511,10 +512,10 @@ function connect() {
 
 connect();
 
-const MAX_ABILITY_SLOTS = 11;
+const MAX_ABILITY_SLOTS = 12;
 let abilityDragGesture: { abilityId: string; x: number; y: number } | null = null;
-const slotKeys: Record<number, string> = { 1: "1", 2: "2", 3: "3", 4: "4", 5: "q", 6: "e", 7: "r", 8: "f", 9: "g", 10: "c", 11: "v" };
-const keySlots: Record<string, number> = { Digit1: 1, Digit2: 2, Digit3: 3, Digit4: 4, KeyQ: 5, KeyE: 6, KeyR: 7, KeyF: 8, KeyG: 9, KeyC: 10, KeyV: 11 };
+const slotKeys: Record<number, string> = { 1: "1", 2: "2", 3: "3", 4: "4", 5: "q", 6: "e", 7: "r", 8: "f", 9: "g", 10: "c", 11: "v", 12: "b" };
+const keySlots: Record<string, number> = { Digit1: 1, Digit2: 2, Digit3: 3, Digit4: 4, KeyQ: 5, KeyE: 6, KeyR: 7, KeyF: 8, KeyG: 9, KeyC: 10, KeyV: 11, KeyB: 12 };
 
 function setPlayerName(name: string) {
   const input = document.querySelector<HTMLInputElement>("#playerName")!;

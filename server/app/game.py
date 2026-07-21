@@ -21,7 +21,7 @@ BOSS_METEOR_COUNT = 3
 BOSS_METEOR_RADIUS = 3.5
 ENEMY_METEOR_WARNING_SECONDS = 1.65
 ENEMY_CHARGE_WARNING_SECONDS = 1.1
-MAX_ABILITY_SLOTS = 11
+MAX_ABILITY_SLOTS = 12
 
 
 def load_json(name: str) -> Any:
@@ -1241,6 +1241,13 @@ class Game:
                 self._clamp_actor_to_arena_locked(player)
                 self._push_out_of_map_objects_locked(player)
                 self._emit_locked({"type": "status", "sourceId": player.id, "targetId": player.id, "abilityId": ability_id, "status": "disengage", "duration": 0.4})
+            elif effect["type"] == "blink":
+                distance = effect.get("distance", 6)
+                player.x += math.sin(player.facing) * distance
+                player.z += math.cos(player.facing) * distance
+                self._clamp_actor_to_arena_locked(player)
+                self._push_out_of_map_objects_locked(player)
+                self._emit_locked({"type": "status", "sourceId": player.id, "targetId": player.id, "abilityId": ability_id, "status": "blink", "duration": 0.25})
             elif effect["type"] == "pull_ally":
                 for ally in ally_targets[:1]:
                     if ally is player:

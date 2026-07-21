@@ -1,4 +1,5 @@
 import asyncio
+import math
 
 from app.pvp_game import BUILD_POINTS, PvPGame
 
@@ -297,3 +298,40 @@ def test_pvp_ability_slots_can_be_swapped_like_coop():
 
     asyncio.run(game.handle_message(mage.id, {"type": "set_ability_slot", "abilityId": "mage_frostbolt", "slot": 6}))
     assert mage.ability_slots["mage_frostbolt"] == 6
+
+
+def test_each_iconic_class_spell_can_be_selected_in_pvp():
+    game = PvPGame()
+    expected = {
+        "warrior": "warrior_battle_shout",
+        "hunter": "hunter_kill_shot",
+        "priest": "priest_prayer_of_healing",
+        "mage": "mage_blink",
+        "rogue": "rogue_crimson_vial",
+        "druid": "druid_tranquility",
+        "shaman": "shaman_lava_burst",
+        "paladin": "paladin_holy_shock",
+    }
+
+    for class_id, ability_id in expected.items():
+        player = game.add_player_locked()
+        player.class_id = class_id
+        game._toggle_build_locked(player, f"spell:{ability_id}")
+        assert player.build == [f"spell:{ability_id}"]
+
+
+def test_mage_blink_moves_forward_in_pvp():
+    game = PvPGame()
+    mage = game.add_player_locked()
+    mage.class_id = "mage"
+    mage.stats = dict(game.classes["mage"]["baseStats"])
+    mage.resource = mage.stats["maxResource"]
+    mage.abilities = ["mage_blink"]
+    mage.ability_slots = {"mage_blink": 1}
+    mage.facing = math.pi / 2
+
+    assert game.abilities["mage_blink"]["effects"][0]["type"] == "blink"
+    game._finish_cast_locked(mage, "mage_blink", mage.id, None, False)
+
+    assert math.isclose(mage.x, 6)
+    assert math.isclose(mage.z, 0, abs_tol=1e-9)
