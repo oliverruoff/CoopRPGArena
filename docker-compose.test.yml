@@ -1,0 +1,20 @@
+services:
+  backend:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    environment:
+      GAME_ENV: test
+      GAME_TEST_MODE: "false"
+      CORS_ORIGINS: "*"
+    ports:
+      - "18000:8000"
+
+  client:
+    build:
+      context: ./client
+      dockerfile: Dockerfile
+    ports:
+      - "8080:80"
+    depends_on:
+      - backend
