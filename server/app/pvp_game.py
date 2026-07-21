@@ -14,6 +14,7 @@ from typing import Any
 DATA_DIR = Path(__file__).parent / "game_data"
 MAX_TEAM_SIZE = 3
 BUILD_POINTS = 10
+MAX_ABILITY_SLOTS = 12
 PVP_DAMAGE_MULTIPLIER = 0.8
 PREPARATION_SECONDS = 5.0
 RAMP_RUN = 6.0
@@ -234,7 +235,7 @@ class PvPGame:
         return bool(player.class_id in self.classes and player.team in {"blue", "red"} and len(player.build) == BUILD_POINTS)
 
     def _set_ability_slot_locked(self, player: PvPPlayer, ability_id: str | None, slot: int) -> None:
-        if not ability_id or ability_id not in player.abilities or slot < 1 or slot > 11:
+        if not ability_id or ability_id not in player.abilities or slot < 1 or slot > MAX_ABILITY_SLOTS:
             return
         current_slot = player.ability_slots.get(ability_id)
         if current_slot is None or current_slot == slot:
@@ -735,6 +736,11 @@ class PvPGame:
             previous_x, previous_z = source.x, source.z
             source.x -= math.sin(source.facing) * effect.get("distance", 6)
             source.z -= math.cos(source.facing) * effect.get("distance", 6)
+            self._resolve_arena_position_locked(source, 0.1, previous_x, previous_z)
+        elif typ == "blink":
+            previous_x, previous_z = source.x, source.z
+            source.x += math.sin(source.facing) * effect.get("distance", 6)
+            source.z += math.cos(source.facing) * effect.get("distance", 6)
             self._resolve_arena_position_locked(source, 0.1, previous_x, previous_z)
 
     def _enemy_effect_targets_locked(self, source: PvPPlayer, target: PvPPlayer | None, radius: float) -> list[PvPPlayer]:
