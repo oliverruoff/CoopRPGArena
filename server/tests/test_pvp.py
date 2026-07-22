@@ -297,3 +297,24 @@ def test_pvp_ability_slots_can_be_swapped_like_coop():
 
     asyncio.run(game.handle_message(mage.id, {"type": "set_ability_slot", "abilityId": "mage_frostbolt", "slot": 6}))
     assert mage.ability_slots["mage_frostbolt"] == 6
+
+
+def test_pvp_mage_blink_teleports_forward_and_stays_inside_arena():
+    import math
+
+    game = PvPGame()
+    mage, enemy = start_duel(game, "mage", "warrior")
+    ability = game.abilities["mage_blink"]
+    effect = next(effect for effect in ability["effects"] if effect["type"] == "blink")
+    distance = effect["distance"]
+    mage.x, mage.z, mage.facing = -22, 0, math.pi / 2  # facing +x
+    before = (mage.x, mage.z)
+    game._apply_effect_locked(mage, mage, ability, effect, None)
+    assert (mage.x, mage.z) != before
+    assert math.isclose(mage.x, before[0] + distance, abs_tol=1e-6)
+    assert math.isclose(mage.z, before[1], abs_tol=1e-6)
+
+    # Blink near the boundary must not push the player outside the playable area.
+    mage.x, mage.z, mage.facing = 26, 0, math.pi / 2
+    game._apply_effect_locked(mage, mage, ability, effect, None)
+    assert game._is_inside_arena_boundary_locked(mage.x, mage.z)

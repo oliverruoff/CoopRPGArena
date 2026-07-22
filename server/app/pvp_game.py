@@ -736,6 +736,11 @@ class PvPGame:
             source.x -= math.sin(source.facing) * effect.get("distance", 6)
             source.z -= math.cos(source.facing) * effect.get("distance", 6)
             self._resolve_arena_position_locked(source, 0.1, previous_x, previous_z)
+        elif typ == "blink":
+            previous_x, previous_z = source.x, source.z
+            source.x += math.sin(source.facing) * effect.get("distance", 7)
+            source.z += math.cos(source.facing) * effect.get("distance", 7)
+            self._resolve_arena_position_locked(source, 0.1, previous_x, previous_z)
 
     def _enemy_effect_targets_locked(self, source: PvPPlayer, target: PvPPlayer | None, radius: float) -> list[PvPPlayer]:
         if radius:

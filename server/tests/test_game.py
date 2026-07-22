@@ -1692,3 +1692,72 @@ async def _running_match_can_be_ended_manually():
     assert state["matchState"] == "lobby"
     assert state["players"][player.id]["classId"] is None
     assert state["players"][spectator.id]["spectator"] is False
+
+
+def test_mage_blink_is_learnable_and_lists_on_the_mage_level_up_choices():
+    game = Game()
+    ability = game.abilities["mage_blink"]
+    assert ability["classId"] == "mage"
+    assert ability["targetType"] == "self"
+    assert ability["resourceCost"]["amount"] == 0
+    player = Player(id="p", name="P", hp=100, stats={"armor": 0, "resistance": 0, "maxHealth": 100, "maxResource": 100})
+    player.class_id = "mage"
+    choices = game._level_choices_locked(player)
+    assert any(choice["id"] == "learn:mage_blink" for choice in choices)
+
+
+def test_mage_blink_teleports_forward_in_facing_direction():
+    asyncio.run(_mage_blink_teleports_forward_in_facing_direction())
+
+
+async def _mage_blink_teleports_forward_in_facing_direction():
+    game = Game()
+    mage = await game.add_player()
+    await game.handle_message(mage.id, {"type": "select_class", "classId": "mage"})
+    async with game._lock:
+        game._start_match_locked()
+        game.enemies.clear()
+        game.map_objects.clear()
+        player = game.players[mage.id]
+        player.pending_upgrades = game._level_choices_locked(player)
+        game._choose_upgrade_locked(player, "learn:mage_blink")
+        player.x = 0
+        player.z = 0
+        player.facing = 0  # forward along +z
+        before = (player.x, player.z)
+        blink = game.abilities["mage_blink"]
+        distance = blink["effects"][0]["distance"]
+        game._cast_ability_locked(player, player.ability_slots["mage_blink"])
+        assert (player.x, player.z) != before
+        assert math.isclose(player.x, before[0], abs_tol=1e-6)
+        assert math.isclose(player.z, before[1] + distance, abs_tol=1e-6)
+        assert player.cooldowns["mage_blink"] > 0
+        assert player.global_cooldown_until > 0
+
+
+def test_mage_blink_clamps_to_arena_edge_and_never_outside():
+    asyncio.run(_mage_blink_clamps_to_arena_edge_and_never_outside())
+
+
+async def _mage_blink_clamps_to_arena_edge_and_never_outside():
+    game = Game()
+    mage = await game.add_player()
+    await game.handle_message(mage.id, {"type": "select_class", "classId": "mage"})
+    async with game._lock:
+        game._start_match_locked()
+        game.enemies.clear()
+        game.map_objects.clear()
+        player = game.players[mage.id]
+        player.pending_upgrades = game._level_choices_locked(player)
+        game._choose_upgrade_locked(player, "learn:mage_blink")
+        # Place the mage very near the arena edge so a forward blink would overshoot.
+        arena_edge = game.constants["arenaRadius"] - 1
+        player.x = arena_edge - 1
+        player.z = 0
+        player.facing = 0
+        game._cast_ability_locked(player, player.ability_slots["mage_blink"])
+        distance = math.hypot(player.x, player.z)
+        assert distance <= arena_edge + 1e-6
+        # Player must remain alive and controllable after the blink.
+        assert not player.dead
+        assert player.hp > 0
