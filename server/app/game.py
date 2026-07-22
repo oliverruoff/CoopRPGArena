@@ -1241,6 +1241,13 @@ class Game:
                 self._clamp_actor_to_arena_locked(player)
                 self._push_out_of_map_objects_locked(player)
                 self._emit_locked({"type": "status", "sourceId": player.id, "targetId": player.id, "abilityId": ability_id, "status": "disengage", "duration": 0.4})
+            elif effect["type"] == "blink":
+                distance = effect.get("distance", 7)
+                player.x += math.sin(player.facing) * distance
+                player.z += math.cos(player.facing) * distance
+                self._clamp_actor_to_arena_locked(player)
+                self._push_out_of_map_objects_locked(player)
+                self._emit_locked({"type": "status", "sourceId": player.id, "targetId": player.id, "abilityId": ability_id, "status": "blinked", "duration": 0.4})
             elif effect["type"] == "pull_ally":
                 for ally in ally_targets[:1]:
                     if ally is player:

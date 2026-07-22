@@ -1753,6 +1753,7 @@ function abilityDescription(abilityId: string) {
     priest_heal: "A holy cast that restores an ally and creates healer threat.",
     priest_smite: "A holy bolt that damages one enemy.",
     mage_fireball: "Launches a fire bolt that bursts, then burns the enemy over time.",
+    mage_blink: "Teleport forward in your facing direction, stopping at the arena edge if you would leave the play area.",
     mage_frostbolt: "Fires an icy bolt that damages and slows the enemy for 3 seconds.",
     mage_frost_nova: "Freeze nearby enemies to the ground for 2 seconds.",
     mage_meteor: "Call down a fiery impact that damages and burns an area.",
