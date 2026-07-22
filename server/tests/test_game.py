@@ -1699,7 +1699,7 @@ def test_mage_blink_is_learnable_and_lists_on_the_mage_level_up_choices():
     ability = game.abilities["mage_blink"]
     assert ability["classId"] == "mage"
     assert ability["targetType"] == "self"
-    assert ability["resourceCost"]["amount"] == 0
+    assert ability["resourceCost"]["amount"] == 25
     player = Player(id="p", name="P", hp=100, stats={"armor": 0, "resistance": 0, "maxHealth": 100, "maxResource": 100})
     player.class_id = "mage"
     choices = game._level_choices_locked(player)
