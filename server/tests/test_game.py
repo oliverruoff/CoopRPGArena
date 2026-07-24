@@ -1408,11 +1408,40 @@ def test_hunter_arrow_barrage_can_be_placed_and_repeatedly_damages_its_area():
     assert outside.hp == outside_hp
 
 
+def test_hunter_raptor_strike_replaces_volley_with_melee_damage():
+    game = Game()
+    assert "hunter_volley" not in game.abilities
+    ability = game.abilities["hunter_raptor_strike"]
+    assert ability["targetType"] == "enemy"
+    assert ability["range"] == 2.4
+
+    hunter = Player(id="hunter", name="Hunter", class_id="hunter")
+    hunter.stats = dict(game.classes["hunter"]["baseStats"])
+    hunter.stats["critChance"] = 0
+    hunter.resource = hunter.stats["maxResource"]
+    hunter.abilities = ["hunter_raptor_strike"]
+    hunter.ability_slots = {"hunter_raptor_strike": 6}
+    game.players[hunter.id] = hunter
+    enemy = game.spawn_enemy_locked("goblin", {"x": 3, "z": 0})
+    hunter.target_id = enemy.id
+    starting_hp = enemy.hp
+    starting_focus = hunter.resource
+
+    game._cast_ability_locked(hunter, 6)
+    assert enemy.hp == starting_hp
+    assert hunter.resource == starting_focus
+
+    enemy.x = 2
+    game._cast_ability_locked(hunter, 6)
+    assert enemy.hp < starting_hp
+    assert hunter.resource == starting_focus - ability["resourceCost"]["amount"]
+
+
 def test_every_class_has_two_new_signature_spells():
     game = Game()
     expected = {
         "warrior": {"warrior_execute", "warrior_heroic_leap"},
-        "hunter": {"hunter_disengage", "hunter_volley"},
+        "hunter": {"hunter_disengage", "hunter_raptor_strike"},
         "priest": {"priest_holy_nova", "priest_leap_of_faith"},
         "mage": {"mage_flamestrike", "mage_dragons_breath"},
         "rogue": {"rogue_fan_of_knives", "rogue_shadowstep"},

@@ -4193,6 +4193,9 @@ function playCastEffect(event: CombatEvent) {
     bigArrow(source.position, target.position, new Color3(0.95, 0.12, 0.12), 380);
   } else if (event.abilityId?.includes("quick_shot")) {
     bigArrow(source.position, target.position, new Color3(0.62, 0.18, 0.95), 300);
+  } else if (event.abilityId?.includes("raptor_strike")) {
+    slashArc(target.position, 420);
+    slashRing(target.position, 360);
   } else if (event.abilityId?.includes("fireball")) {
     fireballProjectile(source.position, target);
   } else if (event.abilityId?.includes("frostbolt")) {
@@ -5616,6 +5619,8 @@ function playCastReleaseSound(event: CombatEvent) {
     arcaneShimmer(0.05);
   } else if (family === "bow") {
     hunterTwang(0, 0.045);
+  } else if (sourceClass === "hunter" && abilityId.includes("raptor_strike")) {
+    rogueSlice(0.04);
   } else if (sourceClass === "warrior") {
     warriorClang(0.055);
   } else if (sourceClass === "priest") {
@@ -5714,6 +5719,7 @@ type SoundFamily = "fire" | "lightning" | "frost" | "holy" | "healing" | "nature
 function soundFamily(event: CombatEvent): SoundFamily {
   const id = event.abilityId || "";
   const school = event.school || state?.abilities[id]?.effects?.find((effect) => effect.school)?.school || "";
+  if (/raptor_strike/.test(id)) return "physical";
   if (/lightning|thunder|storm/.test(id) && !/divine_storm/.test(id)) return "lightning";
   if (/fire|flame|meteor|searing|explosive/.test(id) || school === "fire") return "fire";
   if (/frost|ice|blizzard|cold/.test(id) || school === "frost") return "frost";
@@ -5797,7 +5803,8 @@ function playHitSound(event: CombatEvent) {
   } else if (sourceClass === "warrior") {
     warriorClang(0.04);
   } else if (sourceClass === "hunter") {
-    hunterTwang(0, 0.03);
+    if (event.abilityId?.includes("raptor_strike")) rogueSlice(0.04);
+    else hunterTwang(0, 0.03);
   } else if (sourceClass === "rogue") {
     rogueSlice(0.035);
   } else {
