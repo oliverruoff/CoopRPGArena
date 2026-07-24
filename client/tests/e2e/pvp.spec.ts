@@ -65,6 +65,33 @@ test("arena floor and rim share the forty-point jagged contour", async ({ page, 
   });
 });
 
+test("resource-starved PvP spells disable and recover like co-op spells", async ({ page, request }) => {
+  await page.goto("/pvp");
+  await page.getByTestId("pvp-add-bot").click();
+  await selectMageBuild(page, 5);
+  await page.getByTestId("pvp-ready").click();
+  await expect(page.locator("#hud")).toBeVisible({ timeout: 15_000 });
+
+  const snapshot = await (await request.get("http://127.0.0.1:8000/debug/pvp/state")).json();
+  const player = Object.values<any>(snapshot.players).find((candidate) => !candidate.isBot && candidate.classId === "mage");
+  await request.post("http://127.0.0.1:8000/debug/pvp/action", {
+    data: { action: "set_player_resource", payload: { playerId: player.id, resource: 0 } },
+  });
+
+  const slot = page.getByTestId("ability-slot-1");
+  await expect(slot).toHaveClass(/insufficientResource/);
+  await expect(slot).toHaveAttribute("title", /\d+(?:\.\d)? more Mana required/);
+  await slot.click();
+  await expect(page.getByTestId("ability-tooltip")).toBeVisible();
+  await expect(page.getByTestId("ability-tooltip")).toContainText(/Unavailable: \d+(?:\.\d)? more Mana required/);
+
+  await request.post("http://127.0.0.1:8000/debug/pvp/action", {
+    data: { action: "set_player_resource", payload: { playerId: player.id, resource: player.maxResource } },
+  });
+  await expect(slot).not.toHaveClass(/insufficientResource/);
+  await expect(slot).toHaveAttribute("title", "");
+});
+
 test("adding a bot before choosing a team still starts a desktop match", async ({ page, request }) => {
   const pageErrors: string[] = [];
   page.on("pageerror", (error) => pageErrors.push(error.message));

@@ -962,6 +962,9 @@ class PvPGame:
             elif action == "set_player_hp":
                 player = self.players[payload["playerId"]]
                 player.hp = max(0, float(payload["hp"])); player.dead = player.hp <= 0
+            elif action == "set_player_resource":
+                player = self.players[payload["playerId"]]
+                player.resource = max(0, min(float(payload["resource"]), player.stats.get("maxResource", 100)))
             elif action == "set_target":
                 self._select_target_locked(self.players[payload["playerId"]], payload["targetId"])
             elif action == "cast_ability":

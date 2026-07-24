@@ -1119,11 +1119,16 @@ function renderUi() {
     const cooldown = abilityId ? me.cooldowns[abilityId] || 0 : 0;
     const globalCooldown = abilityId ? me.globalCooldown || 0 : 0;
     const shownCooldown = Math.max(cooldown, globalCooldown);
+    const ability = abilityId ? state.abilities[abilityId] : undefined;
+    const resourceShortfall = ability ? abilityResourceShortfall(me, ability) : 0;
+    const lacksResource = resourceShortfall > 0;
     btn.dataset.abilityId = abilityId || "";
     btn.classList.toggle("onCooldown", shownCooldown > 0);
     btn.classList.toggle("globalCooldown", globalCooldown > 0 && cooldown <= globalCooldown);
+    btn.classList.toggle("insufficientResource", lacksResource);
+    btn.title = lacksResource ? `${formatResourceAmount(resourceShortfall)} more ${resourceLabel(ability?.resourceCost?.type || me.resourceType)} required` : "";
     btn.querySelector<HTMLElement>(".abilityKey")!.textContent = key.toUpperCase();
-    btn.querySelector<HTMLElement>(".abilityName")!.textContent = abilityId ? state.abilities[abilityId].name : "Empty";
+    btn.querySelector<HTMLElement>(".abilityName")!.textContent = ability?.name || "Empty";
     btn.querySelector<HTMLElement>(".cooldownText")!.textContent = shownCooldown > 0 ? formatCooldown(shownCooldown, globalCooldown > 0 && cooldown <= globalCooldown) : "";
     btn.querySelector<HTMLElement>(".cooldownOverlay")!.style.display = shownCooldown > 0 ? "block" : "none";
   }
@@ -1660,7 +1665,11 @@ function showAbilityTooltip(button: HTMLButtonElement) {
     if (effect.type === "slow") return `Slow: ${Math.round((effect.slowPercent || 0) * 100)}% for ${effect.duration || 0}s`;
     return effect.type;
   }).join(" • ");
-  tooltip.innerHTML = `<h3>${ability.name}</h3><p>${abilityDescription(abilityId)}</p><div>Cost: <b>${cost} ${resourceLabel(ability.resourceCost?.type || "resource")}</b></div><div>Cooldown: <b>${formatAbilityCooldown(cooldown)}</b> • Cast: <b>${ability.castTime || 0}s</b> • Range: <b>${ability.range || "-"}</b></div>${effectText ? `<div>${effectText}</div>` : ""}`;
+  const resourceShortfall = abilityResourceShortfall(me, ability);
+  const resourceWarning = resourceShortfall > 0
+    ? `<div class="resourceWarning">Unavailable: <b>${formatResourceAmount(resourceShortfall)} more ${resourceLabel(ability.resourceCost?.type || me.resourceType)} required</b></div>`
+    : "";
+  tooltip.innerHTML = `<h3>${ability.name}</h3><p>${abilityDescription(abilityId)}</p><div>Cost: <b>${cost} ${resourceLabel(ability.resourceCost?.type || "resource")}</b></div><div>Cooldown: <b>${formatAbilityCooldown(cooldown)}</b> • Cast: <b>${ability.castTime || 0}s</b> • Range: <b>${ability.range || "-"}</b></div>${resourceWarning}${effectText ? `<div>${effectText}</div>` : ""}`;
   const rect = button.getBoundingClientRect();
   tooltip.style.left = `${rect.left + rect.width / 2}px`;
   tooltip.style.top = `${rect.top - 12}px`;
@@ -1731,6 +1740,14 @@ function currentAbilityCost(player: PlayerState, ability: Ability) {
   if (!cost) return 0;
   const multiplier = player.stats.resourceCostMultiplier || 1;
   return Math.round(cost.amount * multiplier * 10) / 10;
+}
+
+function abilityResourceShortfall(player: PlayerState, ability: Ability) {
+  return Math.max(0, Math.round((currentAbilityCost(player, ability) - player.resource) * 10) / 10);
+}
+
+function formatResourceAmount(amount: number) {
+  return Number.isInteger(amount) ? `${amount}` : amount.toFixed(1);
 }
 
 function effectiveAbilityCooldown(ability: Ability, stats?: Record<string, number>) {
@@ -5933,13 +5950,19 @@ function cast(slot: number) {
   if (!Number.isFinite(slot)) return;
   const me = state?.players[state.you];
   const abilityId = me?.abilities.find((id) => abilitySlot(me, id) === slot);
-  if (abilityId && state?.abilities[abilityId]?.targetType === "ground") {
+  const ability = abilityId ? state?.abilities[abilityId] : undefined;
+  if (me && ability && abilityResourceShortfall(me, ability) > 0) {
+    const button = document.querySelector<HTMLButtonElement>(`#action [data-ability-id="${CSS.escape(ability.id)}"]`);
+    if (button) showAbilityTooltip(button);
+    return;
+  }
+  if (ability?.targetType === "ground") {
     if (pendingGroundAbilitySlot === slot) {
       cancelGroundTargeting();
       return;
     }
     pendingGroundAbilitySlot = slot;
-    const radius = state.abilities[abilityId].effects?.find((effect) => effect.radius)?.radius || 5.2;
+    const radius = ability.effects?.find((effect) => effect.radius)?.radius || 5.2;
     groundTargetMarker.scaling.setAll(radius / 5.2);
     groundTargetMarker.setEnabled(false);
     document.querySelector<HTMLElement>("#target .targetSummary")!.textContent = "Choose a ground location";

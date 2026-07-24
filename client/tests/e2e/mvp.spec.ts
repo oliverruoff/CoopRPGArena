@@ -18,6 +18,28 @@ test.beforeEach(async ({ request }) => {
   await request.post("http://127.0.0.1:8000/debug/action", { data: { action: "reset_match", payload: {} } });
 });
 
+test("action slots show and explain insufficient resources until they recover", async ({ page, request }) => {
+  await startMage(page);
+  const snapshot = await (await request.get("http://127.0.0.1:8000/debug/state")).json();
+  const playerId = Object.values<any>(snapshot.players).find((player) => player.classId === "mage").id;
+  await request.post("http://127.0.0.1:8000/debug/action", {
+    data: { action: "set_player_resource", payload: { playerId, resource: 0 } },
+  });
+
+  const slot = page.getByTestId("ability-slot-1");
+  await expect(slot).toHaveClass(/insufficientResource/);
+  await expect(slot).toHaveAttribute("title", /\d+(?:\.\d)? more Mana required/);
+  await slot.click();
+  await expect(page.getByTestId("ability-tooltip")).toBeVisible();
+  await expect(page.getByTestId("ability-tooltip")).toContainText(/Unavailable: \d+(?:\.\d)? more Mana required/);
+
+  await request.post("http://127.0.0.1:8000/debug/action", {
+    data: { action: "set_player_resource", payload: { playerId, resource: snapshot.players[playerId].maxResource } },
+  });
+  await expect(slot).not.toHaveClass(/insufficientResource/);
+  await expect(slot).toHaveAttribute("title", "");
+});
+
 test("enemy spells show a purple overhead cast bar without requiring a target", async ({ page, request }) => {
   test.setTimeout(90_000);
   await startMage(page);
