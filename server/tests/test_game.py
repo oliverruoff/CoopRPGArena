@@ -1790,3 +1790,103 @@ async def _mage_blink_clamps_to_arena_edge_and_never_outside():
         # Player must remain alive and controllable after the blink.
         assert not player.dead
         assert player.hp > 0
+
+
+def test_basic_heals_have_no_ability_cooldown_only_global_cooldown():
+    asyncio.run(_basic_heals_have_no_ability_cooldown_only_global_cooldown())
+
+
+async def _basic_heals_have_no_ability_cooldown_only_global_cooldown():
+    game = Game()
+    # All basic heals defined for healer classes must declare cooldown = 0
+    # so that only the global cooldown gates them, as documented in #15.
+    basic_heals = {
+        "priest_heal": "priest",
+        "shaman_healing_wave": "shaman",
+        "paladin_flash_of_light": "paladin",
+    }
+    for ability_id, class_id in basic_heals.items():
+        ability = game.abilities[ability_id]
+        assert ability["classId"] == class_id
+        assert ability["cooldown"] == 0, f"{ability_id} should have cooldown 0 (basic heal)"
+        assert ability["globalCooldown"] is True, f"{ability_id} should still trigger the global cooldown"
+
+    paladin = await game.add_player()
+    ally = await game.add_player()
+    await game.handle_message(paladin.id, {"type": "select_class", "classId": "paladin"})
+    await game.handle_message(ally.id, {"type": "select_class", "classId": "warrior"})
+    async with game._lock:
+        game._start_match_locked()
+        game.enemies.clear()
+        game.map_objects.clear()
+        caster = game.players[paladin.id]
+        target = game.players[ally.id]
+        caster.abilities.append("paladin_flash_of_light")
+        caster.ability_slots["paladin_flash_of_light"] = 2
+        caster.resource = caster.stats["maxResource"]
+        caster.ally_target_id = target.id
+        target.hp = 1
+        before_hp = target.hp
+        # First cast of Flash of Light heals the ally.
+        game._cast_ability_locked(caster, 2)
+        assert caster.casting is not None
+        # Force the cast to finish instantly without moving.
+        casting = caster.casting
+        caster.casting = None
+        game._finish_cast_locked(caster, casting["abilityId"], casting["targetId"], started_cast=True)
+        assert target.hp > before_hp
+        # Basic heal must not place itself on the ability cooldown - only the
+        # global cooldown gates the next cast.
+        assert caster.cooldowns.get("paladin_flash_of_light", 0) <= time.monotonic()
+        assert caster.global_cooldown_until > time.monotonic()
+
+        # Special heals like Lay on Hands must keep their cooldown.
+        caster.global_cooldown_until = 0
+        caster.abilities.append("paladin_lay_on_hands")
+        caster.ability_slots["paladin_lay_on_hands"] = 6
+        caster.resource = caster.stats["maxResource"]
+        target.hp = 1
+        game._cast_ability_locked(caster, 6)
+        assert target.hp == target.stats["maxHealth"]
+        assert caster.cooldowns["paladin_lay_on_hands"] > time.monotonic()
+
+
+def test_paladin_flash_of_light_respects_global_cooldown_between_casts():
+    asyncio.run(_paladin_flash_of_light_respects_global_cooldown_between_casts())
+
+
+async def _paladin_flash_of_light_respects_global_cooldown_between_casts():
+    game = Game()
+    paladin = await game.add_player()
+    ally = await game.add_player()
+    await game.handle_message(paladin.id, {"type": "select_class", "classId": "paladin"})
+    await game.handle_message(ally.id, {"type": "select_class", "classId": "warrior"})
+    async with game._lock:
+        game._start_match_locked()
+        game.enemies.clear()
+        game.map_objects.clear()
+        caster = game.players[paladin.id]
+        target = game.players[ally.id]
+        caster.abilities.append("paladin_flash_of_light")
+        caster.ability_slots["paladin_flash_of_light"] = 2
+        caster.resource = caster.stats["maxResource"]
+        caster.ally_target_id = target.id
+        target.hp = 1
+        # First cast starts a cast (cast_time > 0).
+        game._cast_ability_locked(caster, 2)
+        assert caster.casting is not None
+        # Casting again while still on the global cooldown must be rejected.
+        caster.casting = None
+        caster.global_cooldown_until = time.monotonic() + 0.5
+        caster.resource = caster.stats["maxResource"]
+        target.hp = 1
+        hp_before = target.hp
+        game._cast_ability_locked(caster, 2)
+        assert target.hp == hp_before
+        # After the global cooldown expires the cast should go through again.
+        caster.global_cooldown_until = 0
+        caster.resource = caster.stats["maxResource"]
+        target.hp = 1
+        hp_before = target.hp
+        game._cast_ability_locked(caster, 2)
+        assert caster.casting is not None
