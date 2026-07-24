@@ -125,12 +125,14 @@ button:disabled:hover { filter: grayscale(0.35); }
 #action button { position: relative; min-width: 76px; height: 58px; background: linear-gradient(145deg, rgba(42,52,75,0.97), rgba(12,17,29,0.97)); border: 1px solid rgba(147,197,253,0.24); box-shadow: inset 0 1px rgba(255,255,255,0.13), 0 7px 20px rgba(0,0,0,0.34); overflow: hidden; cursor: grab; text-shadow: 0 1px 3px #000; }
 .abilityKey { display: block; color: #fde68a; font-size: 11px; line-height: 1; }
 .abilityName { display: block; margin-top: 4px; font-size: 11px; line-height: 1.08; }
-#action button:not(.onCooldown):not(.globalCooldown):hover { border-color: rgba(250,204,21,0.72); box-shadow: inset 0 1px rgba(255,255,255,0.22), 0 0 18px rgba(250,204,21,0.2), 0 8px 20px rgba(0,0,0,0.38); }
+#action button:not(.onCooldown):not(.globalCooldown):not(.insufficientResource):hover { border-color: rgba(250,204,21,0.72); box-shadow: inset 0 1px rgba(255,255,255,0.22), 0 0 18px rgba(250,204,21,0.2), 0 8px 20px rgba(0,0,0,0.38); }
 #mobileControls { display: none; }
 #action button.dragSource { opacity: 0.4; }
 #action button.dragOver { outline: 2px solid #60a5fa; outline-offset: 2px; }
 #action button.onCooldown { color: rgba(255,255,255,0.55); filter: grayscale(0.85); }
 #action button.globalCooldown { color: rgba(255,255,255,0.72); filter: grayscale(1) brightness(0.82); }
+#action button.insufficientResource { color: rgba(255,255,255,0.42); border-color: rgba(148,163,184,0.16); filter: grayscale(1) brightness(0.55); cursor: not-allowed; }
+#action button.insufficientResource .abilityKey { color: rgba(255,255,255,0.48); }
 .cooldownOverlay { display: none; position: absolute; inset: 0; background: rgba(15, 23, 42, 0.68); border-radius: inherit; }
 #action button.globalCooldown .cooldownOverlay { background: rgba(80, 86, 98, 0.72); }
 .cooldownText { position: absolute; inset: 0; display: grid; place-items: center; color: #fff; font-size: 22px; font-weight: 1000; text-shadow: 0 2px 4px #000; pointer-events: none; }
@@ -189,6 +191,8 @@ button:disabled:hover { filter: grayscale(0.35); }
 #abilityTooltip p { margin: 0 0 8px; color: rgba(255,255,255,0.8); line-height: 1.35; }
 #abilityTooltip div { font-size: 13px; color: rgba(255,255,255,0.72); }
 #abilityTooltip b { color: #fff; }
+#abilityTooltip .resourceWarning { margin-top: 8px; color: #fca5a5; }
+#abilityTooltip .resourceWarning b { color: #fecaca; }
 #statTooltip { display: none; position: fixed; z-index: 25; width: 320px; max-width: calc(100vw - 24px); padding: 14px; border-radius: 16px; background: rgba(11,18,32,0.96); color: #fff; box-shadow: 0 18px 45px rgba(0,0,0,0.45); pointer-events: none; border: 1px solid rgba(250,204,21,0.32); font-size: 12.5px; line-height: 1.4; }
 #statTooltip h3 { margin: 0 0 6px; color: #facc15; font-size: 15px; }
 #statTooltip p { margin: 0 0 8px; color: rgba(255,255,255,0.86); }

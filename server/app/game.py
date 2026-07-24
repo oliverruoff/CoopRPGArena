@@ -2107,6 +2107,9 @@ class Game:
                 p = self.players[payload["playerId"]]
                 p.hp = max(0, float(payload["hp"]))
                 p.dead = p.hp <= 0
+            elif action == "set_player_resource":
+                p = self.players[payload["playerId"]]
+                p.resource = max(0, min(float(payload["resource"]), p.stats.get("maxResource", 100)))
             elif action == "give_xp":
                 self._give_xp_locked(self.players[payload["playerId"]], int(payload["amount"]))
             elif action == "force_wave_start":
